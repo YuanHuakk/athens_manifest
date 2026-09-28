@@ -16,7 +16,7 @@ Redmi K100 Pro（athens）PixelOS r12 的源码版本、补丁和构建工具。
 | `docs/` | 构建步骤、内核输入和测试范围 |
 | `tests/` | 工具测试 |
 
-[构建步骤](docs/BUILD.md) · [内核输入](docs/KERNEL.md) · [测试状态](docs/STATUS.md)
+[构建步骤](docs/BUILD.md) · [内核输入](docs/KERNEL.md) · [独立构建验证](docs/REPRODUCIBILITY.md) · [测试状态](docs/STATUS.md)
 
 ## 使用方式
 
@@ -28,6 +28,7 @@ vendor 文件、预编译内核、小米相机 APK、签名密钥和 ROM 包均�
 原厂文件通过脚本从 306 线刷包提取，头文件通过固定的公开源码生成。
 
 当前配置为 SELinux Permissive、userdebug；System 安全补丁为 2026-09-01，
-Vendor / Boot 为 2026-08-01。原工作区 r12 已编译通过，拆分后的仓库尚未从空目录完整重编。
+Vendor / Boot 为 2026-08-01。2026-09-29 已用独立源码目录和空 `out` 完成整包编译及产物检查，
+没有复用原工作区的编译输出；本次验证包未刷机。
 
 来源与许可见 [NOTICE.md](NOTICE.md)。

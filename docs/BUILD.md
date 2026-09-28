@@ -129,8 +129,8 @@ python3 "$MANIFEST_REPO/tools/export-candidate.py" \
 
 导出文件名使用包内 UTC 时间。独立副本不会随下一次构建输出一起被覆盖。
 
-原工作区的 r12 已编译通过。独立源码目录的完整重编正在验证，结果会记录在
-[REPRODUCIBILITY.md](REPRODUCIBILITY.md)。
+2026-09-29 已完成独立源码目录、空 `out` 的整包构建及产物检查。
+输入版本、主机配置、磁盘占用和检查范围见 [REPRODUCIBILITY.md](REPRODUCIBILITY.md)。
 
 ## 修改代码后
 
