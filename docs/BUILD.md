@@ -1,7 +1,11 @@
 # 构建
 
 以下命令在 Linux 下执行。需要 Git、repo、Git LFS、Python 3 和 PixelOS 构建依赖。
+原厂镜像准备脚本需要 `erofs-utils`（提供 `fsck.erofs`）、`lz4` 和 `cpio`。
 相机脚本另需 Android SDK Build Tools 37.0.0；编译使用源码树自带的 JDK 21。
+
+构建主机还需常规 AOSP 依赖，包括 make、GCC/G++、Git LFS、zip/unzip、rsync、
+flex、bison、bc、libssl-dev、libxml2-utils 和 zlib 开发包。Python 需 3.11 或更新版本。
 
 先设置几个本地路径：
 
@@ -9,7 +13,10 @@
 export MANIFEST_REPO=/path/to/athens_manifest
 export DEVICE_REPO=/path/to/android_device_xiaomi_athens
 export TREE=/path/to/pixelos
+export IMAGES=/path/to/athens_images_OS3.0.306.0.WPICNXM_16.0/images
 export STOCK=/path/to/extracted-stock
+export UAPI_CACHE=/path/to/uapi-sources
+export ANDROID_SDK_ROOT=/path/to/android-sdk
 export RELEASE_DIR=/path/to/releases
 ```
 
@@ -52,8 +59,21 @@ python3 "$MANIFEST_REPO/tools/apply-patches.py" --tree "$PWD"
 
 ## 提取原厂文件
 
-使用 athens **OS3.0.306.0.WPICNXM**。展开后的 `$STOCK` 下应有 `vendor/`、`odm/`、
-`product/`、`system_ext/` 等目录，文件路径与 `proprietary-files.txt` 对应。
+先自行取得 athens **OS3.0.306.0.WPICNXM** 线刷包并解压，`$IMAGES` 指向其中的
+`images/`。需要 `super.img`、`boot.img`、`vendor_boot.img` 和 `dtbo.img`。
+
+下面从镜像生成新的 `$STOCK` 目录，无需挂载或 root 权限：
+
+```bash
+python3 "$MANIFEST_REPO/tools/prepare-stock.py" \
+  --tree "$TREE" --images "$IMAGES" --output "$STOCK"
+```
+
+脚本提取 super 的 a 槽，并将 system-as-root 转成提取工具需要的目录结构。
+目标目录必须不存在。中途失败时，删除本次生成的不完整目录后重跑。
+解包中间文件放在输出目录旁，成功或失败退出时会清除。
+
+然后在源码目录提取专有文件并生成构建规则：
 
 ```bash
 cd device/xiaomi/athens
@@ -62,15 +82,26 @@ cd ../../..
 ```
 
 这个入口同时处理 athens 和 sm8850-common，生成两个 `vendor/xiaomi/` 目录。
-内核包放到 `device/xiaomi/athens-kernel`，所需文件见 [KERNEL.md](KERNEL.md)。
+
+## 准备内核输入
+
+```bash
+python3 "$MANIFEST_REPO/tools/prepare-kernel.py" \
+  --tree "$TREE" --images "$IMAGES" --stock "$STOCK" \
+  --uapi-cache "$UAPI_CACHE" --output "$TREE/device/xiaomi/athens-kernel"
+```
+
+脚本提取原厂内核、DTB 和模块，并从 `uapi-sources.json` 中固定的公开源码生成头文件包。
+首次运行需要网络下载 UAPI 源码。输出目录必须不存在；现有缓存必须匹配清单版本。
+文件来源和头文件组成见 [KERNEL.md](KERNEL.md)。
 
 ## 准备小米相机
 
 脚本适用于原厂 6.3.008710.8。`KEY` 和 `CERT` 使用与 ROM 相同的平台签名：
 
 ```bash
-export KEY=/path/to/platform.pk8
-export CERT=/path/to/platform.x509.pem
+export KEY="$TREE/build/make/target/product/security/platform.pk8"
+export CERT="$TREE/build/make/target/product/security/platform.x509.pem"
 python3 "$MANIFEST_REPO/tools/prepare-miui-camera.py" \
   --tree "$PWD" \
   --stock-apk "$STOCK/product/priv-app/MiuiCamera/MiuiCamera.apk" \
@@ -98,8 +129,8 @@ python3 "$MANIFEST_REPO/tools/export-candidate.py" \
 
 导出文件名使用包内 UTC 时间。独立副本不会随下一次构建输出一起被覆盖。
 
-原工作区的 r12 已编译通过。这份源码整理还没有从空目录完整重编；内核输入目前仍需
-手动准备，见 [KERNEL.md](KERNEL.md)。
+原工作区的 r12 已编译通过。独立源码目录的完整重编正在验证，结果会记录在
+[REPRODUCIBILITY.md](REPRODUCIBILITY.md)。
 
 ## 修改代码后
 

@@ -1,0 +1,12 @@
+{
+  "gki": {
+    "url": "https://android.googlesource.com/kernel/common",
+    "revision": "5169763275538844ab830145369bb81f14d261d3",
+    "paths": ["include/uapi", "arch/arm64/include/uapi"]
+  },
+  "qti": {
+    "url": "https://github.com/LineageOS/android_kernel_qcom_sm8850",
+    "revision": "abdf3a50f1f9eb8ebace76e4e1a8e16c2e089a63",
+    "paths": ["include/uapi"]
+  }
+}
