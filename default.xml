@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest>
+    <include name="manifests/pixelos-r12-locked.xml" />
+</manifest>
