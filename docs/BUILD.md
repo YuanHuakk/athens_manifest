@@ -1,5 +1,7 @@
 # 构建
 
+已有工作区的日常修改与增量编译见 [本地开发](DEVELOPMENT.md)。
+
 以下命令在 Linux 下执行。需要 Git、repo、Git LFS、Python 3 和 PixelOS 构建依赖。
 原厂镜像准备脚本需要 `erofs-utils`（提供 `fsck.erofs`）、`lz4` 和 `cpio`。
 相机脚本另需 Android SDK Build Tools 37.0.0；编译使用源码树自带的 JDK 21。
@@ -131,12 +133,10 @@ TREE="$PWD" JOBS=12 bash "$MANIFEST_REPO/tools/build.sh" pixelos
 ```bash
 python3 "$MANIFEST_REPO/tools/export-candidate.py" \
   out/target/product/athens/PixelOS_athens-17.0-YYYYMMDD-HHMM.zip \
-  "$RELEASE_DIR" --revision r12
+  "$RELEASE_DIR" --revision r13
 ```
 
 导出文件名使用包内 UTC 时间。独立副本不会随下一次构建输出一起被覆盖。
-
-2026-09-29 已完成独立源码目录、空 `out` 的整包构建及产物检查。
 
 ## 修改代码后
 
