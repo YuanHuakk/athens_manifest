@@ -1,0 +1,68 @@
+diff --git a/services/camera/libcameraservice/utils/SessionConfigurationUtils.cpp b/services/camera/libcameraservice/utils/SessionConfigurationUtils.cpp
+index 69b8531c6c..edcf857370 100644
+--- a/services/camera/libcameraservice/utils/SessionConfigurationUtils.cpp
++++ b/services/camera/libcameraservice/utils/SessionConfigurationUtils.cpp
+@@ -19,6 +19,7 @@
+ #include "SessionConfigurationUtils.h"
+ #include <android/data_space.h>
+ #include <camera/StringUtils.h>
++#include <camera/VendorTagDescriptor.h>
+ #include <gui/Flags.h>  // remove with WB_LIBCAMERASERVICE_WITH_DEPENDENCIES
+ #include <ui/PublicFormat.h>
+ #include "../CameraService.h"
+@@ -215,6 +216,55 @@ bool roundBufferDimensionNearest(int32_t width, int32_t height,
+         }
+     }
+ 
++    // Xiaomi's system-only reprocessing camera exposes additional RAW/JPEG
++    // outputs in vendor maps. Prefer an exact vendor match over rounding down,
++    // which would allocate an undersized JPEG buffer for high-resolution shots.
++    bool isJpeg = format == HAL_PIXEL_FORMAT_BLOB &&
++            (dataSpace == HAL_DATASPACE_V0_JFIF || dataSpace == HAL_DATASPACE_JFIF);
++    if ((bestWidth != width || bestHeight != height) && !maxResolution &&
++            (format == HAL_PIXEL_FORMAT_RAW16 || isJpeg)) {
++        auto capabilities = info.find(ANDROID_REQUEST_AVAILABLE_CAPABILITIES);
++        bool isSystemCamera = false;
++        for (size_t i = 0; i < capabilities.count; ++i) {
++            if (capabilities.data.u8[i] ==
++                    ANDROID_REQUEST_AVAILABLE_CAPABILITIES_SYSTEM_CAMERA) {
++                isSystemCamera = true;
++                break;
++            }
++        }
++
++        auto cache = VendorTagDescriptorCache::getGlobalVendorTagCache();
++        sp<VendorTagDescriptor> vendorTags;
++        if (isSystemCamera && cache != nullptr) {
++            cache->getVendorTagDescriptor(info.getVendorId(), &vendorTags);
++        }
++        if (vendorTags != nullptr) {
++            for (const char* name : {"xiaomi.scaler.availableStreamConfigurations",
++                    "xiaomi.scaler.availableSuperResolutionStreamConfigurations"}) {
++                uint32_t tag;
++                if (CameraMetadata::getTagFromName(name, vendorTags.get(), &tag) != OK) {
++                    continue;
++                }
++                auto configs = info.find(tag);
++                if (configs.type != TYPE_INT32 || configs.count % 4 != 0) {
++                    continue;
++                }
++                for (size_t i = 0; i < configs.count; i += 4) {
++                    if (configs.data.i32[i] == format && configs.data.i32[i + 1] == width &&
++                            configs.data.i32[i + 2] == height && configs.data.i32[i + 3] ==
++                                    ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT) {
++                        bestWidth = width;
++                        bestHeight = height;
++                        break;
++                    }
++                }
++                if (bestWidth == width && bestHeight == height) {
++                    break;
++                }
++            }
++        }
++    }
++
+     if (isPriviledgedClient == true && bestWidth == -1 &&
+             (format == HAL_PIXEL_FORMAT_RAW10 || format == HAL_PIXEL_FORMAT_RAW12 ||
+             format == HAL_PIXEL_FORMAT_RAW16 || format == HAL_PIXEL_FORMAT_RAW_OPAQUE)) {

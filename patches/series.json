@@ -83,5 +83,10 @@
     "project": "vendor/qcom/opensource/vibrator",
     "base_commit": "7ec51495bebe272097fc5b7f95cbf5ff92180e71",
     "patch": "upstream/17-vendor_qcom_opensource_vibrator.patch"
+  },
+  {
+    "project": "frameworks/av",
+    "base_commit": "3a806486c35d4825bd97d95af3e172309aed2fda",
+    "patch": "upstream/18-frameworks_av.patch"
   }
 ]

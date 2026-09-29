@@ -23,7 +23,7 @@ def replace_once(path: Path, old: str, new: str) -> None:
 
 
 def patch_smali(work: Path) -> None:
-    """Adapt permissions, the MIVI debug directory, and vendor-tag enumeration."""
+    """Adapt app permissions, MIVI metadata, and RAW saving for AOSP."""
     replace_once(
         work / "classes.dex.smali/com/android/camera/a$c.smali",
         "    const p1, 0x7f140bdd\n\n    invoke-static {p0, p1}, LD1/t3;->g(Landroid/app/Activity;I)V\n",
@@ -48,6 +48,22 @@ def patch_smali(work: Path) -> None:
         work / "classes.dex.smali/s8/b.smali",
         "    invoke-static {}, LSb/X8;->n()Z\n\n    move-result p2\n\n    if-eqz p2, :cond_366\n\n    invoke-static {p1}, LMh/b;->c",
         "    # AOSP: include the HAL MIVI vendor tags, as on stock.\n\n    invoke-static {p1}, LMh/b;->c",
+    )
+
+    # Supply MIVI per-capture metadata to the standard DNG writer.
+    replace_once(
+        work / "classes.dex.smali/C6/D.smali",
+        "    invoke-direct {v9, v0, v14}, Landroid/hardware/camera2/DngCreator;-><init>(Landroid/hardware/camera2/CameraCharacteristics;Landroid/hardware/camera2/CaptureResult;)V",
+        """    new-instance v10, Landroid/util/Size;
+    invoke-direct {v10, v15, v7}, Landroid/util/Size;-><init>(II)V
+    invoke-static {v0, v14, v10}, Lorg/pixelos/camera/RawMetadata;->forCapture(Landroid/hardware/camera2/CameraCharacteristics;Landroid/hardware/camera2/CaptureResult;Landroid/util/Size;)Landroid/hardware/camera2/CameraCharacteristics;
+    move-result-object v0
+    invoke-direct {v9, v0, v14}, Landroid/hardware/camera2/DngCreator;-><init>(Landroid/hardware/camera2/CameraCharacteristics;Landroid/hardware/camera2/CaptureResult;)V""",
+    )
+    helper = work / "classes.dex.smali/org/pixelos/camera/RawMetadata.smali"
+    helper.parent.mkdir(parents=True, exist_ok=True)
+    helper.write_text(
+        (Path(__file__).parent / "miui-camera/RawMetadata.smali").read_text()
     )
 
 
