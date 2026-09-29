@@ -5,4 +5,5 @@ set -eo pipefail
 cd "$TREE"
 source build/envsetup.sh
 lunch custom_athens trunk_staging userdebug
-m -j"${JOBS:-12}" "${1:-pixelos}"
+if [ "$#" -eq 0 ]; then set -- pixelos; fi
+m -j"${JOBS:-12}" "$@"
