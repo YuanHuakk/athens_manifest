@@ -20,6 +20,13 @@ export ANDROID_SDK_ROOT=/path/to/android-sdk
 export RELEASE_DIR=/path/to/releases
 ```
 
+取得构建清单和设备树：
+
+```bash
+git clone --branch pixelos-17 https://github.com/YuanHuakk/athens_manifest.git "$MANIFEST_REPO"
+git clone --branch pixelos-17 https://github.com/YuanHuakk/android_device_xiaomi_athens.git "$DEVICE_REPO"
+```
+
 ## 同步源码
 
 在空源码目录中初始化：
@@ -130,7 +137,6 @@ python3 "$MANIFEST_REPO/tools/export-candidate.py" \
 导出文件名使用包内 UTC 时间。独立副本不会随下一次构建输出一起被覆盖。
 
 2026-09-29 已完成独立源码目录、空 `out` 的整包构建及产物检查。
-输入版本、主机配置、磁盘占用和检查范围见 [REPRODUCIBILITY.md](REPRODUCIBILITY.md)。
 
 ## 修改代码后
 
@@ -143,5 +149,3 @@ python3 -m unittest discover -s tests -v
 ```
 
 设备树仓库单独执行 `ruff check .` 和 `ruff format --check .`。
-
-Python 使用四空格缩进。注释说明依赖、顺序和兼容原因；排查过程留在问题记录里。
