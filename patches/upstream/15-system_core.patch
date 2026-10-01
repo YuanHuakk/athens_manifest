@@ -1,3 +1,27 @@
+diff --git a/init/Android.bp b/init/Android.bp
+index 46cc9b0d490ee4cabb2c7b8b83228d28efe4d476..3f0febd8172507a52f5847e2f362969332dbd3b0 100644
+--- a/init/Android.bp
++++ b/init/Android.bp
+@@ -121,7 +121,6 @@ libinit_cc_defaults {
+     cflags: [
+         "-DALLOW_FIRST_STAGE_CONSOLE=0",
+         "-DALLOW_LOCAL_PROP_OVERRIDE=0",
+-        "-DALLOW_PERMISSIVE_SELINUX=0",
+         "-DANDROID_BASE_UNIQUE_FD_DISABLE_IMPLICIT_CONVERSION",
+         "-DDUMP_ON_UMOUNT_FAILURE=0",
+         "-DINIT_FULL_SOURCES",
+@@ -135,7 +134,10 @@ libinit_cc_defaults {
+         "-Wextra",
+         "-Wno-unused-parameter",
+         "-Wthread-safety",
+-    ],
++    ] + select(soong_config_variable("libinit", "allow_permissive_selinux"), {
++        true: ["-DALLOW_PERMISSIVE_SELINUX=1"],
++        default: ["-DALLOW_PERMISSIVE_SELINUX=0"],
++    }),
+     product_variables: {
+         debuggable: {
+             cppflags: [
 diff --git a/init/property_service.cpp b/init/property_service.cpp
 index 0b843d5a2eb203223d1fe006bd3db4d78c185470..771e37d2b3c2585701e2f763a33582480a0bdb45 100644
 --- a/init/property_service.cpp

@@ -1,8 +1,8 @@
 diff --git a/Android.bp b/Android.bp
-index e4a22a7efdc4e28a057f424d45617ee9ea6cf4df..f2ae55937f06ac21da213ab263b238f9c8314586 100644
+index e4a22a7efdc4e28a057f424d45617ee9ea6cf4df..7d054a7c36cb00fbfddc8b5e340d6a1df4ac7a8b 100644
 --- a/Android.bp
 +++ b/Android.bp
-@@ -34,4 +34,13 @@ mkdir {
+@@ -34,4 +34,22 @@ mkdir {
      name: "vendor_modem_firmware_mountpoint",
      dir: "modem_firmware",
      vendor: true,
@@ -17,6 +17,15 @@ index e4a22a7efdc4e28a057f424d45617ee9ea6cf4df..f2ae55937f06ac21da213ab263b238f9
 +    shared_libs: ["libinput"],
 +    compile_multilib: "64",
 +    system_ext_specific: true,
++}
++
++cc_library_shared {
++    name: "libvpp_dsp_compat",
++    srcs: ["compat/vpp_dsp.c"],
++    shared_libs: ["libdl"],
++    cflags: ["-Wall", "-Wextra", "-Werror"],
++    compile_multilib: "64",
++    vendor: true,
 +}
 diff --git a/BoardConfigCommon.mk b/BoardConfigCommon.mk
 index 75d249626ecbf8630ce4c0dfe7c81818d51d960e..27697edf9055b1c7f5fdae78a7cdcf21ac1e3fff 100644
@@ -62,6 +71,25 @@ index 25ec09d1fecc6f7e8a4645b8aa5fde062737614a..9cafa4c56f47385a0fdd3d44d29459d9
  
  PRODUCT_COPY_FILES += \
      frameworks/native/data/etc/android.hardware.fingerprint.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.fingerprint.xml
+diff --git a/compat/vpp_dsp.c b/compat/vpp_dsp.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..e3abbc294e3ef35cb7afc77d59f9a567a7911a49
+--- /dev/null
++++ b/compat/vpp_dsp.c
+@@ -0,0 +1,13 @@
++// SPDX-License-Identifier: Apache-2.0
++
++#include <dlfcn.h>
++#include <string.h>
++
++int __open_2(const char *path, int flags) {
++    int (*real_open)(const char *, int) = dlsym(RTLD_NEXT, "__open_2");
++    // VPP's signed CDSP sessions use the secure node allowed by its policy.
++    if (strcmp(path, "/dev/fastrpc-nsp1000") == 0) {
++        path = "/dev/fastrpc-cdsp-secure";
++    }
++    return real_open(path, flags);
++}
 diff --git a/compat/wfd_input.cpp b/compat/wfd_input.cpp
 new file mode 100644
 index 0000000000000000000000000000000000000000..e385fdb44e0845ed452c689c86f14f77b3e80f26
@@ -103,7 +131,7 @@ index 618f7d6b831ac7336bca45d5466b592f0e31c9ad..4b5712b5e24fcdd1d6ab815b82ba7a07
  persist.sys.fflag.override.settings_bluetooth_hearing_aid=true
  persist.vendor.bt.aac_frm_ctl.enabled=true
 diff --git a/extract-files.py b/extract-files.py
-index d8680e2eec965bf35f11348df96580162a08cf22..f3ad1b3acef60d0a87888d399ed5f46db9bcc0b2 100755
+index d8680e2eec965bf35f11348df96580162a08cf22..130435d1f77068593c0a4a72477913a7c8286a2e 100755
 --- a/extract-files.py
 +++ b/extract-files.py
 @@ -37,6 +37,7 @@ lib_fixups: lib_fixups_user_type = {
@@ -114,7 +142,51 @@ index d8680e2eec965bf35f11348df96580162a08cf22..f3ad1b3acef60d0a87888d399ed5f46d
          'vendor.qti.qccsyshal_aidl-V1-ndk',
          'vendor.qti.qccvndhal_aidl-V1-ndk',
      ): lib_fixup_vendor_suffix,
-@@ -65,6 +66,7 @@ blob_fixups: blob_fixups_user_type = {
+@@ -47,7 +48,43 @@ lib_fixups: lib_fixups_user_type = {
+     ): lib_fixup_remove,
+ }
+ 
++def fixup_wfd_hdcp_destructors(ctx, file, file_path, *args, **kwargs):
++    # Register sMutex before sHDCPFactory and sDeathNotifier so it outlives
++    # their destructors. The stock order locks an already destroyed mutex
++    # when the lazy DRM service exits after getSupportedCryptoSchemes().
++    before = bytes.fromhex(
++        "3f2303d5fd7bbea9f30b00f9fd030091610000b01f2003d593d10410219840f91f2003d5"
++        "c00a0010e20313aa69200094610000b01f2003d5400f0010219c40f9e20313aa63200094"
++        "600000b0610000b000ac40f921a040f9e20313aaf30b40f9fd7bc2a8bf2303d55a200014"
++    )
++    after = bytes.fromhex(
++        "3f2303d5fd7bbea9f30b00f9fd030091610000b01f2003d593d1041021a040f9600000b0"
++        "00ac40f9e20313aa69200094610000b01f2003d5200a0010219840f9e20313aa63200094"
++        "1f2003d5610000b0800e0010219c40f9e20313aaf30b40f9fd7bc2a8bf2303d55a200014"
++    )
++    with open(file_path, 'rb') as stream:
++        data = stream.read()
++    if data.count(after) == 1:
++        return
++    if data.count(before) != 1:
++        raise ValueError('Unexpected WFD HDCP static initializer')
++    with open(file_path, 'wb') as stream:
++        stream.write(data.replace(before, after, 1))
++
++
+ blob_fixups: blob_fixups_user_type = {
++    'vendor/lib64/libwfdhdcpservice_proprietary.so': blob_fixup()
++        .call(fixup_wfd_hdcp_destructors),
++    # init uses no-follow operations; change enable_source, not its parent symlink.
++    'vendor/etc/init/vendor.qti.diag_userdebug.rc': blob_fixup()
++        .regex_replace(r'(?m)^    (?:chown system system|chmod 664) /sys/bus/coresight/devices/modem_diag\n', '')
++        .regex_replace(r'(?m)^    start vendor\.diag-router\n', '')
++        .regex_replace(r'(?m)^on early-boot\n\n', '')
++        .regex_replace(r'(?m)^service vendor\.diag-router ',
++                       'on early-boot && property:ro.debuggable=1\n    start vendor.diag-router\n\nservice vendor.diag-router '),
++    'vendor/bin/vppservice': blob_fixup()
++        .patchelf_version('0_9')
++        .add_needed('libvpp_dsp_compat.so'),
+     'system_ext/etc/init/qspa_system.rc': blob_fixup()
+         .regex_replace(r'\$\{ro\.boot\.vendor\.qspa:-default\}', 'default'),
+     (
+@@ -65,6 +102,7 @@ blob_fixups: blob_fixups_user_type = {
          'vendor/bin/poweropt-service',
          'vendor/bin/poweropt-service',
          'vendor/bin/qsap_mpamsvc',
@@ -122,7 +194,7 @@ index d8680e2eec965bf35f11348df96580162a08cf22..f3ad1b3acef60d0a87888d399ed5f46d
          'vendor/lib64/hw/libaudioeffecthal.qti.so',
          'vendor/lib64/libaodoptfeature.so',
          'vendor/lib64/libaudiocloudctrl.so',
-@@ -76,6 +78,7 @@ blob_fixups: blob_fixups_user_type = {
+@@ -76,6 +114,7 @@ blob_fixups: blob_fixups_user_type = {
          'vendor/lib64/libpowercallback.so',
          'vendor/lib64/libpowercore.so',
          'vendor/lib64/libpsmoptfeature.so',
@@ -130,7 +202,7 @@ index d8680e2eec965bf35f11348df96580162a08cf22..f3ad1b3acef60d0a87888d399ed5f46d
          'vendor/lib64/libstandbyfeature.so',
          'vendor/lib64/libvideooptfeature.so',
          'vendor/lib64/libxlog.so',
-@@ -128,8 +131,15 @@ blob_fixups: blob_fixups_user_type = {
+@@ -128,8 +167,15 @@ blob_fixups: blob_fixups_user_type = {
          'vendor/etc/seccomp_policy/syshealthmon.policy'
      ): blob_fixup()
          .add_line_if_missing('lseek: 1'),
@@ -147,8 +219,15 @@ index d8680e2eec965bf35f11348df96580162a08cf22..f3ad1b3acef60d0a87888d399ed5f46d
      'system_ext/lib64/libwfdservice.so': blob_fixup()
          .add_needed('libaudiobase.so')
          .replace_needed('android.media.audio.common.types-V4-cpp.so', 'android.media.audio.common.types-V5-cpp.so'),
+@@ -150,4 +196,4 @@ module = ExtractUtilsModule(
+ 
+ if __name__ == '__main__':
+     utils = ExtractUtils.device(module)
+-    utils.run()
+\ No newline at end of file
++    utils.run()
 diff --git a/proprietary-files.txt b/proprietary-files.txt
-index 5384fd3ab5d90801ab8995935437dc81153256c1..72ddc3307193696cee7f24389f81f465664d81e6 100644
+index 5384fd3ab5d90801ab8995935437dc81153256c1..967cb5fc585437df3ab048a0fa92306bcfbfa527 100644
 --- a/proprietary-files.txt
 +++ b/proprietary-files.txt
 @@ -200,7 +200,7 @@ vendor/lib64/libstream_sensorrenderer.so
@@ -217,6 +296,76 @@ index 5384fd3ab5d90801ab8995935437dc81153256c1..72ddc3307193696cee7f24389f81f465
  vendor/lib64/vendor.qti.hardware.wifidisplaysessionl@1.0-halimpl.so
  vendor/lib64/libsvswcpu.so
  vendor/lib64/libtensorflowlite_c_qcom.so
+diff --git a/rootdir/etc/init.qcom.rc b/rootdir/etc/init.qcom.rc
+index f75702dcbaec07bb1df63ced0643e67d723c104e..16643f88e9e6a225aaef02b7d8307b026ba802f2 100644
+--- a/rootdir/etc/init.qcom.rc
++++ b/rootdir/etc/init.qcom.rc
+@@ -78,12 +78,8 @@ on early-init
+   # Change ownership of sysfs power control node
+     chown system graphics /sys/class/drm/card0/device/power/control
+ 
+-    #Disable UFS clock scaling
+-    write /sys/bus/platform/devices/1d84000.ufshc/clkscale_enable 0
+     #Disable UFS auto_hibern8
+     write /sys/bus/platform/devices/1d84000.ufshc/auto_hibern8 0
+-    #Disable UFS clock gating
+-    write /sys/bus/platform/devices/1d84000.ufshc/clkgate_enable 0
+ 
+     chown root system /dev/kmsg
+     chmod 0620 /dev/kmsg
+@@ -525,7 +521,7 @@ on property:persist.sys.pil_proxy_timeout=*
+ on property:persist.vendor.ssr.restart_level=*
+     start vendor.ssr_setup
+ 
+-on property:persist.vendor.ssr.enable_ramdumps=1
++on property:persist.vendor.ssr.enable_ramdumps=1 && property:ro.debuggable=1
+     chown system system /sys/module/qcom_ramdump/parameters/enable_dump_collection
+     chmod 0660 /sys/module/qcom_ramdump/parameters/enable_dump_collection
+     mkdir /data/vendor/ramdump_ssr 770 system system
+@@ -539,12 +535,8 @@ on property:persist.vendor.sys.rawdump_copy=0
+ 
+ on property:sys.boot_completed=1
+     write /dev/kmsg "Boot completed "
+-    #Enable UFS clock scaling back
+-    write /sys/bus/platform/devices/1d84000.ufshc/clkscale_enable 1
+     #Enable UFS auto_hibern8 back
+     write /sys/bus/platform/devices/1d84000.ufshc/auto_hibern8 5000
+-    #Enable UFS clock gating back
+-    write /sys/bus/platform/devices/1d84000.ufshc/clkgate_enable 1
+     #Reset read ahead for dm-0 and dm-1 to 512kb
+     write /sys/block/dm-0/queue/read_ahead_kb 512
+     write /sys/block/dm-1/queue/read_ahead_kb 512
+@@ -916,15 +908,7 @@ service qrtr-lookup /vendor/bin/qrtr-lookup
+     disabled
+     oneshot
+ 
+-# Request MTE asymm mode if properties are supported
++# Wait for the bootloader memtag configuration before setting allocator options
+ on property:arm64.memtag.bootctl=* && property:ro.arm64.memtag.bootctl_supported=1
+     wait_for_prop arm64.memtag.bootctl_loaded 1
+-    write /sys/devices/system/cpu/cpu0/mte_tcf_preferred asymm
+-    write /sys/devices/system/cpu/cpu1/mte_tcf_preferred asymm
+-    write /sys/devices/system/cpu/cpu2/mte_tcf_preferred asymm
+-    write /sys/devices/system/cpu/cpu3/mte_tcf_preferred asymm
+-    write /sys/devices/system/cpu/cpu4/mte_tcf_preferred asymm
+-    write /sys/devices/system/cpu/cpu5/mte_tcf_preferred asymm
+-    write /sys/devices/system/cpu/cpu6/mte_tcf_preferred asymm
+-    write /sys/devices/system/cpu/cpu7/mte_tcf_preferred asymm
+     export MEMTAG_OPTIONS async
+diff --git a/rootdir/etc/init.target.rc b/rootdir/etc/init.target.rc
+index 964f606cb10d6ab57c07d0ee040ebd537a2175a1..5496024c82bd60bfa31a29f86ca29fc125e399c0 100644
+--- a/rootdir/etc/init.target.rc
++++ b/rootdir/etc/init.target.rc
+@@ -452,9 +452,7 @@ on charger
+     write /sys/kernel/cnss/charger_mode 1
+     chown system system /sys/class/backlight/panel0-backlight/brightness
+     write /sys/devices/system/cpu/qcom_lpm/parameters/sleep_disabled n
+-    write /sys/bus/platform/devices/1d84000.ufshc/clkscale_enable 1
+     write /sys/bus/platform/devices/1d84000.ufshc/auto_hibern8 5000
+-    write /sys/bus/platform/devices/1d84000.ufshc/clkgate_enable 1
+ 
+ #service vendor.lowi /vendor/bin/sscrpcd
+ #   class core
 diff --git a/sepolicy/private/compat/202604/202604.ignore.cil b/sepolicy/private/compat/202604/202604.ignore.cil
 new file mode 100644
 index 0000000000000000000000000000000000000000..0d1c6362c593d95bbe6059df846e204af6d66ac0
@@ -233,3 +382,17 @@ index 0000000000000000000000000000000000000000..0d1c6362c593d95bbe6059df846e204a
 +    hal_touchfeature_xiaomi_default
 +    hal_touchfeature_xiaomi_default_exec
 +    hal_touchfeature_xiaomi_service))
+diff --git a/udfps/UdfpsHandler.cpp b/udfps/UdfpsHandler.cpp
+index 3869b74e836228a0eebb55e305fee744322b38f1..20c0633dfc47653a23bef44cc49fa74007867c46 100644
+--- a/udfps/UdfpsHandler.cpp
++++ b/udfps/UdfpsHandler.cpp
+@@ -107,7 +107,8 @@ class XiaomiSM8850UdfpsHander : public UdfpsHandler {
+ 
+     void onFingerUp() {
+         LOG(INFO) << __func__;
+-        setFingerDown(false);
++        // Forward the physical lift so Goodix can end the current enrollment capture.
++        mDevice->extCmd(mDevice, COMMAND_FOD_PRESS_STATUS, PARAM_FOD_RELEASED);
+     }
+ 
+     void onAcquired(int32_t result, int32_t vendorCode) {

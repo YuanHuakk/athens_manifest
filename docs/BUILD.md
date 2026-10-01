@@ -122,11 +122,29 @@ python3 "$MANIFEST_REPO/tools/prepare-miui-camera.py" \
 AOSP 开发测试密钥在 `build/make/target/product/security/`。
 使用自己的发布密钥时，也要配置 ROM 签名。IFAAService 会随源码编译，不用单独放 APK。
 
+## 准备 Pixel Tips
+
+Turbo 通过 Pixel Tips 的 provider 更新紧急温度警告状态。使用
+[BP4A.260205.001 中的原签名 APK](https://github.com/gm-stuffs/google_mustang_dump/blob/12c4fb58093a30da53829e7aeb36589e3754ef9c/product/priv-app/TipsPrebuilt_v6.0.0.734377952/TipsPrebuilt_v6.0.0.734377952.apk)，
+下载到仓库之外，再校验并复制到本地构建输入：
+
+```bash
+python3 "$MANIFEST_REPO/tools/prepare-pixel-tips.py" \
+  --apk /path/to/TipsPrebuilt.apk \
+  --output "$TREE/device/xiaomi/athens/tips/TipsPrebuilt.apk"
+```
+
+脚本固定 APK 校验值，不修改或重签名。构建将它安装到 product/priv-app；权限使用
+已有的 `privapp-permissions-google-p.xml`。
+
 ## 编译
 
 ```bash
 TREE="$PWD" JOBS=12 bash "$MANIFEST_REPO/tools/build.sh" pixelos
 ```
+
+默认构建 `user`，关闭 ADB Root；athens 单独允许 init 读取 Permissive 启动参数。
+调试版可设置 `BUILD_VARIANT=userdebug`。切换构建类型不会自动改用发布密钥。
 
 完成后导出独立副本；把下面的文件名替换为实际输出：
 

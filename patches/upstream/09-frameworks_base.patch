@@ -1,3 +1,66 @@
+diff --git a/core/java/com/android/internal/util/PropImitationHooks.java b/core/java/com/android/internal/util/PropImitationHooks.java
+index 40e51e284dce5f75f42b2ccec9a9f8ca92db6caa..d1dbaee567c2830b290b2560b601eb638fcc70fe 100644
+--- a/core/java/com/android/internal/util/PropImitationHooks.java
++++ b/core/java/com/android/internal/util/PropImitationHooks.java
+@@ -44,6 +44,7 @@ import java.io.File;
+ import java.io.FileReader;
+ import java.io.IOException;
+ import java.lang.reflect.Field;
++import java.lang.reflect.Method;
+ import java.util.ArrayList;
+ import java.util.Arrays;
+ import java.util.Iterator;
+@@ -123,12 +124,12 @@ public class PropImitationHooks {
+     private static volatile String sProcessName;
+     private static volatile boolean sIsGms, sIsFinsky, sIsPhotos;
+ 
+-    private static final Field OFFSET_FIELD;
++    private static final Method GET_FIELD_OFFSET;
+     private static final Unsafe UNSAFE;
+ 
+     static {
+         Unsafe unsafe = null;
+-        Field offsetField = null;
++        Method getFieldOffset = null;
+ 
+         try {
+             Field field = Unsafe.class.getDeclaredField("theUnsafe");
+@@ -136,14 +137,14 @@ public class PropImitationHooks {
+             unsafe = (Unsafe) field.get(null);
+             field.setAccessible(false);
+ 
+-            offsetField = Field.class.getDeclaredField("offset");
+-            offsetField.setAccessible(true);
++            // ART restricts direct reflection on Field.offset for recent target SDKs.
++            getFieldOffset = Field.class.getDeclaredMethod("getOffset");
+         } catch (Exception e) {
+             Log.e(TAG, "Unable to initialize Unsafe", e);
+         }
+ 
+         UNSAFE = unsafe;
+-        OFFSET_FIELD = offsetField;
++        GET_FIELD_OFFSET = getFieldOffset;
+     }
+ 
+     public static void setProps(Context context) {
+@@ -193,7 +194,7 @@ public class PropImitationHooks {
+     }
+ 
+     private static void setPropValue(String key, String value) {
+-        if (UNSAFE == null || OFFSET_FIELD == null) {
++        if (UNSAFE == null || GET_FIELD_OFFSET == null) {
+             Log.e(TAG, "Unsafe is unavailable", new IllegalStateException());
+             return;
+         }
+@@ -208,7 +209,7 @@ public class PropImitationHooks {
+             Field field = clazz.getDeclaredField(key);
+             field.setAccessible(true);
+             // Cast the value to int if it's an integer field, otherwise string.
+-            long offset = OFFSET_FIELD.getInt(field);
++            long offset = (int) GET_FIELD_OFFSET.invoke(field);
+             if (field.getType().equals(Integer.TYPE)) {
+                 UNSAFE.putInt(field.getDeclaringClass(), offset, Integer.parseInt(value));
+             } else {
 diff --git a/packages/SystemUI/compose/features/src/com/android/systemui/shade/ui/composable/ShadeHeader.kt b/packages/SystemUI/compose/features/src/com/android/systemui/shade/ui/composable/ShadeHeader.kt
 index fa73ce5783c5bffbe6fb8d2ee0a55f94be20a577..760b6e6a7ba0d0be0d091243400258f2ec68ddcb 100644
 --- a/packages/SystemUI/compose/features/src/com/android/systemui/shade/ui/composable/ShadeHeader.kt
@@ -142,6 +205,254 @@ index fa73ce5783c5bffbe6fb8d2ee0a55f94be20a577..760b6e6a7ba0d0be0d091243400258f2
                          .thenIf(onClick != null) { Modifier.clickable { onClick?.invoke() } },
              )
          }
+diff --git a/packages/SystemUI/multivalentTests/src/com/android/systemui/keyguard/domain/interactor/KeyguardBlueprintInteractorTest.kt b/packages/SystemUI/multivalentTests/src/com/android/systemui/keyguard/domain/interactor/KeyguardBlueprintInteractorTest.kt
+index 22c4f06fe1b2aedc47c7741b0813922d05e25096..87f3003583ba880b1c52d6706c62dd016fc67e63 100644
+--- a/packages/SystemUI/multivalentTests/src/com/android/systemui/keyguard/domain/interactor/KeyguardBlueprintInteractorTest.kt
++++ b/packages/SystemUI/multivalentTests/src/com/android/systemui/keyguard/domain/interactor/KeyguardBlueprintInteractorTest.kt
+@@ -17,6 +17,7 @@
+ 
+ package com.android.systemui.keyguard.domain.interactor
+ 
++import android.hardware.biometrics.SensorLocationInternal
+ import android.platform.test.annotations.DisableFlags
+ import androidx.test.ext.junit.runners.AndroidJUnit4
+ import androidx.test.filters.SmallTest
+@@ -118,6 +119,25 @@ class KeyguardBlueprintInteractorTest : SysuiTestCase() {
+         }
+     }
+ 
++    @Test
++    fun fingerprintLocationChanges_updatesBlueprint() {
++        kosmos.runTest {
++            fakeFingerprintPropertyRepository.supportsUdfps(displayId = "")
++            underTest.start()
++            runCurrent()
++            reset(keyguardBlueprintRepository)
++
++            fakeFingerprintPropertyRepository.setProperties(
++                sensorId = 0,
++                strength = SensorStrength.STRONG,
++                sensorType = FingerprintSensorType.UDFPS_OPTICAL,
++                sensorLocations = mapOf("" to SensorLocationInternal("", 578, 1905, 79)),
++            )
++            runCurrent()
++            verify(keyguardBlueprintRepository).refreshBlueprint(any())
++        }
++    }
++
+     @Test
+     fun testRefreshFromConfigChange() {
+         kosmos.runTest {
+diff --git a/packages/SystemUI/multivalentTests/src/com/android/systemui/keyguard/ui/viewmodel/DeviceEntryIconViewModelTest.kt b/packages/SystemUI/multivalentTests/src/com/android/systemui/keyguard/ui/viewmodel/DeviceEntryIconViewModelTest.kt
+index c44d7c7d5070db26fe4aa4a9fbecaedc18accfc5..8313e9aa32b5ed38993ddd24437ad79650a13b1d 100644
+--- a/packages/SystemUI/multivalentTests/src/com/android/systemui/keyguard/ui/viewmodel/DeviceEntryIconViewModelTest.kt
++++ b/packages/SystemUI/multivalentTests/src/com/android/systemui/keyguard/ui/viewmodel/DeviceEntryIconViewModelTest.kt
+@@ -41,6 +41,7 @@ import com.android.systemui.kosmos.testScope
+ import com.android.systemui.scene.domain.interactor.sceneInteractor
+ import com.android.systemui.scene.shared.flag.SceneContainerFlag
+ import com.android.systemui.scene.shared.model.Scenes
++import com.android.systemui.statusbar.policy.data.repository.fakeUserSetupRepository
+ import com.android.systemui.testKosmos
+ import com.google.common.truth.Truth.assertThat
+ import kotlinx.coroutines.test.TestScope
+@@ -116,6 +117,48 @@ class DeviceEntryIconViewModelTest : SysuiTestCase() {
+             assertThat(isVisible).isTrue()
+         }
+ 
++    @Test @DisableSceneContainer fun setupIncomplete_hidesLockscreenIcon() = verifySetupVisibility()
++
++    @Test
++    @EnableSceneContainer
++    fun setupIncomplete_hidesLockscreenIcon_sceneContainer() = verifySetupVisibility()
++
++    private fun verifySetupVisibility() =
++        testScope.runTest {
++            kosmos.fakeUserSetupRepository.setUserSetUp(false)
++            fingerprintPropertyRepository.supportsUdfps(displayId = "")
++            val alpha by collectLastValue(underTest.deviceEntryViewAlpha)
++            val isVisible by collectLastValue(underTest.isVisible)
++            deviceEntryIconTransitionAlpha(1f)
++            runCurrent()
++            assertThat(alpha).isEqualTo(0f)
++            assertThat(isVisible).isFalse()
++
++            kosmos.fakeUserSetupRepository.setUserSetUp(true)
++            runCurrent()
++            assertThat(alpha).isEqualTo(1f)
++            assertThat(isVisible).isTrue()
++        }
++
++    @Test
++    @DisableSceneContainer
++    fun udfpsLocationArrivesAfterSensorType_showsIconAtReadyLocation() =
++        testScope.runTest {
++            fingerprintPropertyRepository.supportsUdfps(displayId = null)
++            val alpha by collectLastValue(underTest.deviceEntryViewAlpha)
++            val isVisible by collectLastValue(underTest.isVisible)
++            deviceEntryIconTransitionAlpha(1f)
++            runCurrent()
++            assertThat(alpha).isEqualTo(0f)
++            assertThat(isVisible).isFalse()
++
++            fingerprintPropertyRepository.supportsUdfps(displayId = "")
++            runCurrent()
++            assertThat(underTest.udfpsLocation.value?.centerY).isEqualTo(1700f)
++            assertThat(alpha).isEqualTo(1f)
++            assertThat(isVisible).isTrue()
++        }
++
+     @Test
+     @EnableSceneContainer
+     fun deviceEntryViewAlpha_toAod() =
+@@ -328,7 +371,7 @@ class DeviceEntryIconViewModelTest : SysuiTestCase() {
+         hasTrust: Boolean = false,
+     ) {
+         if (isUdfpsSupported) {
+-            fingerprintPropertyRepository.supportsUdfps()
++            fingerprintPropertyRepository.supportsUdfps(displayId = "")
+         }
+         if (isUdfpsRunning) {
+             check(isUdfpsSupported) { "Cannot set UDFPS as running if it's not supported!" }
+diff --git a/packages/SystemUI/src/com/android/systemui/keyguard/domain/interactor/KeyguardBlueprintInteractor.kt b/packages/SystemUI/src/com/android/systemui/keyguard/domain/interactor/KeyguardBlueprintInteractor.kt
+index 046084771f66352807ba099466f0ca8b51257ec2..c14d9cae2ed2e5a4e38582528410091a85d1ff09 100644
+--- a/packages/SystemUI/src/com/android/systemui/keyguard/domain/interactor/KeyguardBlueprintInteractor.kt
++++ b/packages/SystemUI/src/com/android/systemui/keyguard/domain/interactor/KeyguardBlueprintInteractor.kt
+@@ -37,6 +37,8 @@ import com.android.systemui.shade.shared.model.ShadeMode
+ import javax.inject.Inject
+ import kotlinx.coroutines.CoroutineScope
+ import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.combine
++import kotlinx.coroutines.flow.distinctUntilChanged
+ import kotlinx.coroutines.flow.filter
+ import kotlinx.coroutines.flow.map
+ 
+@@ -73,8 +75,15 @@ constructor(
+     override fun start() {
+         applicationScope.launch { blueprintId.collect { transitionToBlueprint(it) } }
+         applicationScope.launch {
+-            fingerprintPropertyInteractor.propertiesInitialized
+-                .filter { it }
++            combine(
++                    fingerprintPropertyInteractor.propertiesInitialized,
++                    fingerprintPropertyInteractor.isUdfps,
++                    fingerprintPropertyInteractor.sensorLocation,
++                ) { initialized, isUdfps, location ->
++                    Triple(initialized, isUdfps, location)
++                }
++                .distinctUntilChanged()
++                .filter { it.first }
+                 .collect { refreshBlueprint() }
+         }
+         applicationScope.launch {
+diff --git a/packages/SystemUI/src/com/android/systemui/keyguard/ui/binder/DeviceEntryIconViewBinder.kt b/packages/SystemUI/src/com/android/systemui/keyguard/ui/binder/DeviceEntryIconViewBinder.kt
+index 42fddd2d897ba1faf3d1470097c880efd394789c..f16e9f9385b900bc8a163ee5eb80e5da9a7ec31f 100644
+--- a/packages/SystemUI/src/com/android/systemui/keyguard/ui/binder/DeviceEntryIconViewBinder.kt
++++ b/packages/SystemUI/src/com/android/systemui/keyguard/ui/binder/DeviceEntryIconViewBinder.kt
+@@ -76,6 +76,7 @@ object DeviceEntryIconViewBinder {
+         msdlPlayer: MSDLPlayer,
+         overrideColor: Color? = null,
+     ): DisposableHandle {
++        view.isInvisible = true
+         val disposables = DisposableHandles()
+         val touchHandlingView = view.touchHandlingView
+         val fgIconView = view.iconView
+@@ -161,7 +162,7 @@ object DeviceEntryIconViewBinder {
+                 repeatOnLifecycle(Lifecycle.State.CREATED) {
+                     launch("$TAG#viewModel.isVisible") {
+                         viewModel.isVisible.collect { isVisible ->
+-                            touchHandlingView.isInvisible = !isVisible
++                            view.isInvisible = !isVisible
+                             view.isClickable = isVisible
+                         }
+                     }
+diff --git a/packages/SystemUI/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySection.kt b/packages/SystemUI/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySection.kt
+index ec03b45dd33039dc587bf50f8e7c1ecbd34fe5d7..e12160b51dccbe7f9934508fb6d8e1e6fc278cf8 100644
+--- a/packages/SystemUI/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySection.kt
++++ b/packages/SystemUI/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySection.kt
+@@ -26,6 +26,7 @@ import androidx.annotation.VisibleForTesting
+ import androidx.constraintlayout.widget.ConstraintLayout
+ import androidx.constraintlayout.widget.ConstraintSet
+ import com.android.systemui.biometrics.AuthController
++import com.android.systemui.biometrics.domain.interactor.FingerprintPropertyInteractor
+ import com.android.systemui.customization.clocks.R as clocksR
+ import com.android.systemui.dagger.qualifiers.Application
+ import com.android.systemui.dagger.qualifiers.Main
+@@ -62,6 +63,7 @@ constructor(
+     @Application private val applicationScope: CoroutineScope,
+     @Main private val mainDispatcher: CoroutineDispatcher,
+     private val authController: AuthController,
++    private val fingerprintPropertyInteractor: FingerprintPropertyInteractor,
+     private val windowManager: WindowManager,
+     private val windowRootViewBlurInteractor: WindowRootViewBlurInteractor,
+     @ShadeDisplayAware private val context: Context,
+@@ -112,7 +114,7 @@ constructor(
+     }
+ 
+     override fun applyConstraints(constraintSet: ConstraintSet) {
+-        val isUdfpsSupported = deviceEntryIconViewModel.get().isUdfpsSupported.value
++        val isUdfpsSupported = fingerprintPropertyInteractor.isUdfps.value
+         blueprintLogger.d({ "isUdfpsSupported=$bool1" }) { bool1 = isUdfpsSupported }
+ 
+         val scaleFactor: Float = authController.scaleFactor
+@@ -133,7 +135,7 @@ constructor(
+         val iconRadiusPx = (defaultDensity * 36).toInt()
+ 
+         if (isUdfpsSupported) {
+-            deviceEntryIconViewModel.get().udfpsLocation.value?.let { udfpsLocation ->
++            fingerprintPropertyInteractor.sensorLocation.value.let { udfpsLocation ->
+                 blueprintLogger.d({
+                     "udfpsLocation=$str1, scaledLocation=$str2, unusedAuthController=$str3"
+                 }) {
+diff --git a/packages/SystemUI/src/com/android/systemui/keyguard/ui/viewmodel/DeviceEntryIconViewModel.kt b/packages/SystemUI/src/com/android/systemui/keyguard/ui/viewmodel/DeviceEntryIconViewModel.kt
+index 4d87c24537530c868a0f7fbaa86239bee215498b..1292a3a3bc37141295c55a587a38936c38401c97 100644
+--- a/packages/SystemUI/src/com/android/systemui/keyguard/ui/viewmodel/DeviceEntryIconViewModel.kt
++++ b/packages/SystemUI/src/com/android/systemui/keyguard/ui/viewmodel/DeviceEntryIconViewModel.kt
+@@ -37,6 +37,7 @@ import com.android.systemui.scene.shared.flag.SceneContainerFlag
+ import com.android.systemui.scene.shared.model.Overlays
+ import com.android.systemui.shade.domain.interactor.ShadeInteractor
+ import com.android.systemui.shared.customization.data.SensorLocation
++import com.android.systemui.statusbar.policy.domain.interactor.UserSetupInteractor
+ import dagger.Lazy
+ import javax.inject.Inject
+ import kotlinx.coroutines.CoroutineScope
+@@ -71,6 +72,7 @@ constructor(
+     private val deviceEntryInteractor: DeviceEntryInteractor,
+     private val deviceEntrySourceInteractor: DeviceEntrySourceInteractor,
+     accessibilityInteractor: AccessibilityInteractor,
++    userSetupInteractor: UserSetupInteractor,
+     @Application private val scope: CoroutineScope,
+     private val sceneInteractor: Lazy<SceneInteractor>,
+ ) {
+@@ -164,7 +166,7 @@ constructor(
+                     .onStart { emit(true) }
+             }
+         }
+-    val deviceEntryViewAlpha: Flow<Float> =
++    private val keyguardAlpha: Flow<Float> =
+         if (SceneContainerFlag.isEnabled) {
+             showDeviceEntryIcon.map { if (it) 1f else 0f }
+         } else {
+@@ -178,6 +180,20 @@ constructor(
+                 )
+         }
+ 
++    val deviceEntryViewAlpha: Flow<Float> =
++        combine(keyguardAlpha, userSetupInteractor.isUserSetUp, isUdfpsSupported, udfpsLocation) {
++            alpha,
++            isUserSetUp,
++            isUdfps,
++            location ->
++            // Enrollment owns a separate overlay during setup.
++            if (isUserSetUp && (!isUdfps || (location != null && location.radius > 0f))) {
++                alpha
++            } else {
++                0f
++            }
++        }
++
+     private fun initialAlphaFromKeyguardState(keyguardState: KeyguardState): Float {
+         SceneContainerFlag.assertInLegacyMode()
+         return when (keyguardState) {
 diff --git a/packages/SystemUI/src/com/android/systemui/scene/ui/viewmodel/SceneContainerViewModel.kt b/packages/SystemUI/src/com/android/systemui/scene/ui/viewmodel/SceneContainerViewModel.kt
 index 3ca7dc26d45615ffea6a94d21222988c87570621..8001a3b050590ff9b83a8e979746a343a56d114f 100644
 --- a/packages/SystemUI/src/com/android/systemui/scene/ui/viewmodel/SceneContainerViewModel.kt
@@ -166,3 +477,90 @@ index 3ca7dc26d45615ffea6a94d21222988c87570621..8001a3b050590ff9b83a8e979746a343
          toastDisplayer.get().displayToast(text)
      }
  
+diff --git a/packages/SystemUI/tests/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySectionTest.kt b/packages/SystemUI/tests/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySectionTest.kt
+index 76e3b996b5d14350cdc82588429bb8ac0cb3ea9a..0e05db468557b36cbe8e9dc47db875c7050ea010 100644
+--- a/packages/SystemUI/tests/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySectionTest.kt
++++ b/packages/SystemUI/tests/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySectionTest.kt
+@@ -25,6 +25,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
+ import androidx.test.filters.SmallTest
+ import com.android.systemui.SysuiTestCase
+ import com.android.systemui.biometrics.AuthController
++import com.android.systemui.biometrics.domain.interactor.FingerprintPropertyInteractor
+ import com.android.systemui.flags.FakeFeatureFlags
+ import com.android.systemui.flags.FakeFeatureFlagsClassic
+ import com.android.systemui.flags.Flags
+@@ -36,6 +37,7 @@ import com.android.systemui.log.logcatLogBuffer
+ import com.android.systemui.plugins.FalsingManager
+ import com.android.systemui.res.R
+ import com.android.systemui.shade.NotificationPanelView
++import com.android.systemui.shared.customization.data.SensorLocation
+ import com.android.systemui.statusbar.VibratorHelper
+ import com.android.systemui.testKosmos
+ import com.android.systemui.util.mockito.whenever
+@@ -56,6 +58,7 @@ import org.mockito.MockitoAnnotations
+ @SmallTest
+ class DefaultDeviceEntrySectionTest : SysuiTestCase() {
+     @Mock private lateinit var authController: AuthController
++    @Mock private lateinit var fingerprintPropertyInteractor: FingerprintPropertyInteractor
+     @Mock(answer = Answers.RETURNS_DEEP_STUBS) private lateinit var windowManager: WindowManager
+     @Mock private lateinit var windowRootViewBlurInteractor: WindowRootViewBlurInteractor
+     @Mock private lateinit var notificationPanelView: NotificationPanelView
+@@ -76,6 +79,7 @@ class DefaultDeviceEntrySectionTest : SysuiTestCase() {
+                 TestScope().backgroundScope,
+                 testKosmos().testDispatcher,
+                 authController,
++                fingerprintPropertyInteractor,
+                 windowManager,
+                 windowRootViewBlurInteractor,
+                 context,
+@@ -101,7 +105,7 @@ class DefaultDeviceEntrySectionTest : SysuiTestCase() {
+ 
+     @Test
+     fun applyConstraints() {
+-        whenever(deviceEntryIconViewModel.isUdfpsSupported).thenReturn(MutableStateFlow(false))
++        whenever(fingerprintPropertyInteractor.isUdfps).thenReturn(MutableStateFlow(false))
+         val cs = ConstraintSet()
+         underTest.applyConstraints(cs)
+ 
+@@ -111,6 +115,21 @@ class DefaultDeviceEntrySectionTest : SysuiTestCase() {
+         assertThat(constraint.layout.startToStart).isEqualTo(ConstraintSet.PARENT_ID)
+     }
+ 
++    @Test
++    fun applyConstraints_usesCurrentSensorLocation() {
++        whenever(fingerprintPropertyInteractor.isUdfps).thenReturn(MutableStateFlow(true))
++        whenever(fingerprintPropertyInteractor.sensorLocation)
++            .thenReturn(MutableStateFlow(SensorLocation(578, 1905, 79, 1f)))
++        val cs = ConstraintSet()
++        underTest.applyConstraints(cs)
++
++        val constraint = cs.getConstraint(R.id.device_entry_icon_view)
++        assertThat(constraint.layout.topMargin).isEqualTo(1826)
++        assertThat(constraint.layout.startMargin).isEqualTo(499)
++        assertThat(constraint.layout.mWidth).isEqualTo(158)
++        assertThat(constraint.layout.mHeight).isEqualTo(158)
++    }
++
+     @Test
+     fun testCenterIcon() {
+         val cs = ConstraintSet()
+diff --git a/packages/SystemUI/tests/utils/src/com/android/systemui/keyguard/ui/viewmodel/DeviceEntryIconViewModelKosmos.kt b/packages/SystemUI/tests/utils/src/com/android/systemui/keyguard/ui/viewmodel/DeviceEntryIconViewModelKosmos.kt
+index 784b43a47ef318ebbd15c55ab9a1de214a4afdb3..9b25011f854e13f624ac59dddbe626df085bdafd 100644
+--- a/packages/SystemUI/tests/utils/src/com/android/systemui/keyguard/ui/viewmodel/DeviceEntryIconViewModelKosmos.kt
++++ b/packages/SystemUI/tests/utils/src/com/android/systemui/keyguard/ui/viewmodel/DeviceEntryIconViewModelKosmos.kt
+@@ -30,6 +30,7 @@ import com.android.systemui.kosmos.testScope
+ import com.android.systemui.scene.domain.interactor.sceneInteractor
+ import com.android.systemui.shade.domain.interactor.shadeInteractor
+ import com.android.systemui.statusbar.phone.statusBarKeyguardViewManager
++import com.android.systemui.statusbar.policy.domain.interactor.userSetupInteractor
+ 
+ val Kosmos.fakeDeviceEntryIconViewModelTransition by Fixture { FakeDeviceEntryIconTransition() }
+ 
+@@ -49,6 +50,7 @@ val Kosmos.deviceEntryIconViewModel by Fixture {
+         deviceEntryInteractor = deviceEntryInteractor,
+         deviceEntrySourceInteractor = deviceEntrySourceInteractor,
+         accessibilityInteractor = accessibilityInteractor,
++        userSetupInteractor = userSetupInteractor,
+         scope = testScope.backgroundScope,
+         sceneInteractor = { sceneInteractor },
+     )

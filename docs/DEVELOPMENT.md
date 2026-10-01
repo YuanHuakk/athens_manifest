@@ -16,7 +16,7 @@ python3 tools/workspace.py configure \
 ```
 
 路径保存在 `.local/workspace.json`，同步状态也保存在 `.local/`，该目录不提交 Git。
-新工作区仍需先按 [BUILD.md](BUILD.md) 准备源码、vendor、内核和相机。
+新工作区仍需先按 [BUILD.md](BUILD.md) 准备源码、vendor、内核和 APK。
 
 ## 日常命令
 
@@ -28,8 +28,12 @@ python3 tools/workspace.py build pixelos   # 同步后增量编译完整 ROM
 python3 tools/workspace.py build cameraserver  # 也可指定多个编译目标
 ```
 
+默认编译 `user`，athens 仍保持 SELinux Permissive。需要 ADB Root 和启动诊断脚本时，
+使用 `BUILD_VARIANT=userdebug python3 tools/workspace.py build pixelos`。
+构建类型不改变签名密钥；当前本地输入使用开发测试密钥。
+
 设备树按 Git 管理的文件及未忽略的新文件同步；删除的源文件也会删除对应构建副本。
-相机 APK、vendor、内核和 `out` 不属于这次源码同步的范围，继续原地使用。
+相机、Pixel Tips APK、vendor、内核和 `out` 不属于这次源码同步的范围，继续原地使用。
 同步前会检查构建副本，存在未归档修改时停止，不覆盖它们。
 
 修改相机处理脚本后，重新生成本地 APK；修改提取清单后，重新提取 vendor：
