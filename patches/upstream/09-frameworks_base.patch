@@ -414,6 +414,18 @@ index 3ca7dc26d45615ffea6a94d21222988c87570621..8001a3b050590ff9b83a8e979746a343
          toastDisplayer.get().displayToast(text)
      }
  
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/phone/ScrimController.java b/packages/SystemUI/src/com/android/systemui/statusbar/phone/ScrimController.java
+index 433bccf4c0108dbf285f39b1e9b5383a60fda61a..2a593e1d435f03022673c5034995bf84a29311da 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/phone/ScrimController.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/phone/ScrimController.java
+@@ -1701,2 +1701,7 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener, Dump
+         updateThemeColors();
++        if (mViewsAttached
++                && (mState == ScrimState.KEYGUARD || mState == ScrimState.SHADE_LOCKED)) {
++            // Refresh the active state's cached scrim colors before the next draw.
++            applyState();
++        }
+         scheduleUpdate();
 diff --git a/packages/SystemUI/tests/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySectionTest.kt b/packages/SystemUI/tests/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySectionTest.kt
 index 76e3b996b5d14350cdc82588429bb8ac0cb3ea9a..0e05db468557b36cbe8e9dc47db875c7050ea010 100644
 --- a/packages/SystemUI/tests/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySectionTest.kt
