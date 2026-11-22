@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Extract the athens OS3.0.306.0 fastboot package for blob extraction."""
+"""Extract the athens HyperOS 4 fastboot package for blob extraction."""
 
 import argparse
 import shutil
@@ -9,6 +9,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+VENDOR_INCREMENTAL = "OS4.0.6.0.XPICN"
 PARTITIONS = (
     "system",
     "system_ext",
@@ -17,12 +18,13 @@ PARTITIONS = (
     "odm",
     "vendor_dlkm",
     "system_dlkm",
+    "mi_product",
     "mi_ext",
 )
 
 
 def prepare_stock(tree: Path, images: Path, output: Path) -> None:
-    # Use the parser version already pinned by the ROM manifest.
+    # Use the extract-utils parser selected by the ROM manifest.
     sys.path.insert(0, str(tree / "tools/extract-utils"))
     from extract_utils.lp import LpImage
     from extract_utils.sparse_img import SPARSE_HEADER_MAGIC, unsparse_images
@@ -58,10 +60,10 @@ def prepare_stock(tree: Path, images: Path, output: Path) -> None:
                 shutil.move(str(content), output / name)
                 image.unlink()
 
-    vendor_props = (output / "vendor/build.prop").read_text()
-    if "OS3.0.306.0.WPICNXM" not in vendor_props:
-        raise ValueError("Expected athens OS3.0.306.0.WPICNXM vendor")
-    odm_props = (output / "odm/etc/build.prop").read_text()
+    vendor_props = (output / "vendor/build.prop").read_text().splitlines()
+    if f"ro.vendor.build.version.incremental={VENDOR_INCREMENTAL}" not in vendor_props:
+        raise ValueError(f"Expected vendor incremental {VENDOR_INCREMENTAL}")
+    odm_props = (output / "odm/etc/build.prop").read_text().splitlines()
     if "ro.product.odm.device=athens" not in odm_props:
         raise ValueError("Expected athens ODM")
     print(f"Stock dump: {output}")

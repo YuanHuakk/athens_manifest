@@ -14,9 +14,9 @@ flex、bison、bc、libssl-dev、libxml2-utils 和 zlib 开发包。Python 需 3
 ```bash
 export MANIFEST_REPO=/path/to/athens_manifest
 export TREE=/path/to/pixelos
-export IMAGES=/path/to/athens_images_OS3.0.306.0.WPICNXM_16.0/images
+export IMAGES=/path/to/athens_images_OS4.0.6.0.XPICNXM_17.0/images
 export STOCK=/path/to/extracted-stock
-export UAPI_CACHE=/path/to/uapi-sources
+export UAPI_CACHE=/path/to/uapi-sources-os4
 export ANDROID_SDK_ROOT=/path/to/android-sdk
 export RELEASE_DIR=/path/to/releases
 ```
@@ -40,7 +40,7 @@ repo sync -c -j12
 ```
 
 每次同步都会读取 PixelOS `seventeen` 分支的当前清单，AOSP 版本由该清单统一选择。
-本地清单让 Athens 设备树跟随 `pixelos-17`、SM8850 公共树跟随 `lineage-24.0`、小米硬件适配跟随 `songyuan-support`。
+本地清单同步两套 ROM 共用的 Athens 设备树 `android-17` 分支。SM8850 公共树和小米硬件适配分别跟随 `lineage-24.0` 和 `songyuan-support`。
 
 从旧 r12 锁定清单迁移时，在新的 `$TREE` 目录执行上述初始化步骤。旧工作区曾以 `athens_manifest` 为主清单，直接同步会在清单检查时报错。新工作区由 repo 管理 Athens 设备树。
 
@@ -68,8 +68,9 @@ python3 "$MANIFEST_REPO/tools/apply-patches.py" --tree "$PWD" --reverse &&
 
 ## 提取原厂文件
 
-先自行取得 athens **OS3.0.306.0.WPICNXM** 线刷包并解压，`$IMAGES` 指向其中的
+先取得 athens 国行 **OS4.0.6.0.XPICNXM** [官方线刷包](https://bigota.d.miui.com/OS4.0.6.0.XPICNXM/athens_images_OS4.0.6.0.XPICNXM_20261026.0000.00_17.0_cn_8452ad1aa7.tgz) 并解压，`$IMAGES` 指向其中的
 `images/`。需要 `super.img`、`boot.img`、`vendor_boot.img` 和 `dtbo.img`。
+线刷包的 MD5 为 `8452ad1aa7a38e6f2fd0463704791660`。
 
 下面从镜像生成新的 `$STOCK` 目录，无需挂载或 root 权限：
 
@@ -79,6 +80,7 @@ python3 "$MANIFEST_REPO/tools/prepare-stock.py" \
 ```
 
 脚本提取 super 的 a 槽，并将 system-as-root 转成提取工具需要的目录结构。
+原厂 vendor 将此版本写作 `OS4.0.6.0.XPICN`，脚本同时检查 ODM 的设备代号。
 目标目录必须不存在。中途失败时，删除本次生成的不完整目录后重跑。
 解包中间文件放在输出目录旁，成功或失败退出时会清除。
 
@@ -106,7 +108,9 @@ python3 "$MANIFEST_REPO/tools/prepare-kernel.py" \
 
 ## 准备小米相机
 
-脚本适用于原厂 6.3.008710.8。`KEY` 和 `CERT` 使用与 ROM 相同的平台签名：
+脚本适用于原厂 `6.7.000480.0`，原始 APK 的 SHA-256 为
+`fc3922743a7a526d7eab5e818d769144ce789088dd2016607866cb731dea0b8e`。
+`KEY` 和 `CERT` 使用与 ROM 相同的平台签名：
 
 ```bash
 export KEY="$TREE/build/make/target/product/security/platform.pk8"

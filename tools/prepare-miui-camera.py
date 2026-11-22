@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Prepare stock athens Xiaomi Camera 6.3.008710.8 for PixelOS."""
+"""Prepare stock athens Xiaomi Camera 6.7.000480.0 for a custom ROM."""
 
 import argparse
 import subprocess
@@ -8,7 +8,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-DEX_FILES = ("classes.dex", "classes2.dex")
+DEX_FILES = ("classes.dex", "classes4.dex", "classes5.dex")
 
 
 def run_tool(*command: str | Path) -> None:
@@ -26,39 +26,51 @@ def patch_smali(work: Path) -> None:
     """Adapt app permissions, MIVI metadata, and RAW saving for AOSP."""
     replace_once(
         work / "classes.dex.smali/com/android/camera/a$c.smali",
-        "    const p1, 0x7f140bdd\n\n    invoke-static {p0, p1}, LD1/t3;->g(Landroid/app/Activity;I)V\n",
+        "    const v0, 0x7f140ce3\n\n    invoke-static {v3, v0}, LF1/p4;->g(Landroid/app/Activity;I)V\n",
         "    # AOSP: omit the HyperOS-only limited-permissions dialog.\n",
     )
     replace_once(
-        work / "classes2.dex.smali/id/c.smali",
-        "    move-result v0\n\n    sput-boolean v0, Lid/c;->m:Z",
-        "    const/4 v0, 0x1\n\n    sput-boolean v0, Lid/c;->m:Z",
+        work / "classes4.dex.smali/Te/c.smali",
+        '    const-string v3, "_global"\n\n'
+        "    invoke-virtual {v0, v3}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n"
+        "    move-result v0\n\n"
+        "    sput-boolean v0, LTe/c;->m:Z",
+        '    const-string v3, "_global"\n\n'
+        "    invoke-virtual {v0, v3}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z\n\n"
+        "    const/4 v0, 0x1\n\n"
+        "    sput-boolean v0, LTe/c;->m:Z",
     )
     replace_once(
-        work / "classes2.dex.smali/ff/e.smali",
-        ".method static constructor <clinit>()V\n    .registers 2",
-        ".method static constructor <clinit>()V\n    .registers 3",
+        work / "classes5.dex.smali/bh/f.smali",
+        "    invoke-virtual {v2, v0}, Landroid/content/Context;->getExternalFilesDir(Ljava/lang/String;)Ljava/io/File;\n\n"
+        "    move-result-object v3\n",
+        "    const/4 v3, 0x0\n\n"
+        "    invoke-virtual {v2, v0, v3}, Landroid/content/Context;->getDir(Ljava/lang/String;I)Ljava/io/File;\n\n"
+        "    move-result-object v3\n",
     )
     replace_once(
-        work / "classes2.dex.smali/ff/e.smali",
-        "    invoke-virtual {v0, v1}, Landroid/content/Context;->getExternalFilesDir(Ljava/lang/String;)Ljava/io/File;",
-        "    const/4 v2, 0x0\n\n    invoke-virtual {v0, v1, v2}, Landroid/content/Context;->getDir(Ljava/lang/String;I)Ljava/io/File;",
-    )
-    replace_once(
-        work / "classes.dex.smali/s8/b.smali",
-        "    invoke-static {}, LSb/X8;->n()Z\n\n    move-result p2\n\n    if-eqz p2, :cond_366\n\n    invoke-static {p1}, LMh/b;->c",
-        "    # AOSP: include the HAL MIVI vendor tags, as on stock.\n\n    invoke-static {p1}, LMh/b;->c",
+        work / "classes4.dex.smali/n9/f.smali",
+        "    invoke-static {}, LFe/c;->n()Z\n\n    move-result p2\n\n    if-eqz p2, :cond_39e\n\n"
+        "    sget-object p2, Ldq/a;->a:Landroid/hardware/camera2/CameraCharacteristics$Key;",
+        "    # AOSP: include the HAL MIVI vendor tags, as on stock.\n\n"
+        "    sget-object p2, Ldq/a;->a:Landroid/hardware/camera2/CameraCharacteristics$Key;",
     )
 
     # Supply MIVI per-capture metadata to the standard DNG writer.
     replace_once(
-        work / "classes.dex.smali/C6/D.smali",
-        "    invoke-direct {v9, v0, v14}, Landroid/hardware/camera2/DngCreator;-><init>(Landroid/hardware/camera2/CameraCharacteristics;Landroid/hardware/camera2/CaptureResult;)V",
-        """    new-instance v10, Landroid/util/Size;
-    invoke-direct {v10, v15, v7}, Landroid/util/Size;-><init>(II)V
-    invoke-static {v0, v14, v10}, Lorg/pixelos/camera/RawMetadata;->forCapture(Landroid/hardware/camera2/CameraCharacteristics;Landroid/hardware/camera2/CaptureResult;Landroid/util/Size;)Landroid/hardware/camera2/CameraCharacteristics;
+        work / "classes.dex.smali/n7/y.smali",
+        "    new-instance v8, Landroid/hardware/camera2/DngCreator;\n\n"
+        "    move-object/from16 v12, v35\n\n"
+        "    invoke-direct {v8, v0, v12}, Landroid/hardware/camera2/DngCreator;-><init>(Landroid/hardware/camera2/CameraCharacteristics;Landroid/hardware/camera2/CaptureResult;)V",
+        """    move-object/from16 v12, v35
+
+    new-instance v8, Landroid/util/Size;
+    invoke-direct {v8, v13, v14}, Landroid/util/Size;-><init>(II)V
+    invoke-static {v0, v12, v8}, Lorg/pixelos/camera/RawMetadata;->forCapture(Landroid/hardware/camera2/CameraCharacteristics;Landroid/hardware/camera2/CaptureResult;Landroid/util/Size;)Landroid/hardware/camera2/CameraCharacteristics;
     move-result-object v0
-    invoke-direct {v9, v0, v14}, Landroid/hardware/camera2/DngCreator;-><init>(Landroid/hardware/camera2/CameraCharacteristics;Landroid/hardware/camera2/CaptureResult;)V""",
+
+    new-instance v8, Landroid/hardware/camera2/DngCreator;
+    invoke-direct {v8, v0, v12}, Landroid/hardware/camera2/DngCreator;-><init>(Landroid/hardware/camera2/CameraCharacteristics;Landroid/hardware/camera2/CaptureResult;)V""",
     )
     helper = work / "classes.dex.smali/org/pixelos/camera/RawMetadata.smali"
     helper.parent.mkdir(parents=True, exist_ok=True)
@@ -140,7 +152,7 @@ def prepare_camera(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--tree", required=True, type=Path, help="PixelOS source root")
+    parser.add_argument("--tree", required=True, type=Path, help="Android source root")
     parser.add_argument("--stock-apk", required=True, type=Path)
     parser.add_argument("--build-tools", required=True, type=Path)
     parser.add_argument(
