@@ -168,3 +168,17 @@ index 00000000..fe9e6eb3
 +(expandtypeattribute (vendor_sys_qti_display_202604) true)
 +(typeattribute vendor_sys_qti_display_202604)
 +
+diff --git a/generic/private/compat/202604/202604.ignore.cil b/generic/private/compat/202604/202604.ignore.cil
+new file mode 100644
+index 0000000000000000000000000000000000000000..ad13660f3ea13988aa9a841b5e6cc1bc30f6a52c
+--- /dev/null
++++ b/generic/private/compat/202604/202604.ignore.cil
+@@ -0,0 +1,8 @@
++;; new_objects - a collection of types that have been introduced that have no
++;;   analogue in older policy.  Thus, we do not need to map these types to
++;;   previous ones.  Add here to pass checkapi test
++(type new_objects)
++(typeattribute new_objects)
++(typeattributeset new_objects
++  ( new_objects
++    vendor_gppservice))
