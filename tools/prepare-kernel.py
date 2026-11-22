@@ -14,7 +14,7 @@ import tarfile
 import tempfile
 from pathlib import Path
 
-KERNEL_RELEASE = "6.12.69-android16-6-g0d80ee00f747-ab15461283-4k"
+KERNEL_RELEASE = "6.12.69-android16-6-g0a1dc0413ec7-ab16271006-4k"
 HEADER_MAKEFILE = b"""VERSION = 6
 PATCHLEVEL = 12
 

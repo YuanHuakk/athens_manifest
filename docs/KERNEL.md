@@ -1,7 +1,11 @@
 # 内核输入
 
-当前使用原厂内核 `6.12.69-android16-6-g0d80ee00f747-ab15461283-4k`，
-来自 athens OS3.0.306.0.WPICNXM。
+当前使用原厂内核 `6.12.69-android16-6-g0a1dc0413ec7-ab16271006-4k`，
+来自 athens `OS4.0.6.0.XPICNXM`。原厂系统基于 Android 17，boot 镜像仍使用 Android 16 的 GKI。
+
+共享设备树 `android-17` 将 boot 和 vendor 的安全补丁日期设为 2026-10-01，
+并将启动链回滚下限设为 `1790812800`。设备树中的 `pvmfw` 和 `countrycode` 哈希描述符
+取自同一线刷包的顶层 `vbmeta.img`，已分别对相应分区内容重算并核对哈希。
 
 将本地内核包放在 `device/xiaomi/athens-kernel`，目录如下：
 
@@ -24,7 +28,7 @@
 
 `uapi-sources.json` 固定两个公开源码提交：
 
-- GKI `android16-6.12`：`5169763275538844ab830145369bb81f14d261d3`
+- GKI `android16-6.12`：`0a1dc0413ec7f42ad5924505ca2a519900ccf770`
 - QTI SM8850：`abdf3a50f1f9eb8ebace76e4e1a8e16c2e089a63`
 
 生成顺序为 GKI `include/uapi`、GKI ARM64 `asm`、QTI `include/uapi`；QTI 同名文件覆盖

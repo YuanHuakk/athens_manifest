@@ -1,7 +1,7 @@
 {
   "gki": {
     "url": "https://android.googlesource.com/kernel/common",
-    "revision": "5169763275538844ab830145369bb81f14d261d3",
+    "revision": "0a1dc0413ec7f42ad5924505ca2a519900ccf770",
     "paths": ["include/uapi", "arch/arm64/include/uapi"]
   },
   "qti": {

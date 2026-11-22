@@ -5,7 +5,7 @@ Evolution X 源码目录用于调试、应用补丁和编译，保留该工作�
 
 ## 绑定工作区
 
-在独立目录检出 `android_device_xiaomi_athens` 的 `pixelos-17` 分支，再在 `athens_manifest` 根目录绑定工作区：
+在独立目录检出 `android_device_xiaomi_athens` 的共享 `android-17` 分支，再在 `athens_manifest` 根目录绑定工作区：
 
 ```bash
 python3 tools/workspace.py configure \

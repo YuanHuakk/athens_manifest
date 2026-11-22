@@ -32,7 +32,7 @@ index 75d249626ecbf8630ce4c0dfe7c81818d51d960e..27697edf9055b1c7f5fdae78a7cdcf21
 --- a/BoardConfigCommon.mk
 +++ b/BoardConfigCommon.mk
 @@ -146,7 +146,11 @@ VENDOR_SECURITY_PATCH := $(BOOT_SECURITY_PATCH)
- 
+
  # Verified Boot
  BOARD_AVB_ENABLE := true
 -BOARD_AVB_MAKE_VBMETA_IMAGE_ARGS += --flags 3
@@ -42,25 +42,25 @@ index 75d249626ecbf8630ce4c0dfe7c81818d51d960e..27697edf9055b1c7f5fdae78a7cdcf21
 +# descriptors and makes athens ABL reject the image before entering the kernel.
 +BOARD_AVB_MAKE_VBMETA_IMAGE_ARGS += --flags 1
  BOARD_MOVE_GSI_AVB_KEYS_TO_VENDOR_BOOT := true
- 
+
  BOARD_AVB_BOOT_KEY_PATH := external/avb/test/data/testkey_rsa4096.pem
 diff --git a/common.mk b/common.mk
-index 25ec09d1fecc6f7e8a4645b8aa5fde062737614a..9cafa4c56f47385a0fdd3d44d29459d905693646 100644
+index 7a2612507a7bde40ec7a28a284291c7e87ea8f29..8a083d52b3a19761688010ff178b8de944c0ea63 100644
 --- a/common.mk
 +++ b/common.mk
 @@ -20,7 +20,9 @@ $(call inherit-product, $(SRC_TARGET_DIR)/product/generic_ramdisk.mk)
  $(call inherit-product, hardware/qcom-caf/common/common.mk)
- 
+
  # Virtualization service
 +ifneq ($(TARGET_DISABLE_AVF),true)
  $(call inherit-product, packages/modules/Virtualization/apex/product_packages.mk)
 +endif
- 
+
  # Call the proprietary setup.
  $(call inherit-product, vendor/xiaomi/sm8850-common/sm8850-common-vendor.mk)
 @@ -165,10 +167,12 @@ PRODUCT_PACKAGES += \
      fastbootd
- 
+
  # Fingerprint
 +ifneq ($(TARGET_USES_STOCK_FINGERPRINT),true)
  $(call soong_config_set,XIAOMI_BIOMETRICS_FINGERPRINT,IMPL_VER,V2)
@@ -68,7 +68,7 @@ index 25ec09d1fecc6f7e8a4645b8aa5fde062737614a..9cafa4c56f47385a0fdd3d44d29459d9
      android.hardware.biometrics.fingerprint-service.xiaomi \
      libudfpshandler
 +endif
- 
+
  PRODUCT_COPY_FILES += \
      frameworks/native/data/etc/android.hardware.fingerprint.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.fingerprint.xml
 diff --git a/compat/vpp_dsp.c b/compat/vpp_dsp.c
@@ -131,21 +131,13 @@ index 618f7d6b831ac7336bca45d5466b592f0e31c9ad..4b5712b5e24fcdd1d6ab815b82ba7a07
  persist.sys.fflag.override.settings_bluetooth_hearing_aid=true
  persist.vendor.bt.aac_frm_ctl.enabled=true
 diff --git a/extract-files.py b/extract-files.py
-index f7eb2078112af6a4d89d9940dff68b5092ce8d28..de8f037ada2490b2366ce2addf16b18ad5d659b5 100755
+index f7eb2078112af6a4d89d9940dff68b5092ce8d28..cb5698e1afbdebc5d69889b546cf04d6511f9d20 100755
 --- a/extract-files.py
 +++ b/extract-files.py
-@@ -37,6 +37,7 @@ lib_fixups: lib_fixups_user_type = {
-     (
-         'vendor.qti.ImsRtpService-V2-ndk',
-         'vendor.qti.diaghal-V1-ndk',
-+        'vendor.qti.hardware.wifidisplaysession_aidl-V1-ndk',
-         'vendor.qti.qccsyshal_aidl-V1-ndk',
-         'vendor.qti.qccvndhal_aidl-V1-ndk',
-     ): lib_fixup_vendor_suffix,
-@@ -47,7 +48,43 @@ lib_fixups: lib_fixups_user_type = {
+@@ -47,7 +47,43 @@ lib_fixups: lib_fixups_user_type = {
      ): lib_fixup_remove,
  }
- 
+
 +def fixup_wfd_hdcp_destructors(ctx, file, file_path, *args, **kwargs):
 +    # Register sMutex before sHDCPFactory and sDeathNotifier so it outlives
 +    # their destructors. The stock order locks an already destroyed mutex
@@ -186,7 +178,7 @@ index f7eb2078112af6a4d89d9940dff68b5092ce8d28..de8f037ada2490b2366ce2addf16b18a
      'system_ext/etc/init/qspa_system.rc': blob_fixup()
          .regex_replace(r'\$\{ro\.boot\.vendor\.qspa:-default\}', 'default'),
      'vendor/etc/audio/sku_canoe/audio_effects_config.xml': blob_fixup()
-@@ -71,9 +108,11 @@ blob_fixups: blob_fixups_user_type = {
+@@ -71,9 +107,11 @@ blob_fixups: blob_fixups_user_type = {
          'odm/lib64/libmiXmlParser.so',
          'vendor/bin/hw/audiohalservice.qti',
          'vendor/bin/hw/vendor.qti.hardware.display.composer-service',
@@ -198,34 +190,43 @@ index f7eb2078112af6a4d89d9940dff68b5092ce8d28..de8f037ada2490b2366ce2addf16b18a
          'vendor/lib64/libxlog.so',
          'vendor/lib64/soundfx/libquasar.so',
      ): blob_fixup()
-@@ -124,8 +163,15 @@ blob_fixups: blob_fixups_user_type = {
+@@ -124,10 +162,14 @@ blob_fixups: blob_fixups_user_type = {
          'vendor/etc/seccomp_policy/syshealthmon.policy'
      ): blob_fixup()
          .add_line_if_missing('lseek: 1'),
-+    # These libraries provide no symbols used by libwfdcommonutils.
++    # libwfdcommonutils imports no symbols from libdng_sdk.
 +    'system_ext/lib64/libwfdcommonutils.so': blob_fixup()
-+        .remove_needed('libdng_sdk.so')
-+        .remove_needed('libheif.so'),
++        .remove_needed('libdng_sdk.so'),
      'system_ext/lib64/libwfdmmsrc_system.so': blob_fixup()
 -        .replace_needed('libaudioclient.so', 'libaudiobase.so'),
-+        .replace_needed('libaudioclient.so', 'libaudiobase.so')
 +        .add_needed('libgui_shim.so'),
 +    'system_ext/lib64/libwfdnative.so': blob_fixup()
 +        .add_needed('libwfdinput_compat.so'),
      'system_ext/lib64/libwfdservice.so': blob_fixup()
-         .add_needed('libaudiobase.so')
+-        .add_needed('libaudiobase.so')
          .replace_needed('android.media.audio.common.types-V4-cpp.so', 'android.media.audio.common.types-V5-cpp.so'),
-@@ -146,4 +192,4 @@ module = ExtractUtilsModule(
- 
+     'vendor/etc/hal_uuid_map_config.xml': blob_fixup()
+         .regex_replace(
+@@ -146,4 +188,4 @@ module = ExtractUtilsModule(
+
  if __name__ == '__main__':
      utils = ExtractUtils.device(module)
 -    utils.run()
 \ No newline at end of file
 +    utils.run()
 diff --git a/proprietary-files.txt b/proprietary-files.txt
-index 5384fd3ab5d90801ab8995935437dc81153256c1..967cb5fc585437df3ab048a0fa92306bcfbfa527 100644
+index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..8012e0f1533af062a75a0a2d2f063d45e51611d7 100644
 --- a/proprietary-files.txt
 +++ b/proprietary-files.txt
+@@ -132,7 +132,7 @@ vendor/lib64/libaudioserviceexampleimpl.so;DISABLE_DEPS
+ vendor/lib64/libav_lvacfsencoder.so
+ vendor/lib64/libav_miwnsencoder.so
+ vendor/lib64/libbatterylistener.so
+-vendor/lib64/libc++_shared.so
++odm/lib64/libc++_shared.so:vendor/lib64/libc++_shared.so;TRYSRCFIRST
+ vendor/lib64/libcapiv2svacnnvendor.so
+ vendor/lib64/libcapiv2svarnnvendor.so
+ vendor/lib64/libcapiv2udk7vendor.so
 @@ -200,7 +200,7 @@ vendor/lib64/libstream_sensorrenderer.so
  vendor/lib64/libstream_soundtrigger.so
  vendor/lib64/libstream_ultrasound.so
@@ -235,63 +236,277 @@ index 5384fd3ab5d90801ab8995935437dc81153256c1..967cb5fc585437df3ab048a0fa92306b
  vendor/lib64/libvui_utils.so
  vendor/lib64/libxlog.so
  vendor/lib64/sva_plugin.so
-@@ -762,7 +762,7 @@ vendor/lib64/libfastcrc.so
+@@ -208,7 +208,7 @@ vendor/lib64/vendor.qti.hardware.qasr-V3-ndk.so
+
+ # Audio manifest - from CPH2767_16.0.9.401
+ vendor/etc/vintf/manifest/Manifest_IListenSoundModel.xml|6d18b45696122cc62a750a139001b6bb05dfdb02
+-vendor/etc/vintf/manifest/Manifest_IPALEventNotifier.xml|34a41ecbee2eb27dd588fa5f5638d0ff6cc53ab2
++vendor/etc/vintf/manifest/Manifest_IPALEventNotifier.xml|1c6b531465253c1c7f430afc26e9febe198ff2a6
+ vendor/etc/vintf/manifest/qasr_vintf.xml|c7c183d5deadec39de1f20a64bef630bbbbfe458
+
+ # Audio Config
+@@ -287,16 +287,16 @@ vendor/lib64/vendor.qti.hardware.bttpi-V3-ndk.so
+
+ # Camera
+ odm/etc/vintf/manifest/misensor_camera.xml
+-vendor/etc/init/vendor.qti.camera.provider-service_64.rc
++odm/etc/init/vendor.qti.camera.provider-service_64.rc
+ vendor/etc/permissions/camera_extensions.xml
+-vendor/etc/vintf/manifest/vendor.qti.camera.offlinecamera-impl.xml
+-vendor/etc/vintf/manifest/vendor.qti.camera.provider.xml
+-vendor/etc/vintf/manifest/vendor.xiaomi.camera.aon-impl.xml
+-vendor/etc/vintf/manifest/vendor.xiaomi.hardware.aidl.intentaware-service.xml
+-vendor/etc/vintf/manifest/vendor.xiaomi.hardware.aidlbgservice-service.xml
+-vendor/etc/vintf/manifest/vendor.xiaomi.hardware.camera.mivimessage-service.xml
++odm/etc/vintf/manifest/vendor.qti.camera.offlinecamera-impl.xml
++odm/etc/vintf/manifest/vendor.qti.camera.provider.xml
++odm/etc/vintf/manifest/vendor.xiaomi.camera.aon-impl.xml
++odm/etc/vintf/manifest/vendor.xiaomi.hardware.aidl.intentaware-service.xml
++odm/etc/vintf/manifest/vendor.xiaomi.hardware.aidlbgservice-service.xml
++odm/etc/vintf/manifest/vendor.xiaomi.hardware.camera.mivimessage-service.xml
+ vendor/etc/vintf/manifest/vendor.xiaomi.hardware.dynamiccameraserver.xml
+-vendor/etc/vintf/manifest/vendor.xiaomi.hardware.postprocservice-service.xml
++odm/etc/vintf/manifest/vendor.xiaomi.hardware.postprocservice-service.xml
+ vendor/etc/vintf/manifest/vendor.xiaomi.hardware.quickcamera.xml
+ vendor/framework/androidx.camera.extensions.impl.jar
+
+@@ -347,9 +347,9 @@ odm/firmware/CAMERA_ICP.b19
+ odm/firmware/CAMERA_ICP.b20
+ odm/firmware/CAMERA_ICP.mbn
+ odm/firmware/CAMERA_ICP.mdt
+-vendor/firmware/CAMERA_ICP_1.elf
+-vendor/firmware/CAMERA_ICP_170.elf
+-vendor/firmware/CAMERA_ICP.elf
++odm/firmware/CAMERA_ICP_1.elf
++odm/firmware/CAMERA_ICP_170.elf
++odm/firmware/CAMERA_ICP.elf
+
+ # CDSP
+ vendor/bin/cdsprpcd
+@@ -558,7 +558,7 @@ vendor/etc/displayconfig/display_id_4630947075271898515.xml
+
+ # Display (HDR)
+ vendor/lib64/libhdr_tm.so
+-vendor/lib64/libhdr10plus.so;DISABLE_CHECKELF
++odm/lib64/libhdr10plus.so;DISABLE_CHECKELF
+ vendor/lib64/libhdrdynamic.so
+ vendor/lib64/libhdrdynamicootf.so
+ vendor/lib64/libhdrvivid.so
+@@ -696,13 +696,8 @@ vendor/lib64/vendor.xiaomi.hardware.displayfeature_aidl-V2-ndk.so
+
+ # Dolby
+ vendor/bin/hw/vendor.dolby.dms.service
+-vendor/bin/hw/vendor.dolby.media.c2-default-service-dax
+ vendor/etc/init/dms-service.rc
+-vendor/etc/init/vendor.dolby.media.c2-default-service-dax.rc
+-vendor/etc/media_codecs_dolby_audio.xml
+ vendor/etc/vintf/manifest/dms-service.xml
+-vendor/etc/vintf/manifest/vendor.dolby.media.c2-default-service-dax.xml
+-vendor/lib64/libcodec2_store_dolby.so
+ vendor/lib64/libcodec2_soft_ac4dec.so
+ vendor/lib64/libcodec2_soft_ddpdec.so
+ vendor/lib64/libdapparamstorage.so
+@@ -724,7 +719,6 @@ system_ext/framework/dpmapi.jar
+ vendor/bin/vendor.dpmd
+ vendor/etc/dpm_vndr/vendor.dpm.conf
+ vendor/etc/init/vendor.dpmd.rc
+-vendor/etc/vintf/manifest/dpm-saidl.xml
+ vendor/lib64/com.qualcomm.qti.dpm.api@1.0.so
+ vendor/lib64/vendor.libdpmctmgr.so
+ vendor/lib64/vendor.libdpmfdmgr.so
+@@ -762,7 +756,7 @@ vendor/lib64/libfastcrc.so
  vendor/etc/init/vendor.qti.fastrpc.pd-default-config.rc
- 
+
  # Fingerprint
 -odm/etc/vintf/manifest/fod-aidl.xml
 +# Source fingerprint HAL does not serve the MIUI private FOD extensions.
  vendor/etc/permissions/qti_fingerprint_interface.xml
  vendor/lib64/vendor.xiaomi.hardware.fx.tunnel-V1-ndk.so
  vendor/lib64/vendor.qti.hardware.fingerprint-V1-ndk.so
-@@ -1698,7 +1698,7 @@ vendor/lib64/vendor.qti.snapdragonServices-V2-ndk.so
+@@ -922,7 +916,6 @@ system_ext/lib64/lib-imsvideocodec.so
+ system_ext/lib64/lib-imsvt.so
+ system_ext/lib64/lib-imsvtextutils.so
+ system_ext/lib64/lib-imsvtutils.so
+-system_ext/lib64/libimscamera_jni.so;SYMLINK=system_ext/priv-app/ims/lib/arm64/libimscamera_jni.so
+ system_ext/lib64/libimsmedia_jni.so;SYMLINK=system_ext/priv-app/ims/lib/arm64/libimsmedia_jni.so
+ system_ext/lib64/vendor.qti.ims.datachannelservice-V1-ndk.so
+ system_ext/lib64/vendor.qti.ims.datachannelservice-V2-ndk.so
+@@ -1016,7 +1009,6 @@ vendor/lib64/vendor.qti.hardware.ListenSoundModelAidl-V2-ndk.so
+
+ # Media
+ system_ext/lib64/libmmosal.so
+-system_ext/lib64/libmmparser_lite.so
+ vendor/bin/hw/qconfigservice
+ vendor/bin/hw/vendor.qti.media.c2@1.0-service
+ vendor/bin/init.qti.media.sh
+@@ -1118,33 +1110,33 @@ vendor/lib64/vendor.xiaomi.hardware.mlipay-V1-ndk.so
+ vendor/etc/public.libraries.txt
+
+ # Neural networks
+-vendor/lib64/libQnnChrometraceProfilingReader.so
+-vendor/lib64/libQnnCpu.so
+-vendor/lib64/libQnnGpu.so
+-vendor/lib64/libQnnGpuNetRunExtensions.so
+-vendor/lib64/libQnnGpuProfilingReader.so
+-vendor/lib64/libQnnHta.so
+-vendor/lib64/libQnnHtp.so
+-vendor/lib64/libQnnHtpNetRunExtensions.so
+-vendor/lib64/libQnnHtpOptraceProfilingReader.so
+-vendor/lib64/libQnnHtpPrepare.so
+-vendor/lib64/libQnnHtpProfilingReader.so
+-vendor/lib64/libQnnHtpV68CalculatorStub.so
+-vendor/lib64/libQnnHtpV68Stub.so
+-vendor/lib64/libQnnHtpV69CalculatorStub.so
+-vendor/lib64/libQnnHtpV69Stub.so
+-vendor/lib64/libQnnHtpV73CalculatorStub.so
+-vendor/lib64/libQnnHtpV73Stub.so
+-vendor/lib64/libQnnHtpV75CalculatorStub.so
+-vendor/lib64/libQnnHtpV75Stub.so
+-vendor/lib64/libQnnHtpV79CalculatorStub.so
+-vendor/lib64/libQnnHtpV79Stub.so
+-vendor/lib64/libQnnHtpV81CalculatorStub.so
+-vendor/lib64/libQnnHtpV81Stub.so
+-vendor/lib64/libQnnJsonProfilingReader.so
+-vendor/lib64/libQnnModelDlc.so
+-vendor/lib64/libQnnSaver.so
+-vendor/lib64/libQnnSystem.so
++odm/lib64/libQnnChrometraceProfilingReader.so
++odm/lib64/libQnnCpu.so
++odm/lib64/libQnnGpu.so
++odm/lib64/libQnnGpuNetRunExtensions.so
++odm/lib64/libQnnGpuProfilingReader.so
++odm/lib64/libQnnHta.so
++odm/lib64/libQnnHtp.so
++odm/lib64/libQnnHtpNetRunExtensions.so
++odm/lib64/libQnnHtpOptraceProfilingReader.so
++odm/lib64/libQnnHtpPrepare.so
++odm/lib64/libQnnHtpProfilingReader.so
++odm/lib64/libQnnHtpV68CalculatorStub.so
++odm/lib64/libQnnHtpV68Stub.so
++odm/lib64/libQnnHtpV69CalculatorStub.so
++odm/lib64/libQnnHtpV69Stub.so
++odm/lib64/libQnnHtpV73CalculatorStub.so
++odm/lib64/libQnnHtpV73Stub.so
++odm/lib64/libQnnHtpV75CalculatorStub.so
++odm/lib64/libQnnHtpV75Stub.so
++odm/lib64/libQnnHtpV79CalculatorStub.so
++odm/lib64/libQnnHtpV79Stub.so
++odm/lib64/libQnnHtpV81CalculatorStub.so
++odm/lib64/libQnnHtpV81Stub.so
++odm/lib64/libQnnJsonProfilingReader.so
++odm/lib64/libQnnModelDlc.so
++odm/lib64/libQnnSaver.so
++odm/lib64/libQnnSystem.so
+
+ # NFC
+ odm/etc/libnfc-nci.conf:vendor/etc/libnfc-nci.conf
+@@ -1243,7 +1235,6 @@ system_ext/lib64/vendor.qti.qccsyshal_aidl-V1-ndk.so
+ system_ext/lib64/vendor.qti.qccvndhal_aidl-V1-ndk.so
+ vendor/bin/qcc-vendor
+ vendor/etc/init/init.qccvendor.rc
+-vendor/etc/vintf/manifest/vendor.qti.qccvndhal_aidl-service.xml
+ vendor/lib64/libqcc_file_agent.so
+ vendor/lib64/libqcc_sdk.so
+ vendor/lib64/vendor.qti.qccsyshal_aidl-V1-ndk.so;MODULE_SUFFIX=_vendor
+@@ -1315,12 +1306,12 @@ vendor/lib64/vendor.qti.hardware.qseecom-V1-ndk.so
+ # QSN
+ vendor/lib64/qsn1nrt430.bin
+ vendor/lib64/qsn1nrt43270.bin
+-vendor/lib64/qsn1rt1690_vga.bin
+-vendor/lib64/qsn1rt169270_vga.bin
+-vendor/lib64/qsn1rt430_vga.bin
+-vendor/lib64/qsn1rt43270_vga.bin
++odm/lib64/qsn1rt1690_vga.bin
++odm/lib64/qsn1rt169270_vga.bin
++odm/lib64/qsn1rt430_vga.bin
++odm/lib64/qsn1rt43270_vga.bin
+ vendor/lib64/qsn2all.bin
+-vendor/lib64/qsn3_video.bin
++odm/lib64/qsn3_video.bin
+ vendor/lib64/qsn3all.bin
+
+ # QSPA
+@@ -1361,8 +1352,7 @@ product/framework/uimremoteclientlibrary.jar
+ product/framework/uimremoteserverlibrary.jar
+ product/framework/uimservicelibrary.jar
+ product/lib64/vendor.qti.hardware.radio.internal.deviceinfo@1.0.so
+-system_ext/app/AtFwd2/AtFwd2.apk
+-system_ext/app/QtiTelephonyService/QtiTelephonyService.apk
++system_ext/app/atfwd/atfwd.apk
+ system_ext/etc/permissions/qcrilhook.xml
+ system_ext/etc/permissions/qti_libpermissions.xml
+ system_ext/etc/permissions/qti_permissions.xml
+@@ -1638,7 +1628,7 @@ vendor/lib64/vendor.qti.snapdragonServices-V2-ndk.so
  vendor/lib64/vendor.qti.snapdragonServices.qape-V1-ndk.so
- 
+
  # Soter
 -mi_ext/product/app/SoterService/SoterService.apk:product/app/SoterService/SoterService.apk
 +product/app/SoterService/SoterService.apk
  vendor/bin/hw/vendor.qti.hardware.soter-service
  vendor/bin/vendor.qti.hardware.soter-provision
  vendor/etc/init/vendor.qti.hardware.soter-service.rc
-@@ -1831,15 +1831,16 @@ system_ext/lib64/libmmrtpdecoder.so|7971b5de27f7105fd77a15e5fca5401ad8b878a6
- system_ext/lib64/libmmrtpencoder.so|660417edcd28d0a89b87b34609fdb5f89856b8f5
- system_ext/lib64/libwfdavenhancements.so|c460b1f585902fa1cc1bd4386b5017e252939526
- system_ext/lib64/libwfdclient.so|8c24d161dace8c5f089574cca278072a72c3467c
+@@ -1761,34 +1751,36 @@ vendor/etc/wifi/wpa_supplicant_overlay.conf
+ vendor/lib64/libWlanServiceJni.so
+
+ # WiFi Display (system) - from CPH2745_11_C_OTA_1020_all_Qyq7GC_00011011
+-system/framework/WfdCommon.jar;BOOT_JAR|b9fd0baae787d8bc4041e7d79411c3a452e094a8
+-system_ext/bin/wfdservice64|d67839393c709f8c4d7bd536f0e5cf2a9c18a7e8
++system/framework/WfdCommon.jar;BOOT_JAR|c3b24e2d668c84ec878efccc148cf55e68a29d4b
++system_ext/bin/wfdservice64|6b738758fe3d21d6d53d3fb522e1321b54592fa9
+ system_ext/etc/init/wfdservice.rc|907def8565d8f91f531ca7dfad880af05d540b0c
+ system_ext/etc/permissions/wfd-system-ext-privapp-permissions-qti.xml|6669d5ee462c981663b8ac573d84d334e4eed96c
+-system_ext/etc/seccomp_policy/wfdservice64.policy|8fbe45e7c1468dc12021bb030af3b5bc81062e0e
++system_ext/etc/seccomp_policy/wfdservice64.policy|1e331272649395423b11c575892e0bdc9433b820
+ system_ext/etc/wfdconfigsink.xml|7bbf8092ff574be7ed951b1a4026471f51e4b6f5
+-system_ext/lib64/libmmrtpdecoder.so|7971b5de27f7105fd77a15e5fca5401ad8b878a6
+-system_ext/lib64/libmmrtpencoder.so|660417edcd28d0a89b87b34609fdb5f89856b8f5
+-system_ext/lib64/libwfdavenhancements.so|c460b1f585902fa1cc1bd4386b5017e252939526
+-system_ext/lib64/libwfdclient.so|8c24d161dace8c5f089574cca278072a72c3467c
 -system_ext/lib64/libwfdcommonutils.so|8ea632b424023b4facbbdadaf90fc30d5f2631e7
-+system_ext/lib64/libwfdcommonutils.so|fa14089bc1353a025f3325e2a8a9118fe4573e6b|c15bbbdea8f97a53a797b18227d5c190b075d6ca
- system_ext/lib64/libwfdconfigutils.so|2ba443281a75baf4c40a0bfcbfcd2db296405658
- system_ext/lib64/libwfddisplayconfig.so|f83142f12c2aaef34178b4091d5e03cb563a31ad
- system_ext/lib64/libwfdmminterface.so|e97b771999cc69a76a2918f014ac0aac8e0872c6
- system_ext/lib64/libwfdmmsink.so|d2aa9d4663c4c2fbadcac91724167955ae6a3bac
+-system_ext/lib64/libwfdconfigutils.so|2ba443281a75baf4c40a0bfcbfcd2db296405658
+-system_ext/lib64/libwfddisplayconfig.so|f83142f12c2aaef34178b4091d5e03cb563a31ad
+-system_ext/lib64/libwfdmminterface.so|e97b771999cc69a76a2918f014ac0aac8e0872c6
+-system_ext/lib64/libwfdmmsink.so|d2aa9d4663c4c2fbadcac91724167955ae6a3bac
 -system_ext/lib64/libwfdmmsrc_system.so|ab23a6ce749d1ecc9bef869fae0eb3a0e293d389|ab23a6ce749d1ecc9bef869fae0eb3a0e293d389
 -system_ext/lib64/libwfdnative.so;SYMLINK=system_ext/priv-app/WfdService/lib/arm64/libwfdnative.so|f3c438b50e32156d630cb2f6ba608104fe5be421
-+# Pin athens blobs: mismatched source hashes prevent extract-utils fixups.
-+system_ext/lib64/libwfdmmsrc_system.so|2d9091a9eb7e88a69f081205c1117b2e3286f4d9|cb5d468df741ceaa47696a90bc94a43bb4cfa402
-+system_ext/lib64/libwfdnative.so;SYMLINK=system_ext/priv-app/WfdService/lib/arm64/libwfdnative.so|31d003a63ef42573ff0675eb42f7eec25f2a2ee9|4b396c1696d5f6c9bfaba9c12084a045a1fdc79c
- system_ext/lib64/libwfdrtsp.so|4595976a1897782e22fc7d519c7293d0a81b4d15
+-system_ext/lib64/libwfdrtsp.so|4595976a1897782e22fc7d519c7293d0a81b4d15
 -system_ext/lib64/libwfdservice.so|9450ceb1750849a7aca7e38d1203e1e0277c76b0|9450ceb1750849a7aca7e38d1203e1e0277c76b0
-+system_ext/lib64/libwfdservice.so|ba23da3a50e6314f512b8a66f3d1233689928548|14ccb5f7c304e48ab95fb5b66b492abdc028d1a3
- system_ext/lib64/libwfdsinksm.so|18fa4c0fed1b5bc4c34a5c29ed11f67891c54ad3
- system_ext/lib64/libwfduibcinterface.so|1d0377b18ca2d204cb30c705cc5f7297308ba733
- system_ext/lib64/libwfduibcsink.so|c3508c6b7bf37d0efa8c5b688faf8345b06a546b
-@@ -1847,7 +1848,7 @@ system_ext/lib64/libwfduibcsinkinterface.so|b6630e84f5596fbd08b9de4e519b3907e492
- system_ext/lib64/libwfduibcsrc.so|94ab48fac2d95bb7ca7b3291166540304ea5fe97
- system_ext/lib64/libwfduibcsrcinterface.so|8174319b25aedf98a5e33d9dc4f12b0ced90c07c
- system_ext/lib64/vendor.qti.hardware.wifidisplaysession@1.0.so|b6b0026a1a839ef6345508e6f350ef1e99e5e7fd
+-system_ext/lib64/libwfdsinksm.so|18fa4c0fed1b5bc4c34a5c29ed11f67891c54ad3
+-system_ext/lib64/libwfduibcinterface.so|1d0377b18ca2d204cb30c705cc5f7297308ba733
+-system_ext/lib64/libwfduibcsink.so|c3508c6b7bf37d0efa8c5b688faf8345b06a546b
+-system_ext/lib64/libwfduibcsinkinterface.so|b6630e84f5596fbd08b9de4e519b3907e4924e15
+-system_ext/lib64/libwfduibcsrc.so|94ab48fac2d95bb7ca7b3291166540304ea5fe97
+-system_ext/lib64/libwfduibcsrcinterface.so|8174319b25aedf98a5e33d9dc4f12b0ced90c07c
+-system_ext/lib64/vendor.qti.hardware.wifidisplaysession@1.0.so|b6b0026a1a839ef6345508e6f350ef1e99e5e7fd
 -system_ext/lib64/vendor.qti.hardware.wifidisplaysession_aidl-V2-ndk.so|5885489e48c606ae98307410cd0ccefdc01a363d
-+system_ext/lib64/vendor.qti.hardware.wifidisplaysession_aidl-V1-ndk.so|58cd9358df40aa16ddf0e603b736c58588623b9e
- system_ext/priv-app/WfdService/WfdService.apk|0fcb88dd5d08c0ee13a5683071926549077410b4
- 
+-system_ext/priv-app/WfdService/WfdService.apk|0fcb88dd5d08c0ee13a5683071926549077410b4
++system_ext/lib64/libmmrtpdecoder.so|51c486b525879c1239062f0fa6b591c3e0abaaa0
++system_ext/lib64/libmmrtpencoder.so|946d85b6b852ee95e17b40b00c4c85ebfa72c85c
++system_ext/lib64/libwfdavenhancements.so|68ab62308ade51f517dd03d06efb24820be793f0
++system_ext/lib64/libwfdclient.so|ae443c8657e680558cce30039409cee1e6ab5505
++system_ext/lib64/libwfdcommonutils.so|27c411978b486ccc075862fa2eff450990b9d47a|8e7d244d56f161064a53ed5d4c4c1acff3e8ae6f
++system_ext/lib64/libwfdconfigutils.so|ffac37cc7b93538d25af6304d02ecf0062ec1f00
++system_ext/lib64/libwfddisplayconfig.so|2717202736b678390be7518ce6f69a63079e4217
++system_ext/lib64/libwfdmminterface.so|b560306dbc7b2bffb734c8eb6439dd3721f75c12
++system_ext/lib64/libwfdmmsink.so|4e4cce93cdc63c681e2dd9d42afdbf92170278fe
++# Pin athens blobs: mismatched source hashes prevent extract-utils fixups.
++system_ext/lib64/libwfdmmsrc_system.so|69e08746a9557ee5fba3e02a8170032db0fa0105|437dcf1a3cfd88ed6c7feeb32243d7934d86cfa4
++system_ext/lib64/libwfdnative.so;SYMLINK=system_ext/priv-app/WfdService/lib/arm64/libwfdnative.so|932441e979fbbacdb6924a773f1c611b0304ee1e|7a53ec854d1e62327d0131fa545827d1744a4a15
++system_ext/lib64/libwfdparserlite.so|538e819a74a45699f8485c9bc97d64daa98f6071
++system_ext/lib64/libwfdrtsp.so|14eec96c4fa615096c473d5a269ba315a53cfd00
++system_ext/lib64/libwfdservice.so|429839b831a8b16fb858179241dc6183c50bdf13|54624fd8c8ef2932e71c4b3ce176fb712e884f5a
++system_ext/lib64/libwfdsinksm.so|880550313eb874f7ca0dac67e221a1252996155c
++system_ext/lib64/libwfduibcinterface.so|62a596c93efa57bdc79b078d74a3ccf4d19d1f58
++system_ext/lib64/libwfduibcsink.so|a6fc5d0245e23648812a535f7338d562c9317f09
++system_ext/lib64/libwfduibcsinkinterface.so|2db07ec7a9a6206d2782439e247b35fbe62a550f
++system_ext/lib64/libwfduibcsrc.so|ac3e0988fb5c36c6c4561f04e0e5d53d7de2ad76
++system_ext/lib64/libwfduibcsrcinterface.so|d19e9b5c35f61cc696a9c999dce6eb11d781bd8c
++system_ext/lib64/vendor.qti.hardware.wifidisplaysession@1.0.so|f195cfd660ea47c211ccb5890072f7217649c23b
++system_ext/lib64/vendor.qti.hardware.wifidisplaysession_aidl-V2-ndk.so|8fbb064b3ab56bf4bfe74de11006c10b06c39b23
++system_ext/priv-app/WfdService/WfdService.apk|3837139f985d835cd1148d44bf6985b801f6c1ed
+
  # WiFi Display (vendor)
-@@ -1887,7 +1888,7 @@ vendor/lib64/libwfduibcsinkinterface_vendor.so
- vendor/lib64/libwfduibcsrc_vendor.so
- vendor/lib64/libwfduibcsrcinterface_vendor.so
- vendor/lib64/libwfdutils_proprietary.so
--vendor/lib64/vendor.qti.hardware.wifidisplaysession_aidl-V1-ndk.so
-+vendor/lib64/vendor.qti.hardware.wifidisplaysession_aidl-V1-ndk.so;MODULE_SUFFIX=_vendor
- vendor/lib64/vendor.qti.hardware.wifidisplaysessionl@1.0-halimpl.so
- vendor/lib64/libsvswcpu.so
- vendor/lib64/libtensorflowlite_c_qcom.so
+ vendor/bin/wfdhdcphalservice
 diff --git a/rootdir/etc/init.qcom.rc b/rootdir/etc/init.qcom.rc
 index f75702dcbaec07bb1df63ced0643e67d723c104e..16643f88e9e6a225aaef02b7d8307b026ba802f2 100644
 --- a/rootdir/etc/init.qcom.rc
@@ -299,27 +514,27 @@ index f75702dcbaec07bb1df63ced0643e67d723c104e..16643f88e9e6a225aaef02b7d8307b02
 @@ -78,12 +78,8 @@ on early-init
    # Change ownership of sysfs power control node
      chown system graphics /sys/class/drm/card0/device/power/control
- 
+
 -    #Disable UFS clock scaling
 -    write /sys/bus/platform/devices/1d84000.ufshc/clkscale_enable 0
      #Disable UFS auto_hibern8
      write /sys/bus/platform/devices/1d84000.ufshc/auto_hibern8 0
 -    #Disable UFS clock gating
 -    write /sys/bus/platform/devices/1d84000.ufshc/clkgate_enable 0
- 
+
      chown root system /dev/kmsg
      chmod 0620 /dev/kmsg
 @@ -525,7 +521,7 @@ on property:persist.sys.pil_proxy_timeout=*
  on property:persist.vendor.ssr.restart_level=*
      start vendor.ssr_setup
- 
+
 -on property:persist.vendor.ssr.enable_ramdumps=1
 +on property:persist.vendor.ssr.enable_ramdumps=1 && property:ro.debuggable=1
      chown system system /sys/module/qcom_ramdump/parameters/enable_dump_collection
      chmod 0660 /sys/module/qcom_ramdump/parameters/enable_dump_collection
      mkdir /data/vendor/ramdump_ssr 770 system system
 @@ -539,12 +535,8 @@ on property:persist.vendor.sys.rawdump_copy=0
- 
+
  on property:sys.boot_completed=1
      write /dev/kmsg "Boot completed "
 -    #Enable UFS clock scaling back
@@ -334,7 +549,7 @@ index f75702dcbaec07bb1df63ced0643e67d723c104e..16643f88e9e6a225aaef02b7d8307b02
 @@ -916,15 +908,7 @@ service qrtr-lookup /vendor/bin/qrtr-lookup
      disabled
      oneshot
- 
+
 -# Request MTE asymm mode if properties are supported
 +# Wait for the bootloader memtag configuration before setting allocator options
  on property:arm64.memtag.bootctl=* && property:ro.arm64.memtag.bootctl_supported=1
@@ -359,7 +574,7 @@ index 964f606cb10d6ab57c07d0ee040ebd537a2175a1..5496024c82bd60bfa31a29f86ca29fc1
 -    write /sys/bus/platform/devices/1d84000.ufshc/clkscale_enable 1
      write /sys/bus/platform/devices/1d84000.ufshc/auto_hibern8 5000
 -    write /sys/bus/platform/devices/1d84000.ufshc/clkgate_enable 1
- 
+
  #service vendor.lowi /vendor/bin/sscrpcd
  #   class core
 diff --git a/sepolicy/private/compat/202604/202604.ignore.cil b/sepolicy/private/compat/202604/202604.ignore.cil
@@ -383,12 +598,12 @@ index 3869b74e836228a0eebb55e305fee744322b38f1..20c0633dfc47653a23bef44cc49fa740
 --- a/udfps/UdfpsHandler.cpp
 +++ b/udfps/UdfpsHandler.cpp
 @@ -107,7 +107,8 @@ class XiaomiSM8850UdfpsHander : public UdfpsHandler {
- 
+
      void onFingerUp() {
          LOG(INFO) << __func__;
 -        setFingerDown(false);
 +        // Forward the physical lift so Goodix can end the current enrollment capture.
 +        mDevice->extCmd(mDevice, COMMAND_FOD_PRESS_STATUS, PARAM_FOD_RELEASED);
      }
- 
+
      void onAcquired(int32_t result, int32_t vendorCode) {

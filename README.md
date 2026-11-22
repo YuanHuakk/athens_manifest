@@ -1,7 +1,7 @@
 # athens — Evolution X 构建清单
 
 Redmi K100 Pro（athens）的 Evolution X 源码清单、补丁和构建工具。
-设备树单独保存在 [android_device_xiaomi_athens](https://github.com/YuanHuakk/android_device_xiaomi_athens) 仓库。
+PixelOS 和 Evolution X 共用 [android_device_xiaomi_athens 的 `android-17` 分支](https://github.com/YuanHuakk/android_device_xiaomi_athens/tree/android-17)。
 
 ## 内容
 
@@ -24,6 +24,6 @@ Redmi K100 Pro（athens）的 Evolution X 源码清单、补丁和构建工具�
 `repo sync` 会更新官方清单及设备适配分支。同步完成后，补丁脚本会先检查整套补丁能否应用到当前源码，检查通过后再写入。
 
 vendor 文件、预编译内核、APK、签名密钥和 ROM 包均不在仓库中。
-原厂文件通过脚本从 306 线刷包提取，头文件通过固定的公开源码生成。
+原厂文件从国行 HyperOS 4 的 `OS4.0.6.0.XPICNXM` 线刷包提取，内核头文件按配套源码生成。
 
 来源与许可见 [NOTICE.md](NOTICE.md)。
