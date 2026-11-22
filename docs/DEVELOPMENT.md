@@ -5,7 +5,7 @@ PixelOS 源码目录用于调试、应用补丁和编译，继续使用已有的
 
 ## 绑定工作区
 
-在 `athens_manifest` 根目录执行一次：
+在独立目录检出 `android_device_xiaomi_athens` 的 `pixelos-17` 分支，再在 `athens_manifest` 根目录绑定工作区：
 
 ```bash
 python3 tools/workspace.py configure \
@@ -33,6 +33,7 @@ python3 tools/workspace.py build cameraserver  # 也可指定多个编译目标
 构建类型不改变签名密钥；当前本地输入使用开发测试密钥。
 
 设备树按 Git 管理的文件及未忽略的新文件同步；删除的源文件也会删除对应构建副本。
+通过 [构建步骤](BUILD.md#更新现有源码) 更新上游后，也将独立的设备树 checkout 更新到同一版本，再执行工作区同步。
 相机、Pixel Tips APK、vendor、内核和 `out` 不属于这次源码同步的范围，继续原地使用。
 同步前会检查构建副本，存在未归档修改时停止，不覆盖它们。
 
@@ -56,7 +57,7 @@ python3 tools/workspace.py sync
 python3 tools/workspace.py build cameraserver
 ```
 
-`capture` 按固定上游提交生成补丁，不提交 Git，也不改变上游项目的暂存区。
+`capture` 根据项目当前 `HEAD` 生成补丁，不提交 Git，也不改变上游项目的暂存区。
 新增文件要明确列出，避免把调试日志等临时文件放进补丁：
 
 ```bash
@@ -65,6 +66,4 @@ python3 tools/workspace.py capture hardware/xiaomi \
 ```
 
 也可以直接修改仓库中的补丁，再执行 `sync`。工具根据上次已应用的版本计算更新，
-无需手动回退旧补丁。新涉及的上游项目需先加入 `patches/series.json` 并固定基线提交。
-
-本地开发不自动更新 `device-tree.json` 的发布提交号；发布时应在提交设备树后更新它。
+无需手动回退旧补丁。新涉及的上游项目需先加入 `patches/series.json`。

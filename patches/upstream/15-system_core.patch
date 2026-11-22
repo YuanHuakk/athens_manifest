@@ -23,17 +23,35 @@ index 46cc9b0d490ee4cabb2c7b8b83228d28efe4d476..3f0febd8172507a52f5847e2f3629693
          debuggable: {
              cppflags: [
 diff --git a/init/property_service.cpp b/init/property_service.cpp
-index 0b843d5a2eb203223d1fe006bd3db4d78c185470..771e37d2b3c2585701e2f763a33582480a0bdb45 100644
+index 44f1a3880f58c1ce46bf9e41d9e429e280e349e7..12837ee17fa430b9d5021ea8031066b8534b04a4 100644
 --- a/init/property_service.cpp
 +++ b/init/property_service.cpp
-@@ -1413,8 +1413,8 @@ static void SetSafetyNetProps() {
-     InitPropertySet("ro.boot.veritymode", "enforcing");
-     InitPropertySet("ro.boot.warranty_bit", "0");
-     InitPropertySet("ro.build.tags", "release-keys");
--#ifndef ENG_BUILD
--    // Spoof non-eng builds (such as userdebug) to user
-+#if !defined(ENG_BUILD) && !ALLOW_LOCAL_PROP_OVERRIDE
-+    // Preserve debuggable userdebug builds; do not disable their ADB support.
-     InitPropertySet("ro.build.type", "user");
-     InitPropertySet("ro.debuggable", "0");
- #endif
+@@ -1175,12 +1175,16 @@ static void SetSafetyNetProps() {
+         {"ro.boot.veritymode", "enforcing"},
+         {"ro.boot.warranty_bit", "0"},
+         {"ro.warranty_bit", "0"},
++#if !ALLOW_LOCAL_PROP_OVERRIDE
+         {"ro.debuggable", "0"},
+         {"ro.force.debuggable", "0"},
++#endif
+         {"ro.adb.secure", "1"},
+         {"ro.secure", "1"},
+         {"ro.bootimage.build.type", "user"},
++#if !ALLOW_LOCAL_PROP_OVERRIDE
+         {"ro.build.type", "user"},
++#endif
+         {"ro.build.keys", "release-keys"},
+         {"ro.build.tags", "release-keys"},
+         {"ro.system.build.tags", "release-keys"},
+@@ -1212,6 +1216,11 @@ static void SetSafetyNetProps() {
+ }
+
+ static void LoadDebugProperties() {
++    // Keep the build defaults unless a debuggable build has an explicit override.
++    if (ALLOW_LOCAL_PROP_OVERRIDE &&
++        android::base::GetProperty("persist.sys.debug_enabled", "").empty()) {
++        return;
++    }
+     const bool debug_enabled = android::base::GetBoolProperty("persist.sys.debug_enabled", false);
+     if (debug_enabled) {
+         LOG(INFO) << "persist.sys.debug_enabled is set, enabling adb root";

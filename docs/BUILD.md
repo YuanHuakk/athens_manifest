@@ -13,7 +13,6 @@ flex、bison、bc、libssl-dev、libxml2-utils 和 zlib 开发包。Python 需 3
 
 ```bash
 export MANIFEST_REPO=/path/to/athens_manifest
-export DEVICE_REPO=/path/to/android_device_xiaomi_athens
 export TREE=/path/to/pixelos
 export IMAGES=/path/to/athens_images_OS3.0.306.0.WPICNXM_16.0/images
 export STOCK=/path/to/extracted-stock
@@ -22,11 +21,10 @@ export ANDROID_SDK_ROOT=/path/to/android-sdk
 export RELEASE_DIR=/path/to/releases
 ```
 
-取得构建清单和设备树：
+取得 Athens 构建工具和本地清单：
 
 ```bash
 git clone --branch pixelos-17 https://github.com/YuanHuakk/athens_manifest.git "$MANIFEST_REPO"
-git clone --branch pixelos-17 https://github.com/YuanHuakk/android_device_xiaomi_athens.git "$DEVICE_REPO"
 ```
 
 ## 同步源码
@@ -36,23 +34,15 @@ git clone --branch pixelos-17 https://github.com/YuanHuakk/android_device_xiaomi
 ```bash
 mkdir -p "$TREE"
 cd "$TREE"
-repo init -u "$MANIFEST_REPO" -b pixelos-17 -m default.xml --git-lfs
+repo init -u https://github.com/PixelOS-AOSP/android_manifest.git -b seventeen --git-lfs
+install -D -m 644 "$MANIFEST_REPO/default.xml" .repo/local_manifests/athens.xml
 repo sync -c -j12
-mkdir -p device/xiaomi
-git clone --no-checkout "$DEVICE_REPO" device/xiaomi/athens
-DEVICE_REVISION=$(python3 - "$MANIFEST_REPO/device-tree.json" <<'PYTHON'
-import json
-import sys
-
-with open(sys.argv[1]) as source:
-    print(json.load(source)["revision"])
-PYTHON
-)
-git -C device/xiaomi/athens checkout --detach "$DEVICE_REVISION"
 ```
 
-设备树提交由 `device-tree.json` 固定，不跟随分支最新提交。
-锁定清单已经包含 SM8850 项目。`sm8850-platform.xml` 仅供以后换基线时参考，不要重复加载。
+每次同步都会读取 PixelOS `seventeen` 分支的当前清单，AOSP 版本由该清单统一选择。
+本地清单让 Athens 设备树跟随 `pixelos-17`、SM8850 公共树跟随 `lineage-24.0`、小米硬件适配跟随 `songyuan-support`。
+
+从旧 r12 锁定清单迁移时，在新的 `$TREE` 目录执行上述初始化步骤。旧工作区曾以 `athens_manifest` 为主清单，直接同步会在清单检查时报错。新工作区由 repo 管理 Athens 设备树。
 
 ## 应用补丁
 
@@ -63,8 +53,18 @@ python3 "$MANIFEST_REPO/tools/apply-patches.py" --tree "$PWD" --check
 python3 "$MANIFEST_REPO/tools/apply-patches.py" --tree "$PWD"
 ```
 
-脚本核对 `patches/series.json` 中的提交号，全部检查通过后再应用补丁。
-重复执行会跳过已应用的补丁。
+脚本按 `patches/series.json` 检查当前源码，全部检查通过后再应用补丁。
+重复执行会跳过已应用的补丁。上游调整触及补丁内容时，检查会指出冲突所在的项目。
+
+## 更新现有源码
+
+在 `$TREE` 中执行。若同时更新 `athens_manifest`，先用上次应用时的补丁执行 `--reverse`，再更新该仓库并重新安装本地清单。
+
+```bash
+python3 "$MANIFEST_REPO/tools/apply-patches.py" --tree "$PWD" --reverse &&
+  repo sync -c -j12 &&
+  python3 "$MANIFEST_REPO/tools/apply-patches.py" --tree "$PWD"
+```
 
 ## 提取原厂文件
 

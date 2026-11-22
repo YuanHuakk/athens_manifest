@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest>
-    <include name="manifests/pixelos-r12-locked.xml" />
+    <!-- Require the PixelOS base manifest before adding Athens projects. -->
+    <extend-project name="PixelOS-AOSP/android_build" path="build/make" />
+
+    <remote name="athens-alex" fetch="https://github.com/AlexZorzi/" />
+    <remote name="athens-device" fetch="https://github.com/YuanHuakk/" />
+
+    <project name="android_device_xiaomi_athens" path="device/xiaomi/athens" remote="athens-device" revision="refs/heads/pixelos-17" />
+    <project name="android_device_xiaomi_sm8850-common" path="device/xiaomi/sm8850-common" remote="athens-alex" revision="refs/heads/lineage-24.0" />
+    <project name="android_hardware_xiaomi" path="hardware/xiaomi" remote="athens-alex" revision="refs/heads/songyuan-support" />
 </manifest>
