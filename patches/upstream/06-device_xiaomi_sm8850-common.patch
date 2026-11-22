@@ -224,7 +224,7 @@ index f7eb2078112af6a4d89d9940dff68b5092ce8d28..cb5698e1afbdebc5d69889b546cf04d6
 \ No newline at end of file
 +    utils.run()
 diff --git a/proprietary-files.txt b/proprietary-files.txt
-index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..eb87f3d9a5841990b2b284f6734f5e96f605e295 100644
+index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..bc2290c30100251f4c5a6ba1976c831cd5184e7d 100644
 --- a/proprietary-files.txt
 +++ b/proprietary-files.txt
 @@ -132,7 +132,7 @@ vendor/lib64/libaudioserviceexampleimpl.so;DISABLE_DEPS
@@ -345,15 +345,16 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..eb87f3d9a5841990b2b284f6734f5e96
  vendor/etc/permissions/qti_fingerprint_interface.xml
  vendor/lib64/vendor.xiaomi.hardware.fx.tunnel-V1-ndk.so
  vendor/lib64/vendor.qti.hardware.fingerprint-V1-ndk.so
-@@ -922,7 +927,6 @@ system_ext/lib64/lib-imsvideocodec.so
+@@ -922,7 +927,7 @@ system_ext/lib64/lib-imsvideocodec.so
  system_ext/lib64/lib-imsvt.so
  system_ext/lib64/lib-imsvtextutils.so
  system_ext/lib64/lib-imsvtutils.so
 -system_ext/lib64/libimscamera_jni.so;SYMLINK=system_ext/priv-app/ims/lib/arm64/libimscamera_jni.so
++system_ext/lib64/libSurfaceUtil_jni.so;SYMLINK=system_ext/priv-app/ims/lib/arm64/libSurfaceUtil_jni.so
  system_ext/lib64/libimsmedia_jni.so;SYMLINK=system_ext/priv-app/ims/lib/arm64/libimsmedia_jni.so
  system_ext/lib64/vendor.qti.ims.datachannelservice-V1-ndk.so
  system_ext/lib64/vendor.qti.ims.datachannelservice-V2-ndk.so
-@@ -1016,7 +1020,6 @@ vendor/lib64/vendor.qti.hardware.ListenSoundModelAidl-V2-ndk.so
+@@ -1016,7 +1021,6 @@ vendor/lib64/vendor.qti.hardware.ListenSoundModelAidl-V2-ndk.so
 
  # Media
  system_ext/lib64/libmmosal.so
@@ -361,7 +362,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..eb87f3d9a5841990b2b284f6734f5e96
  vendor/bin/hw/qconfigservice
  vendor/bin/hw/vendor.qti.media.c2@1.0-service
  vendor/bin/init.qti.media.sh
-@@ -1118,33 +1121,33 @@ vendor/lib64/vendor.xiaomi.hardware.mlipay-V1-ndk.so
+@@ -1118,33 +1122,33 @@ vendor/lib64/vendor.xiaomi.hardware.mlipay-V1-ndk.so
  vendor/etc/public.libraries.txt
 
  # Neural networks
@@ -422,7 +423,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..eb87f3d9a5841990b2b284f6734f5e96
 
  # NFC
  odm/etc/libnfc-nci.conf:vendor/etc/libnfc-nci.conf
-@@ -1243,7 +1246,6 @@ system_ext/lib64/vendor.qti.qccsyshal_aidl-V1-ndk.so
+@@ -1243,7 +1247,6 @@ system_ext/lib64/vendor.qti.qccsyshal_aidl-V1-ndk.so
  system_ext/lib64/vendor.qti.qccvndhal_aidl-V1-ndk.so
  vendor/bin/qcc-vendor
  vendor/etc/init/init.qccvendor.rc
@@ -430,7 +431,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..eb87f3d9a5841990b2b284f6734f5e96
  vendor/lib64/libqcc_file_agent.so
  vendor/lib64/libqcc_sdk.so
  vendor/lib64/vendor.qti.qccsyshal_aidl-V1-ndk.so;MODULE_SUFFIX=_vendor
-@@ -1313,15 +1315,15 @@ vendor/lib64/libspl.so
+@@ -1313,15 +1316,15 @@ vendor/lib64/libspl.so
  vendor/lib64/vendor.qti.hardware.qseecom-V1-ndk.so
 
  # QSN
@@ -455,7 +456,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..eb87f3d9a5841990b2b284f6734f5e96
 
  # QSPA
  system_ext/etc/init/qspa_system.rc
-@@ -1361,8 +1363,7 @@ product/framework/uimremoteclientlibrary.jar
+@@ -1361,8 +1364,7 @@ product/framework/uimremoteclientlibrary.jar
  product/framework/uimremoteserverlibrary.jar
  product/framework/uimservicelibrary.jar
  product/lib64/vendor.qti.hardware.radio.internal.deviceinfo@1.0.so
@@ -465,7 +466,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..eb87f3d9a5841990b2b284f6734f5e96
  system_ext/etc/permissions/qcrilhook.xml
  system_ext/etc/permissions/qti_libpermissions.xml
  system_ext/etc/permissions/qti_permissions.xml
-@@ -1638,7 +1639,7 @@ vendor/lib64/vendor.qti.snapdragonServices-V2-ndk.so
+@@ -1638,7 +1640,7 @@ vendor/lib64/vendor.qti.snapdragonServices-V2-ndk.so
  vendor/lib64/vendor.qti.snapdragonServices.qape-V1-ndk.so
 
  # Soter
@@ -474,7 +475,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..eb87f3d9a5841990b2b284f6734f5e96
  vendor/bin/hw/vendor.qti.hardware.soter-service
  vendor/bin/vendor.qti.hardware.soter-provision
  vendor/etc/init/vendor.qti.hardware.soter-service.rc
-@@ -1761,34 +1762,36 @@ vendor/etc/wifi/wpa_supplicant_overlay.conf
+@@ -1761,34 +1763,36 @@ vendor/etc/wifi/wpa_supplicant_overlay.conf
  vendor/lib64/libWlanServiceJni.so
 
  # WiFi Display (system) - from CPH2745_11_C_OTA_1020_all_Qyq7GC_00011011
