@@ -215,7 +215,7 @@ index f7eb2078112af6a4d89d9940dff68b5092ce8d28..cb5698e1afbdebc5d69889b546cf04d6
 \ No newline at end of file
 +    utils.run()
 diff --git a/proprietary-files.txt b/proprietary-files.txt
-index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..8012e0f1533af062a75a0a2d2f063d45e51611d7 100644
+index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..6ffffcf29067b2f3d645a6001a08f68f447a97c3 100644
 --- a/proprietary-files.txt
 +++ b/proprietary-files.txt
 @@ -132,7 +132,7 @@ vendor/lib64/libaudioserviceexampleimpl.so;DISABLE_DEPS
@@ -408,24 +408,31 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..8012e0f1533af062a75a0a2d2f063d45
  vendor/lib64/libqcc_file_agent.so
  vendor/lib64/libqcc_sdk.so
  vendor/lib64/vendor.qti.qccsyshal_aidl-V1-ndk.so;MODULE_SUFFIX=_vendor
-@@ -1315,12 +1306,12 @@ vendor/lib64/vendor.qti.hardware.qseecom-V1-ndk.so
+@@ -1313,15 +1304,15 @@ vendor/lib64/libspl.so
+ vendor/lib64/vendor.qti.hardware.qseecom-V1-ndk.so
+
  # QSN
- vendor/lib64/qsn1nrt430.bin
- vendor/lib64/qsn1nrt43270.bin
+-vendor/lib64/qsn1nrt430.bin
+-vendor/lib64/qsn1nrt43270.bin
 -vendor/lib64/qsn1rt1690_vga.bin
 -vendor/lib64/qsn1rt169270_vga.bin
 -vendor/lib64/qsn1rt430_vga.bin
 -vendor/lib64/qsn1rt43270_vga.bin
+-vendor/lib64/qsn2all.bin
+-vendor/lib64/qsn3_video.bin
+-vendor/lib64/qsn3all.bin
++odm/lib64/qsn1nrt430.bin;SYMLINK=vendor/lib64/qsn1nrt430.bin
++odm/lib64/qsn1nrt43270.bin;SYMLINK=vendor/lib64/qsn1nrt43270.bin
 +odm/lib64/qsn1rt1690_vga.bin
 +odm/lib64/qsn1rt169270_vga.bin
 +odm/lib64/qsn1rt430_vga.bin
 +odm/lib64/qsn1rt43270_vga.bin
- vendor/lib64/qsn2all.bin
--vendor/lib64/qsn3_video.bin
++odm/lib64/qsn2all.bin;SYMLINK=vendor/lib64/qsn2all.bin
 +odm/lib64/qsn3_video.bin
- vendor/lib64/qsn3all.bin
++odm/lib64/qsn3all.bin;SYMLINK=vendor/lib64/qsn3all.bin
 
  # QSPA
+ system_ext/etc/init/qspa_system.rc
 @@ -1361,8 +1352,7 @@ product/framework/uimremoteclientlibrary.jar
  product/framework/uimremoteserverlibrary.jar
  product/framework/uimservicelibrary.jar
