@@ -2,31 +2,23 @@
 
 已有工作区的日常修改与增量编译见 [本地开发](DEVELOPMENT.md)。
 
-以下命令在 Linux 下执行。需要 Git、repo、Git LFS、Python 3 和 PixelOS 构建依赖。
+以下命令在 Linux 下执行。需要 Git、repo、Git LFS、Python 3 和 Evolution X 构建依赖。
 原厂镜像准备脚本需要 `erofs-utils`（提供 `fsck.erofs`）、`lz4` 和 `cpio`。
 相机脚本另需 Android SDK Build Tools 37.0.0；编译使用源码树自带的 JDK 21。
 
 构建主机还需常规 AOSP 依赖，包括 make、GCC/G++、Git LFS、zip/unzip、rsync、
 flex、bison、bc、libssl-dev、libxml2-utils 和 zlib 开发包。Python 需 3.11 或更新版本。
 
-先设置几个本地路径：
+将 `MANIFEST_REPO` 指向此仓库的 `evox-17` 工作副本，再设置构建路径：
 
 ```bash
 export MANIFEST_REPO=/path/to/athens_manifest
-export DEVICE_REPO=/path/to/android_device_xiaomi_athens
-export TREE=/path/to/pixelos
+export TREE=/path/to/evox-athens
 export IMAGES=/path/to/athens_images_OS3.0.306.0.WPICNXM_16.0/images
 export STOCK=/path/to/extracted-stock
 export UAPI_CACHE=/path/to/uapi-sources
 export ANDROID_SDK_ROOT=/path/to/android-sdk
 export RELEASE_DIR=/path/to/releases
-```
-
-取得构建清单和设备树：
-
-```bash
-git clone --branch pixelos-17 https://github.com/YuanHuakk/athens_manifest.git "$MANIFEST_REPO"
-git clone --branch pixelos-17 https://github.com/YuanHuakk/android_device_xiaomi_athens.git "$DEVICE_REPO"
 ```
 
 ## 同步源码
@@ -36,23 +28,15 @@ git clone --branch pixelos-17 https://github.com/YuanHuakk/android_device_xiaomi
 ```bash
 mkdir -p "$TREE"
 cd "$TREE"
-repo init -u "$MANIFEST_REPO" -b pixelos-17 -m default.xml --git-lfs
-repo sync -c -j12
-mkdir -p device/xiaomi
-git clone --no-checkout "$DEVICE_REPO" device/xiaomi/athens
-DEVICE_REVISION=$(python3 - "$MANIFEST_REPO/device-tree.json" <<'PYTHON'
-import json
-import sys
-
-with open(sys.argv[1]) as source:
-    print(json.load(source)["revision"])
-PYTHON
-)
-git -C device/xiaomi/athens checkout --detach "$DEVICE_REVISION"
+repo init -u "https://github.com/Evolution-X/manifest" -b cnb --git-lfs
+install -D -m 644 "$MANIFEST_REPO/default.xml" ".repo/local_manifests/athens.xml"
+repo sync -c -j12 --no-clone-bundle
 ```
 
-设备树提交由 `device-tree.json` 固定，不跟随分支最新提交。
-锁定清单已经包含 SM8850 项目。`sm8850-platform.xml` 仅供以后换基线时参考，不要重复加载。
+每次同步都会读取 Evolution X `cnb` 分支的当前清单，AOSP 版本由该清单统一选择。
+本地清单让 Athens 设备树跟随 `pixelos-17`、SM8850 公共树跟随 `lineage-24.0`、小米硬件适配跟随 `songyuan-support`。
+
+Evolution X 使用独立的 `$TREE`，包含自己的 `.repo`、`out` 和生成的 vendor 目录。
 
 ## 应用补丁
 
@@ -63,8 +47,18 @@ python3 "$MANIFEST_REPO/tools/apply-patches.py" --tree "$PWD" --check
 python3 "$MANIFEST_REPO/tools/apply-patches.py" --tree "$PWD"
 ```
 
-脚本核对 `patches/series.json` 中的提交号，全部检查通过后再应用补丁。
-重复执行会跳过已应用的补丁。
+脚本按 `patches/series.json` 检查当前源码，全部检查通过后再应用补丁。
+重复执行会跳过已应用的补丁。上游调整触及补丁内容时，检查会指出冲突所在的项目。
+
+## 更新现有源码
+
+在 `$TREE` 中执行。若同时更新 `athens_manifest`，先用上次应用时的补丁执行 `--reverse`，再更新该仓库并重新安装本地清单。
+
+```bash
+python3 "$MANIFEST_REPO/tools/apply-patches.py" --tree "$PWD" --reverse &&
+  repo sync -c -j12 --no-clone-bundle &&
+  python3 "$MANIFEST_REPO/tools/apply-patches.py" --tree "$PWD"
+```
 
 ## 提取原厂文件
 
@@ -140,18 +134,19 @@ python3 "$MANIFEST_REPO/tools/prepare-pixel-tips.py" \
 ## 编译
 
 ```bash
-TREE="$PWD" JOBS=12 bash "$MANIFEST_REPO/tools/build.sh" pixelos
+TREE="$PWD" JOBS=12 bash "$MANIFEST_REPO/tools/build.sh" nothing
+TREE="$PWD" JOBS=12 bash "$MANIFEST_REPO/tools/build.sh"
 ```
 
-默认构建 `user`，关闭 ADB Root；athens 单独允许 init 读取 Permissive 启动参数。
-调试版可设置 `BUILD_VARIANT=userdebug`。切换构建类型不会自动改用发布密钥。
+脚本默认选择 `lineage_athens-userdebug`，由 EvoX 根据上游 `BUILD_ID` 决定 release 配置。无目标参数时执行 `m evolution`。
+可通过 `BUILD_VARIANT=user` 切换到 `user`。切换构建类型不会自动改用发布密钥。
 
 完成后导出独立副本；把下面的文件名替换为实际输出：
 
 ```bash
 python3 "$MANIFEST_REPO/tools/export-candidate.py" \
-  out/target/product/athens/PixelOS_athens-17.0-YYYYMMDD-HHMM.zip \
-  "$RELEASE_DIR" --revision r13
+  "out/target/product/athens/EvolutionX-17.0-YYYYMMDD-athens-VERSION-Unofficial.zip" \
+  "$RELEASE_DIR" --revision r1
 ```
 
 导出文件名使用包内 UTC 时间。独立副本不会随下一次构建输出一起被覆盖。

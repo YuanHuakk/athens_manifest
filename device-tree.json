@@ -1,6 +1,5 @@
 {
   "repository": "android_device_xiaomi_athens",
   "path": "device/xiaomi/athens",
-  "branch": "pixelos-17",
-  "revision": "321ca00a9ef972fe0917195fa455bf7cb1152c45"
+  "branch": "pixelos-17"
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Sync the two development repositories into an existing PixelOS work tree."""
+"""Sync the two development repositories into an existing Evolution X work tree."""
 
 import argparse
 import contextlib
@@ -39,9 +39,27 @@ def patch_paths(project, patch):
 def expected_tree(project, base, patch):
     with index(project, base) as env:
         if patch.strip():
-            git(
-                project, "apply", "--cached", "--whitespace=nowarn", env=env, data=patch
-            )
+            command = [
+                "git",
+                "-C",
+                str(project),
+                "apply",
+                "--cached",
+                "--whitespace=nowarn",
+            ]
+            forward = subprocess.run(command, env=env, input=patch, capture_output=True)
+            if forward.returncode:
+                reverse = subprocess.run(
+                    [*command, "--reverse", "--check"],
+                    env=env,
+                    input=patch,
+                    capture_output=True,
+                )
+                if reverse.returncode:
+                    raise ValueError(
+                        f"Cannot apply patch in {project} at {base}:\n"
+                        f"{forward.stderr.decode()}"
+                    )
         return git(project, "write-tree", env=env).decode().strip()
 
 
@@ -58,38 +76,38 @@ def working_tree(project, base, paths):
 
 def check_base(project, entry):
     head = git(project, "rev-parse", "HEAD").decode().strip()
-    if head != entry["base_commit"]:
+    base = entry.get("base_commit")
+    if base is not None and head != base:
         raise ValueError(f"{entry['project']}: HEAD differs from the pinned baseline")
+    return head
 
 
 def patch_plan(tree, entries, patch_root, saved):
     plan = []
     for entry in entries:
         project = tree / entry["project"]
-        check_base(project, entry)
+        base = check_base(project, entry)
         new = (patch_root / entry["patch"]).read_bytes()
         previous = saved / entry["patch"]
         old = previous.read_bytes() if previous.exists() else new
-        base = entry["base_commit"]
         desired = expected_tree(project, base, new)
-        before = desired if old == new else expected_tree(project, base, old)
         paths = patch_paths(project, old) | patch_paths(project, new)
         actual = working_tree(project, base, paths)
-        if actual == desired:
-            delta = b""
-        elif (
-            actual == before
-            or actual == git(project, "rev-parse", base + "^{tree}").decode().strip()
-        ):
+        clean = git(project, "rev-parse", base + "^{tree}").decode().strip()
+        if actual not in (clean, desired):
+            before = desired if old == new else expected_tree(project, base, old)
+            if actual != before:
+                files = (
+                    git(project, "diff", "--name-only", before, actual).decode().strip()
+                )
+                raise ValueError(
+                    f"Unrecorded changes in {entry['project']}:\n{files}\n"
+                    f"Use workspace.py capture {entry['project']} after reviewing them."
+                )
+        delta = b""
+        if actual != desired:
             delta = git(project, "diff", "--binary", "--full-index", actual, desired)
-            if delta:
-                git(project, "apply", "--check", data=delta)
-        else:
-            files = git(project, "diff", "--name-only", before, actual).decode().strip()
-            raise ValueError(
-                f"Unrecorded changes in {entry['project']}:\n{files}\n"
-                f"Use workspace.py capture {entry['project']} after reviewing them."
-            )
+            git(project, "apply", "--check", data=delta)
         plan.append((project, delta, previous, new))
     return plan
 
@@ -195,20 +213,16 @@ def capture(config, name, include):
     entries = json.loads((ROOT / "patches/series.json").read_text())
     entry = next((e for e in entries if e["project"] == name), None)
     if entry is None:
-        raise ValueError(
-            "Register this project and its pinned baseline in patches/series.json first"
-        )
+        raise ValueError("Register this project in patches/series.json first")
     project = Path(config["tree"]) / name
-    check_base(project, entry)
+    base = check_base(project, entry)
     patch = ROOT / "patches" / entry["patch"]
     paths = patch_paths(project, patch.read_bytes()) | set(include)
     for path in paths:
         if Path(path).is_absolute() or ".." in Path(path).parts:
             raise ValueError(f"Expected a project-relative file: {path}")
-    actual = working_tree(project, entry["base_commit"], paths)
-    data = git(
-        project, "diff", "--binary", "--full-index", entry["base_commit"], actual
-    )
+    actual = working_tree(project, base, paths)
+    data = git(project, "diff", "--binary", "--full-index", base, actual)
     patch.write_bytes(data)
     print(f"Captured {name} -> {patch.relative_to(ROOT)}")
 
@@ -232,7 +246,7 @@ def main():
         help="New project-relative source file",
     )
     build = commands.add_parser("build")
-    build.add_argument("targets", nargs="*", default=["pixelos"])
+    build.add_argument("targets", nargs="*")
     commands.add_parser("camera")
     commands.add_parser("vendor")
     args = parser.parse_args()
@@ -261,7 +275,7 @@ def main():
     if args.command == "build":
         env = dict(os.environ, TREE=str(tree))
         subprocess.run(
-            ["bash", str(ROOT / "tools/build.sh"), *(args.targets or ["pixelos"])],
+            ["bash", str(ROOT / "tools/build.sh"), *args.targets],
             env=env,
             check=True,
         )

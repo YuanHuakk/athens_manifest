@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Prepare stock athens Xiaomi Camera 6.3.008710.8 for PixelOS."""
+"""Prepare stock athens Xiaomi Camera 6.3.008710.8 for a custom ROM."""
 
 import argparse
 import subprocess
@@ -140,7 +140,7 @@ def prepare_camera(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--tree", required=True, type=Path, help="PixelOS source root")
+    parser.add_argument("--tree", required=True, type=Path, help="Android source root")
     parser.add_argument("--stock-apk", required=True, type=Path)
     parser.add_argument("--build-tools", required=True, type=Path)
     parser.add_argument(

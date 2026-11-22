@@ -16,9 +16,16 @@ OTA_METADATA = "META-INF/com/android/metadata"
 def export_candidate(
     source: Path, directory: Path, revision: str
 ) -> dict[str, str | int]:
-    version = re.fullmatch(r"PixelOS_athens-(\d+\.\d+)-.+\.zip", source.name)
-    if not version or not re.fullmatch(r"r[1-9][0-9]*", revision):
-        raise ValueError("Expected PixelOS_athens-VERSION-*.zip and revision rN.")
+    evox = re.fullmatch(r"EvolutionX-(\d+\.\d+)-\d{8}-athens-(.+)\.zip", source.name)
+    pixelos = re.fullmatch(r"PixelOS_athens-(\d+\.\d+)-.+\.zip", source.name)
+    if evox:
+        prefix = f"EvolutionX_athens-{evox[1]}-{evox[2]}"
+    elif pixelos:
+        prefix = f"PixelOS_athens-{pixelos[1]}-UNOFFICIAL"
+    else:
+        raise ValueError("Expected an Evolution X or PixelOS athens OTA filename.")
+    if not re.fullmatch(r"r[1-9][0-9]*", revision):
+        raise ValueError("Expected a revision of the form rN.")
 
     with zipfile.ZipFile(source) as archive:
         metadata = dict(
@@ -30,10 +37,7 @@ def export_candidate(
         raise ValueError("Expected an athens A/B OTA.")
 
     timestamp = datetime.fromtimestamp(int(metadata["post-timestamp"]), timezone.utc)
-    name = (
-        f"PixelOS_athens-{version[1]}-UNOFFICIAL-"
-        f"{timestamp:%Y%m%d-%H%M}UTC-{revision}.zip"
-    )
+    name = f"{prefix}-{timestamp:%Y%m%d-%H%M}UTC-{revision}.zip"
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / name
     # Copy rather than hard-link: build outputs may be overwritten in place.
