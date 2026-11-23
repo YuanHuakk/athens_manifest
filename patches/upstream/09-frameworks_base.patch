@@ -303,10 +303,16 @@ index 42fddd2d897ba1faf3d1470097c880efd394789c..f16e9f9385b900bc8a163ee5eb80e5da
                          }
                      }
 diff --git a/packages/SystemUI/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySection.kt b/packages/SystemUI/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySection.kt
-index ec03b45dd33039dc587bf50f8e7c1ecbd34fe5d7..e12160b51dccbe7f9934508fb6d8e1e6fc278cf8 100644
+index ec03b45dd33039dc587bf50f8e7c1ecbd34fe5d7..e218ac87405d54d48ea1ca170951f990c1aa4373 100644
 --- a/packages/SystemUI/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySection.kt
 +++ b/packages/SystemUI/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySection.kt
-@@ -26,6 +26,7 @@ import androidx.annotation.VisibleForTesting
+@@ -21,11 +21,13 @@
+ import android.graphics.Point
+ import android.graphics.Rect
+ import android.util.DisplayMetrics
++import android.view.View
+ import android.view.WindowManager
+ import androidx.annotation.VisibleForTesting
  import androidx.constraintlayout.widget.ConstraintLayout
  import androidx.constraintlayout.widget.ConstraintSet
  import com.android.systemui.biometrics.AuthController
@@ -314,7 +320,7 @@ index ec03b45dd33039dc587bf50f8e7c1ecbd34fe5d7..e12160b51dccbe7f9934508fb6d8e1e6
  import com.android.systemui.customization.clocks.R as clocksR
  import com.android.systemui.dagger.qualifiers.Application
  import com.android.systemui.dagger.qualifiers.Main
-@@ -62,6 +63,7 @@ constructor(
+@@ -62,6 +64,7 @@
      @Application private val applicationScope: CoroutineScope,
      @Main private val mainDispatcher: CoroutineDispatcher,
      private val authController: AuthController,
@@ -322,18 +328,33 @@ index ec03b45dd33039dc587bf50f8e7c1ecbd34fe5d7..e12160b51dccbe7f9934508fb6d8e1e6
      private val windowManager: WindowManager,
      private val windowRootViewBlurInteractor: WindowRootViewBlurInteractor,
      @ShadeDisplayAware private val context: Context,
-@@ -112,7 +114,7 @@ constructor(
+@@ -87,7 +90,11 @@
+                     null,
+                     logger = TouchHandlingViewLogger(logBuffer = logBuffer, TAG),
+                 )
+-                .apply { id = deviceEntryIconViewId }
++                .apply {
++                    id = deviceEntryIconViewId
++                    visibility = View.INVISIBLE
++                    alpha = 0f
++                }
+
+         constraintLayout.addView(view)
      }
- 
+@@ -112,7 +119,9 @@
+     }
+
      override fun applyConstraints(constraintSet: ConstraintSet) {
 -        val isUdfpsSupported = deviceEntryIconViewModel.get().isUdfpsSupported.value
++        // The binder owns visibility, including while initial setup is in progress.
++        constraintSet.setVisibilityMode(deviceEntryIconViewId, ConstraintSet.VISIBILITY_MODE_IGNORE)
 +        val isUdfpsSupported = fingerprintPropertyInteractor.isUdfps.value
          blueprintLogger.d({ "isUdfpsSupported=$bool1" }) { bool1 = isUdfpsSupported }
- 
+
          val scaleFactor: Float = authController.scaleFactor
-@@ -133,7 +135,7 @@ constructor(
+@@ -133,7 +142,7 @@
          val iconRadiusPx = (defaultDensity * 36).toInt()
- 
+
          if (isUdfpsSupported) {
 -            deviceEntryIconViewModel.get().udfpsLocation.value?.let { udfpsLocation ->
 +            fingerprintPropertyInteractor.sensorLocation.value.let { udfpsLocation ->
