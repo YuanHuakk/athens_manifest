@@ -62,5 +62,9 @@
   {
     "project": "frameworks/av",
     "patch": "upstream/18-frameworks_av.patch"
+  },
+  {
+    "project": "vendor/lineage",
+    "patch": "upstream/20-vendor_lineage.patch"
   }
 ]

@@ -19,6 +19,7 @@
 | `system_dlkm/`                    | system_dlkm 中该内核版本的模块目录内容     |
 | `system_dlkm_flatten/`            | system_dlkm 的 flatten/lib/modules         |
 | `kernel-headers.tar.gz`           | UAPI 头，归档根为 usr/include              |
+| `Android.bp`、`qti-include/`      | Soong 头库及供用户态使用的 QTI 扩展头      |
 
 `tools/prepare-kernel.py` 完成以上目录的生成。它调用源码树中的 `unpack_bootimg.py`，
 按 FDT 的 totalsize 顺序拆分 DTB，用 lz4 / cpio 提取 vendor ramdisk 的模块。
@@ -37,5 +38,18 @@ GKI。去除 Kbuild / Makefile，再加入与 r12 一致的 Makefile，生成以
 
 头文件由上述源码组合生成，未经 `make headers_install` 导出。IPA 头文件由
 `hardware/qcom-caf/sm8850/dataipa` 单独提供。
+
+编译 HAL 时，通用 Linux 接口使用当前 ROM 的 Bionic 头文件。脚本用同一源码树中的
+`bionic/libc/kernel/tools/clean_header.py` 清洗 QTI 仓库 `include/uapi` 下跟踪的
+28 个扩展头，生成独立的 `//device/xiaomi/athens-kernel:athens_qti_kernel_headers`。
+新准备的内核输入已包含这个库。已有内核输入可执行一次以下命令：
+
+```bash
+python3 "$MANIFEST_REPO/tools/prepare-kernel.py" --qti-headers-only \
+  --tree "$TREE" --uapi-cache "$UAPI_CACHE" --output "$TREE/device/xiaomi/athens-kernel"
+```
+
+该命令可重复执行。若向另一台构建机复制已准备的内核目录，请同时复制生成的
+`Android.bp` 和 `qti-include/`。
 
 脚本只准备构建输入，不重新编译内核。原厂内核、模块和生成的头文件包不提交到本仓库。
