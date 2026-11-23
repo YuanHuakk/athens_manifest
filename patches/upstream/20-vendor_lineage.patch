@@ -1,0 +1,39 @@
+diff --git a/build/soong/Android.bp b/build/soong/Android.bp
+index e69a6a189b..6f3397d6d7 100644
+--- a/build/soong/Android.bp
++++ b/build/soong/Android.bp
+@@ -92,10 +92,31 @@
+     pluginFor: ["soong_build"],
+ }
+
+-cc_defaults {
++soong_config_module_type {
++    name: "lineage_kernel_header_defaults",
++    module_type: "cc_defaults",
++    config_namespace: "lineageKernelHeaders",
++    value_variables: ["prebuilt_module"],
++    properties: [
++        "header_libs",
++        "export_header_lib_headers",
++        "generated_headers",
++        "export_generated_headers",
++    ],
++}
++
++lineage_kernel_header_defaults {
+     name: "generated_kernel_header_defaults",
+-    generated_headers: ["generated_kernel_includes"],
+-    export_generated_headers: ["generated_kernel_includes"],
++    soong_config_variables: {
++        prebuilt_module: {
++            header_libs: ["%s"],
++            export_header_lib_headers: ["%s"],
++            conditions_default: {
++                generated_headers: ["generated_kernel_includes"],
++                export_generated_headers: ["generated_kernel_includes"],
++            },
++        },
++    },
+     vendor_available: true,
+     recovery_available: true,
+ }

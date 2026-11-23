@@ -117,6 +117,19 @@ index 0000000000000000000000000000000000000000..e385fdb44e0845ed452c689c86f14f77
 +                     rawXCursorPosition, rawYCursorPosition, rawTransform, downTime, eventTime,
 +                     pointerCount, pointerProperties, pointerCoords);
 +}
+diff --git a/configs/properties/odm.prop b/configs/properties/odm.prop
+index 4e07ab6cb3a201008d51ac0d1dcfe79c1da2f16d..440a5bb93c2d82e55c0c52dbd0428bf67ec0e167 100644
+--- a/configs/properties/odm.prop
++++ b/configs/properties/odm.prop
+@@ -68,7 +68,7 @@
+ ro.vendor.display.uiservice.enable=true
+ ro.vendor.display.update_dbi_by_temperature=true
+ ro.vendor.display.video_or_camera_fps.support=true
+-ro.vendor.display.vivid_calibration.enable=1
++ro.vendor.display.vivid_calibration.enable?=1
+ vendor.display.boost_cpu_layer_number_threshold=10
+ vendor.display.disable_3d_adaptive_tm=1
+ vendor.display.disable_cwb_call=0
 diff --git a/configs/properties/vendor.prop b/configs/properties/vendor.prop
 index 618f7d6b831ac7336bca45d5466b592f0e31c9ad..0a435663d0a654ed59390a335124a0b7b4836dd8 100644
 --- a/configs/properties/vendor.prop

@@ -142,8 +142,9 @@ TREE="$PWD" JOBS=12 bash "$MANIFEST_REPO/tools/build.sh" nothing
 TREE="$PWD" JOBS=12 bash "$MANIFEST_REPO/tools/build.sh"
 ```
 
-脚本默认选择 `lineage_athens-userdebug`，由 EvoX 根据上游 `BUILD_ID` 决定 release 配置。无目标参数时执行 `m evolution`。
-可通过 `BUILD_VARIANT=user` 切换到 `user`。切换构建类型不会自动改用发布密钥。
+脚本默认选择 `lineage_athens-user`，由 EvoX 根据上游 `BUILD_ID` 决定 release 配置。无目标参数时执行 `m evolution`。
+SELinux 配置为 Enforcing。刷入后可用 `adb shell getenforce` 确认运行状态。
+调试版可设置 `BUILD_VARIANT=userdebug`。默认构建使用开发测试密钥，发布签名需单独配置。
 
 完成后导出独立副本；把下面的文件名替换为实际输出：
 

@@ -1,0 +1,44 @@
+diff --git a/Android.bp b/Android.bp
+index 9ff4263ff6..4cb1ed1557 100644
+--- a/Android.bp
++++ b/Android.bp
+@@ -680,7 +680,6 @@
+     name: "precompiled_sepolicy_without_vendor",
+     srcs: [":precompiled_sepolicy_without_vendor_srcs"],
+     installable: false, // used only for Treble labeling tests
+-    permissive_domains_on_user_builds: ["backuptool", "su"],
+ }
+
+ filegroup {
+@@ -714,10 +713,6 @@
+     },
+     required: [
+         "sepolicy_neverallows",
+-    ],
+-    permissive_domains_on_user_builds: [
+-        "backuptool",
+-        "su",
+     ],
+ }
+
+diff --git a/private/su.te b/private/su.te
+index 4d453f71ee..ace40ea4e4 100644
+--- a/private/su.te
++++ b/private/su.te
+@@ -29,6 +29,9 @@
+   # Exempt userdebug-only coredomains from Treble labeling tests (b/493040969)
+   typeattribute su_virtualizationmanager treble_labeling_violators;
+   typeattribute su_virtmgr_crosvm treble_labeling_violators;
++
++  # su is also permissive to permit setenforce.
++  permissive su;
+
+   app_domain(su)
+
+@@ -141,6 +144,3 @@
+   typeattribute su hal_wifi_hostapd_client;
+   typeattribute su hal_wifi_supplicant_client;
+ ')
+-
+-# su is also permissive to permit setenforce.
+-permissive su;

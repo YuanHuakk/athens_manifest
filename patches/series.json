@@ -62,5 +62,13 @@
   {
     "project": "frameworks/av",
     "patch": "upstream/18-frameworks_av.patch"
+  },
+  {
+    "project": "system/sepolicy",
+    "patch": "upstream/19-system_sepolicy.patch"
+  },
+  {
+    "project": "vendor/lineage",
+    "patch": "upstream/20-vendor_lineage.patch"
   }
 ]

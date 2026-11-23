@@ -28,8 +28,9 @@ python3 tools/workspace.py build           # 同步后增量编译 Evolution X
 python3 tools/workspace.py build cameraserver  # 也可指定多个编译目标
 ```
 
-默认编译 `userdebug`。使用 `BUILD_VARIANT=user python3 tools/workspace.py build` 切换到 `user`。
-构建类型不改变签名密钥；当前本地输入使用开发测试密钥。
+默认编译 `user`，SELinux 配置为 Enforcing。需要启动诊断脚本时，
+使用 `BUILD_VARIANT=userdebug python3 tools/workspace.py build`。
+这两种构建类型默认使用相同的开发测试密钥。
 
 设备树按 Git 管理的文件及未忽略的新文件同步；删除的源文件也会删除对应构建副本。
 通过 [构建步骤](BUILD.md#更新现有源码) 更新上游后，也将独立的设备树 checkout 更新到同一版本，再执行工作区同步。
