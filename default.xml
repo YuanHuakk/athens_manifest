@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest>
-    <!-- Require the Evolution X base manifest before adding Athens projects. -->
-    <extend-project name="build" path="build/make" />
+    <!-- Require the Project Infinity X base manifest. -->
+    <extend-project name="vendor_infinity" path="vendor/infinity" />
 
     <remote name="athens-alex" fetch="https://github.com/AlexZorzi/" />
     <remote name="athens-device" fetch="https://github.com/YuanHuakk/" />
@@ -9,4 +9,33 @@
     <project name="android_device_xiaomi_athens" path="device/xiaomi/athens" remote="athens-device" revision="refs/heads/android-17" />
     <project name="android_device_xiaomi_sm8850-common" path="device/xiaomi/sm8850-common" remote="athens-alex" revision="refs/heads/lineage-24.0" />
     <project name="android_hardware_xiaomi" path="hardware/xiaomi" remote="athens-alex" revision="refs/heads/songyuan-support" />
+
+    <project name="LineageOS/android_device_qcom_sepolicy_vndr" path="device/qcom/sepolicy_vndr/sm8850" remote="github" revision="lineage-24.0-caf-sm8850" groups="qcom,kaanapali-vendor" />
+    <project name="LineageOS/android_vendor_qcom_opensource_agm" path="hardware/qcom-caf/sm8850/audio/agm" remote="github" revision="lineage-24.0-caf-sm8850" groups="qcom,kaanapali-audio" />
+    <project name="LineageOS/android_vendor_qcom_opensource_audioreach-graphservices" path="hardware/qcom-caf/sm8850/audio/graphservices" remote="github" revision="lineage-24.0-caf-sm8850" groups="qcom,kaanapali-audio" />
+    <project name="LineageOS/android_vendor_qcom_opensource_arpal-lx" path="hardware/qcom-caf/sm8850/audio/pal" remote="github" revision="lineage-24.0-caf-sm8850" groups="qcom,kaanapali-audio" />
+    <project name="LineageOS/android_hardware_qcom_audio-ar" path="hardware/qcom-caf/sm8850/audio/primary-hal" remote="github" revision="lineage-24.0-caf-sm8850" groups="qcom,kaanapali-audio" />
+    <project name="LineageOS/android_vendor_qcom_opensource_data-ipa-cfg-mgr" path="hardware/qcom-caf/sm8850/data-ipa-cfg-mgr" remote="github" revision="lineage-24.0-caf-sm8850" groups="qcom,kaanapali-vendor" />
+    <project name="LineageOS/android_vendor_qcom_opensource_dataipa" path="hardware/qcom-caf/sm8850/dataipa" remote="github" revision="lineage-24.0-caf-sm8850" groups="qcom,kaanapali-vendor" />
+    <project name="LineageOS/android_vendor_qcom_opensource_display-core" path="hardware/qcom-caf/sm8850/display/core" remote="github" revision="lineage-24.0-caf-sm8850" groups="qcom" />
+    <project name="LineageOS/android_hardware_qcom_display" path="hardware/qcom-caf/sm8850/display/hal" remote="github" revision="lineage-24.0-caf-sm8850" groups="qcom" />
+    <project name="LineageOS/android_vendor_qcom_opensource_display-intf" path="hardware/qcom-caf/sm8850/display/intf" remote="github" revision="lineage-24.0-caf-sm8850" groups="qcom" />
+
+    <!-- Repo requires replacing the project to add the SM8850 linkfile. -->
+    <remove-project name="LineageOS/android_hardware_qcom-caf_common" path="hardware/qcom-caf/common" />
+    <project name="LineageOS/android_hardware_qcom-caf_common" path="hardware/qcom-caf/common" remote="github" revision="refs/heads/lineage-24.0" groups="qcom">
+        <linkfile src="os_pickup_aosp.mk" dest="hardware/qcom/Android.mk" />
+        <linkfile src="os_pickup_sepolicy_vndr.mk" dest="device/qcom/sepolicy_vndr/SEPolicy.mk" />
+        <linkfile src="os_pickup_qssi.bp" dest="hardware/qcom-caf/msm8953/Android.bp" />
+        <linkfile src="os_pickup_qssi.bp" dest="hardware/qcom-caf/sdm660/Android.bp" />
+        <linkfile src="os_pickup_qssi.bp" dest="hardware/qcom-caf/sm8150/Android.bp" />
+        <linkfile src="os_pickup_qssi.bp" dest="hardware/qcom-caf/sm8250/Android.bp" />
+        <linkfile src="os_pickup_qssi.bp" dest="hardware/qcom-caf/sm8350/Android.bp" />
+        <linkfile src="os_pickup_qssi.bp" dest="hardware/qcom-caf/sm8450/Android.bp" />
+        <linkfile src="os_pickup_qssi.bp" dest="hardware/qcom-caf/sm8450-6.6/Android.bp" />
+        <linkfile src="os_pickup_qssi.bp" dest="hardware/qcom-caf/sm8550/Android.bp" />
+        <linkfile src="os_pickup_qssi.bp" dest="hardware/qcom-caf/sm8650/Android.bp" />
+        <linkfile src="os_pickup_qssi.bp" dest="hardware/qcom-caf/sm8750/Android.bp" />
+        <linkfile src="os_pickup_qssi.bp" dest="hardware/qcom-caf/sm8850/Android.bp" />
+    </project>
 </manifest>

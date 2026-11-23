@@ -18,12 +18,19 @@ def export_candidate(
 ) -> dict[str, str | int]:
     evox = re.fullmatch(r"EvolutionX-(\d+\.\d+)-\d{8}-athens-(.+)\.zip", source.name)
     pixelos = re.fullmatch(r"PixelOS_athens-(\d+\.\d+)-.+\.zip", source.name)
+    infinity = re.fullmatch(
+        r"Project_Infinity-X-(\d+\.\d+)-athens-\d{2}\.\d{2}\.\d{4}-"
+        r"(GAPPS|VANILLA)-(UNOFFICIAL|OFFICIAL)\.zip",
+        source.name,
+    )
     if evox:
         prefix = f"EvolutionX_athens-{evox[1]}-{evox[2]}"
     elif pixelos:
         prefix = f"PixelOS_athens-{pixelos[1]}-UNOFFICIAL"
+    elif infinity:
+        prefix = f"InfinityX_athens-{infinity[1]}-{infinity[2]}-{infinity[3]}"
     else:
-        raise ValueError("Expected an Evolution X or PixelOS athens OTA filename.")
+        raise ValueError("Expected an Evolution X, PixelOS, or Infinity X athens OTA.")
     if not re.fullmatch(r"r[1-9][0-9]*", revision):
         raise ValueError("Expected a revision of the form rN.")
 

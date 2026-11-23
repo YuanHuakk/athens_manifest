@@ -68,7 +68,7 @@
     "patch": "upstream/19-system_sepolicy.patch"
   },
   {
-    "project": "vendor/lineage",
-    "patch": "upstream/20-vendor_lineage.patch"
+    "project": "vendor/infinity",
+    "patch": "upstream/20-vendor_infinity.patch"
   }
 ]

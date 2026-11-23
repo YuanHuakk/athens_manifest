@@ -2,18 +2,18 @@
 
 已有工作区的日常修改与增量编译见 [本地开发](DEVELOPMENT.md)。
 
-以下命令在 Linux 下执行。需要 Git、repo、Git LFS、Python 3 和 Evolution X 构建依赖。
+以下命令在 Linux 下执行。需要 Git、repo、Git LFS、Python 3 和 Project Infinity X 构建依赖。
 原厂镜像准备脚本需要 `erofs-utils`（提供 `fsck.erofs`）、`lz4` 和 `cpio`。
 相机脚本另需 Android SDK Build Tools 37.0.0；编译使用源码树自带的 JDK 21。
 
 构建主机还需常规 AOSP 依赖，包括 make、GCC/G++、Git LFS、zip/unzip、rsync、
 flex、bison、bc、libssl-dev、libxml2-utils 和 zlib 开发包。Python 需 3.11 或更新版本。
 
-将 `MANIFEST_REPO` 指向此仓库的 `evox-17` 工作副本，再设置构建路径：
+将 `MANIFEST_REPO` 指向此仓库的 `infinity-x-17` 工作副本，再设置构建路径：
 
 ```bash
 export MANIFEST_REPO=/path/to/athens_manifest
-export TREE=/path/to/evox-athens
+export TREE=/path/to/infinity-athens
 export IMAGES=/path/to/athens_images_OS4.0.6.0.XPICNXM_17.0/images
 export STOCK=/path/to/extracted-stock
 export UAPI_CACHE=/path/to/uapi-sources-os4
@@ -28,15 +28,17 @@ export RELEASE_DIR=/path/to/releases
 ```bash
 mkdir -p "$TREE"
 cd "$TREE"
-repo init -u "https://github.com/Evolution-X/manifest" -b cnb --git-lfs
+repo init --no-repo-verify --git-lfs -u "https://github.com/ProjectInfinity-X/manifest" \
+  -b 17 -g default,-mips,-darwin,-notdefault
 install -D -m 644 "$MANIFEST_REPO/default.xml" ".repo/local_manifests/athens.xml"
 repo sync -c -j12 --no-clone-bundle
 ```
 
-每次同步都会读取 Evolution X `cnb` 分支的当前清单，AOSP 版本由该清单统一选择。
-本地清单同步两套 ROM 共用的 Athens 设备树 `android-17` 分支。SM8850 公共树和小米硬件适配分别跟随 `lineage-24.0` 和 `songyuan-support`。
+每次同步都会读取 Project Infinity X `17` 分支的当前清单，AOSP 版本由该清单统一选择。
+本地清单同步共享的 Athens 设备树 `android-17` 分支、SM8850 公共树和小米硬件适配，并补齐 SM8850 的 Qualcomm 音频、显示、数据和 SELinux 项目。
 
-Evolution X 使用独立的 `$TREE`，包含自己的 `.repo`、`out` 和生成的 vendor 目录。
+Infinity X 使用独立的 `$TREE`，包含自己的 `.repo`、`out` 和生成的 vendor 目录。
+编译前确认源码树内的设备树已包含 `infinity_athens.mk`。验证尚未发布的设备树改动时，将本地的 `AndroidProducts.mk`、`infinity_athens.mk` 和 `overlays/InfinityChargingAthens/` 同步到 `$TREE/device/xiaomi/athens/` 的对应位置。
 
 ## 应用补丁
 
@@ -142,15 +144,15 @@ TREE="$PWD" JOBS=12 bash "$MANIFEST_REPO/tools/build.sh" nothing
 TREE="$PWD" JOBS=12 bash "$MANIFEST_REPO/tools/build.sh"
 ```
 
-脚本默认选择 `lineage_athens-user`，由 EvoX 根据上游 `BUILD_ID` 决定 release 配置。无目标参数时执行 `m evolution`。
-SELinux 配置为 Enforcing。刷入后可用 `adb shell getenforce` 确认运行状态。
-调试版可设置 `BUILD_VARIANT=userdebug`。默认构建使用开发测试密钥，发布签名需单独配置。
+脚本默认选择 `infinity_athens-user`，由 Infinity X 根据上游 `BUILD_ID` 决定 release 配置。无目标参数时执行 `m bacon`。
+产品使用非官方构建类型并包含 GApps。SELinux 配置为 Enforcing，刷入后可用 `adb shell getenforce` 确认运行状态。
+设置 `BUILD_VARIANT=userdebug` 可启用经过认证的 ADB 调试。默认使用开发测试密钥，发布签名需单独配置。
 
 完成后导出独立副本；把下面的文件名替换为实际输出：
 
 ```bash
 python3 "$MANIFEST_REPO/tools/export-candidate.py" \
-  "out/target/product/athens/EvolutionX-17.0-YYYYMMDD-athens-VERSION-Unofficial.zip" \
+  "out/target/product/athens/Project_Infinity-X-4.2-athens-DD.MM.YYYY-GAPPS-UNOFFICIAL.zip" \
   "$RELEASE_DIR" --revision r1
 ```
 

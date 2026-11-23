@@ -3,6 +3,7 @@
 | 项目               | 上游                                                                     |
 | ------------------ | ------------------------------------------------------------------------ |
 | Evolution X        | https://github.com/Evolution-X/manifest                                  |
+| Project Infinity X | https://github.com/ProjectInfinity-X/manifest                            |
 | PixelOS            | https://github.com/PixelOS-AOSP/android_manifest                         |
 | 平台代码、提取工具 | https://github.com/LineageOS                                             |
 | SM8850 公共树      | https://github.com/AlexZorzi/android_device_xiaomi_sm8850-common         |
@@ -12,7 +13,7 @@
 | 相机兼容处理参考   | https://github.com/xiaomi-onyx-dev/android_device_xiaomi_onyx-miuicamera |
 
 相机参考提交：`933f9e89cf7f3ba81873f1ece4a6f4ab5811e585`。
-构建源码版本由 Evolution X 官方 `cnb` 清单及本地 `default.xml` 共同决定。内核头文件版本见 `uapi-sources.json`。
+构建源码版本由 Project Infinity X 官方 `17` 清单及本地 `default.xml` 共同决定。内核头文件版本见 `uapi-sources.json`。
 
 原文件保留原有版权和许可证。本仓库新增的工具、文档采用 Apache-2.0；
 跨项目补丁遵循对应上游文件的许可证。

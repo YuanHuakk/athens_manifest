@@ -1,7 +1,7 @@
 # 本地开发
 
 设备树在 `android_device_xiaomi_athens` 修改，框架补丁和工具在 `athens_manifest` 修改。
-Evolution X 源码目录用于调试、应用补丁和编译，保留该工作区的 `out`、vendor 和内核输入。
+Infinity X 源码目录用于调试、应用补丁和编译，保留该工作区的 `out`、vendor 和内核输入。
 
 ## 绑定工作区
 
@@ -9,7 +9,7 @@ Evolution X 源码目录用于调试、应用补丁和编译，保留该工作�
 
 ```bash
 python3 tools/workspace.py configure \
-  --tree /path/to/evox-athens \
+  --tree /path/to/infinity-athens \
   --device /path/to/android_device_xiaomi_athens \
   --stock /path/to/extracted-stock \
   --sdk /path/to/android-sdk
@@ -24,7 +24,7 @@ python3 tools/workspace.py configure \
 python3 tools/workspace.py status          # 检查两边是否一致
 python3 tools/workspace.py sync            # 同步设备树和补丁
 python3 tools/workspace.py build nothing   # 同步后检查构建配置
-python3 tools/workspace.py build           # 同步后增量编译 Evolution X
+python3 tools/workspace.py build           # 同步后增量编译 Infinity X
 python3 tools/workspace.py build cameraserver  # 也可指定多个编译目标
 ```
 
@@ -49,7 +49,7 @@ python3 tools/workspace.py vendor
 
 ## 框架调试
 
-在 Evolution X 源码树调试上游项目后，将改动导出为补丁：
+在 Infinity X 源码树调试上游项目后，将改动导出为补丁：
 
 ```bash
 python3 tools/workspace.py capture frameworks/av

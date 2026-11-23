@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Sync the two development repositories into an existing Evolution X work tree."""
+"""Sync the development repositories into a Project Infinity X work tree."""
 
 import argparse
 import contextlib

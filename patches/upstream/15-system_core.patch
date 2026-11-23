@@ -1,8 +1,8 @@
 diff --git a/init/property_service.cpp b/init/property_service.cpp
-index da6f28d12df88569fd7f00084bd7dc4dfc62a4b5..85a1f09689cfb8643c051011348963217158f690 100644
+index 6e9d26a602ad39a77932b1add94a0e2451892348..1c998a08b55c22fa3c44f2c809d1dd66f12fa767 100644
 --- a/init/property_service.cpp
 +++ b/init/property_service.cpp
-@@ -1239,12 +1239,16 @@ static void SetSafetyNetProps() {
+@@ -1217,12 +1217,16 @@
          {"ro.boot.veritymode", "enforcing"},
          {"ro.boot.warranty_bit", "0"},
          {"ro.warranty_bit", "0"},
@@ -19,15 +19,3 @@ index da6f28d12df88569fd7f00084bd7dc4dfc62a4b5..85a1f09689cfb8643c05101134896321
          {"ro.build.keys", "release-keys"},
          {"ro.build.tags", "release-keys"},
          {"ro.system.build.tags", "release-keys"},
-@@ -1336,6 +1340,10 @@ void LoadDebugProperties() {
-     std::string error;
-     uint32_t res;
-
--    std::string debug_value = GetProperty(DEBUG_PROP, "0");
-+    std::string debug_value = GetProperty(DEBUG_PROP, ALLOW_LOCAL_PROP_OVERRIDE ? "" : "0");
-+    if (ALLOW_LOCAL_PROP_OVERRIDE && debug_value.empty()) {
-+        // Keep the debuggable build defaults until EvoX has an explicit override.
-+        return;
-+    }
-     bool debug_enabled = debug_value == "1";
-     LOG(INFO) << DEBUG_PROP << " = " << debug_value;

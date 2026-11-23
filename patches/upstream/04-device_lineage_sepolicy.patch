@@ -16,3 +16,17 @@ index 0000000..ac8b827
 +    usb_uvc_config_prop
 +    vendor_persist_nfc_prop
 +    xtra_control_prop))
+diff --git a/common/private/backuptool.te b/common/private/backuptool.te
+index b670fb07fe36d08edf645583ea15332e2a626dff..5a4fd52a75a1c428eda5f74dc896d1a29bdcde8a 100644
+--- a/common/private/backuptool.te
++++ b/common/private/backuptool.te
+@@ -1,6 +1,8 @@
+ type backuptool, domain, coredomain;
+
+-permissive backuptool;
++userdebug_or_eng(`
++  permissive backuptool;
++')
+
+ neverallow {
+     domain

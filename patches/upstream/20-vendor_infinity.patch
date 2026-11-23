@@ -1,5 +1,5 @@
 diff --git a/build/soong/Android.bp b/build/soong/Android.bp
-index e69a6a189b..6f3397d6d7 100644
+index fa2297d5672a32b85530ef10604e279d2ab47e51..bf54fba10ef42159e7d0ebdeb30a862218b4f0c9 100644
 --- a/build/soong/Android.bp
 +++ b/build/soong/Android.bp
 @@ -92,10 +92,31 @@

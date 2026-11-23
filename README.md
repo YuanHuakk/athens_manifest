@@ -1,13 +1,13 @@
-# athens — Evolution X 构建清单
+# athens — Project Infinity X 构建清单
 
-Redmi K100 Pro（athens）的 Evolution X 源码清单、补丁和构建工具。
-PixelOS 和 Evolution X 共用 [android_device_xiaomi_athens 的 `android-17` 分支](https://github.com/YuanHuakk/android_device_xiaomi_athens/tree/android-17)。
+Redmi K100 Pro（athens）的 Project Infinity X 源码清单、补丁和构建工具。
+设备树与 PixelOS、Evolution X 共用 [`android-17` 分支](https://github.com/YuanHuakk/android_device_xiaomi_athens/tree/android-17)。
 
 ## 内容
 
 | 路径                               | 内容                                                 |
 | ---------------------------------- | ---------------------------------------------------- |
-| `default.xml`                      | 叠加在 Evolution X 官方清单上的 Athens 设备适配     |
+| `default.xml`                      | 补充 Infinity X 官方清单所需的 Athens 和 SM8850 项目 |
 | `manifests/`                       | PixelOS r12 构建的历史清单                           |
 | `device-tree.json`                 | 配套设备树的仓库名、路径和分支                       |
 | `uapi-sources.json`                | 内核头文件的公开源码版本                             |
@@ -20,7 +20,7 @@ PixelOS 和 Evolution X 共用 [android_device_xiaomi_athens 的 `android-17` �
 
 ## 使用方式
 
-使用 Evolution X 官方 `cnb` 清单初始化源码，将 `default.xml` 安装到 `.repo/local_manifests/`。
+使用 Project Infinity X 官方 `17` 清单初始化源码，将 `default.xml` 安装到 `.repo/local_manifests/`。
 `repo sync` 会更新官方清单及设备适配分支。同步完成后，补丁脚本会先检查整套补丁能否应用到当前源码，检查通过后再写入。
 
 vendor 文件、预编译内核、APK、签名密钥和 ROM 包均不在仓库中。
