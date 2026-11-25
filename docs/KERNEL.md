@@ -1,55 +1,29 @@
-# 内核输入
+# Athens 内核
 
-当前使用原厂内核 `6.12.69-android16-6-g0a1dc0413ec7-ab16271006-4k`，
-来自 athens `OS4.0.6.0.XPICNXM`。原厂系统基于 Android 17，boot 镜像仍使用 Android 16 的 GKI。
+Infinity X 使用国行 `OS4.0.6.0.XPICNXM` 线刷包的内核和模块。原厂 Android 17 搭配 Android 16 GKI，版本为 `6.12.69-android16-6-g0a1dc0413ec7-ab16271006-4k`。设备树使用 2026-10-01 的 boot 和 vendor 安全补丁日期，启动链回滚下限为 `1790812800`。
 
-共享设备树 `android-17` 将 boot 和 vendor 的安全补丁日期设为 2026-10-01，
-并将启动链回滚下限设为 `1790812800`。设备树中的 `pvmfw` 和 `countrycode` 哈希描述符
-取自同一线刷包的顶层 `vbmeta.img`，已分别对相应分区内容重算并核对哈希。
+## 准备构建输入
 
-将本地内核包放在 `device/xiaomi/athens-kernel`，目录如下：
+运行构建指南中的[内核准备命令](BUILD.md#准备内核输入)。脚本核对内核版本、拆出 12 个有序 DTB，并将原厂模块和加载清单写入新的 `device/xiaomi/athens-kernel/`。[准备脚本](../tools/prepare-kernel.py)
 
-| 路径                              | 来源                                       |
-| --------------------------------- | ------------------------------------------ |
-| `kernel`                          | boot.img 的 kernel 段                      |
-| `dtbo.img`                        | 原厂 dtbo.img                              |
-| `dtb/raw01.dtb` … `dtb/raw12.dtb` | vendor_boot.img 的串联 FDT，按原始顺序拆分 |
-| `vendor_ramdisk/`                 | vendor_boot ramdisk 中的 lib/modules       |
-| `vendor_dlkm/`                    | vendor_dlkm 镜像中的 lib/modules           |
-| `system_dlkm/`                    | system_dlkm 中该内核版本的模块目录内容     |
-| `system_dlkm_flatten/`            | system_dlkm 的 flatten/lib/modules         |
-| `kernel-headers.tar.gz`           | UAPI 头，归档根为 usr/include              |
-| `Android.bp`、`qti-include/`      | Soong 头库及供用户态使用的 QTI 扩展头      |
+`kernel-headers.tar.gz` 的归档根为 `usr/include/`，合并顺序为 GKI 通用 UAPI、ARM64 UAPI、QTI UAPI。HAL 使用 Bionic 的通用头及单独清洗的 `athens_qti_kernel_headers`。迁移构建输入时一并复制 `Android.bp` 和 `qti-include/`。已有内核目录可在准备命令中加 `--qti-headers-only` 更新这两项。[固定的 GKI 和 QTI 源码版本](../uapi-sources.json)
 
-`tools/prepare-kernel.py` 完成以上目录的生成。它调用源码树中的 `unpack_bootimg.py`，
-按 FDT 的 totalsize 顺序拆分 DTB，用 lz4 / cpio 提取 vendor ramdisk 的模块。
-模块加载清单和相对符号链接保持原样。
+| 406 构建输入 | SHA-256 |
+| --- | --- |
+| `kernel`（与 AOSP 构建 `16271006` 的 ARM64 4 KiB `Image` 一致） | `2bdda2f4c4365b40f1ca7422d0bb9b8adb587c46f5a4f87bcbff00b82c300e9d` |
+| `vendor_ramdisk/msm_drm.ko` 和 `vendor_dlkm/msm_drm.ko` | `d375791cdcf563962b627e3a6c5849c3423f9ccc66aea8b44d42dccfa7f7f197` |
 
-## UAPI 来源
+## 原神插帧与显示驱动
 
-`uapi-sources.json` 固定两个公开源码提交：
+**原神单独插帧的 60→120 FPS 尚未通过实机验收。** 游戏面板和 Scene 仍显示约 60 FPS。DSI 整批写入、HAL 配置倍率和面板扫描频率分别反映传输、配置和刷新。验证每秒 120 个不同画面需要在独显输出端逐帧观测。
 
-- GKI `android16-6.12`：`0a1dc0413ec7f42ad5924505ca2a519900ccf770`
-- QTI SM8850：`abdf3a50f1f9eb8ebace76e4e1a8e16c2e089a63`
+ROM 保留 MiVK 和 SurfaceFlinger 的动矢修复，使用 406 原厂 `msm_drm.ko`。可从 `/sys/module/msm_drm/notes/.note.gnu.build-id` 核对已加载模块的 Build ID `f852df29151bc376aca0ff9ff6f707d7ba1c3d56`。原厂驱动在发送前共用一份动矢缓冲区，后一帧可能覆盖前一帧。修复在原神使用 120 Hz 并完成画面配对时，给上一帧的显示信号预留最多 2 ms。修复后的 81 秒实战采样中未观察到覆盖。
 
-生成顺序为 GKI `include/uapi`、GKI ARM64 `asm`、QTI `include/uapi`；QTI 同名文件覆盖
-GKI。去除 Kbuild / Makefile，再加入与 r12 一致的 Makefile，生成以 `usr/include/` 为根的
-压缩包。归档时间和文件顺序固定，不依赖下载时间。
-
-头文件由上述源码组合生成，未经 `make headers_install` 导出。IPA 头文件由
-`hardware/qcom-caf/sm8850/dataipa` 单独提供。
-
-编译 HAL 时，通用 Linux 接口使用当前 ROM 的 Bionic 头文件。脚本用同一源码树中的
-`bionic/libc/kernel/tools/clean_header.py` 清洗 QTI 仓库 `include/uapi` 下跟踪的
-28 个扩展头，生成独立的 `//device/xiaomi/athens-kernel:athens_qti_kernel_headers`。
-新准备的内核输入已包含这个库。已有内核输入可执行一次以下命令：
+仓库另存按 DRM 提交绑定动矢的内核补丁。主机回归使用 MiCode 显示仓库的固定提交 `1f1cd9c1b674014ae6ca324ffea12c96e121d6e1`，在临时目录应用补丁并编译测试。[内核补丁](../patches/kernel/0001-msm-bind-nova-emv-to-display-commit.patch) · [回归脚本](../patches/kernel/verify-emv-commit.py)
 
 ```bash
-python3 "$MANIFEST_REPO/tools/prepare-kernel.py" --qti-headers-only \
-  --tree "$TREE" --uapi-cache "$UAPI_CACHE" --output "$TREE/device/xiaomi/athens-kernel"
+# DISPLAY_SRC 指向含上述提交的 MiCode 显示驱动 Git 检出
+python3 "$MANIFEST_REPO/patches/kernel/verify-emv-commit.py" "$DISPLAY_SRC"
 ```
 
-该命令可重复执行。若向另一台构建机复制已准备的内核目录，请同时复制生成的
-`Android.bp` 和 `qti-include/`。
-
-脚本只准备构建输入，不重新编译内核。原厂内核、模块和生成的头文件包不提交到本仓库。
+构建可上机的模块还缺 406 完整的 Athens Kleaf 配置和 Novatek D2 实现，或厂商提供的可重链接对象及头文件。官方 GKI 构建提供相同的内核及其符号版本。补齐厂商输入后，须核对 406 的模块依赖和符号 CRC，同时更新上表两份驱动并重建对应镜像。原厂 `vendor_dlkm/etc/NOTICE_GPL.html.gz` 列出的源码索取邮箱为 `oss-request@xiaomi.com`。[AOSP 构建产物](https://ci.android.com/builds/submitted/16271006/kernel_aarch64/latest) · [Athens Kleaf 配置](https://github.com/MiCode/Xiaomi_Kernel_OpenSource/blob/da9af1b6d83e1f53e4b8e4f4421e3c4161d2133d/kleaf-scripts/targets/athens.bzl#L4) · [Novatek 编译输入](https://github.com/MiCode/vendor_opensource_display-drivers/blob/1f1cd9c1b674014ae6ca324ffea12c96e121d6e1/msm/Kbuild#L393)
