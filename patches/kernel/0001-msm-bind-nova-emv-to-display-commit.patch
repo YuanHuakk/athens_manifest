@@ -1,0 +1,1387 @@
+Subject: [PATCH] drm/msm: bind Nova motion vectors to the committed display frame
+
+Base: MiCode/vendor_opensource_display-drivers
+      1f1cd9c1b674014ae6ca324ffea12c96e121d6e1
+Reference: Athens stock 406 msm_drm.ko
+           f852df29151bc376aca0ff9ff6f707d7ba1c3d56
+
+Give each atomic connector state ownership of its one-shot EMV packet.
+Send from the existing display worker after the matching encoder has
+committed. A subsequent kickoff on the same active connector can
+finish its predecessor's fresh packet while the old image is still on
+screen. Classify contention, expired data, cancellation and transport
+errors. Never build up a frame queue.
+
+Verify against the pinned source using verify-emv-commit.py alongside
+this patch. An Athens module additionally requires matching kernel
+build inputs and the complete Novatek D2 driver, which the public
+display snapshot omits.
+
+---
+ msm/dsi/dsi_drm.c              |  14 +-
+ msm/dsi/dsi_drm.h              |   4 +
+ msm/mi_disp/mi_disp_feature.c  |  11 +
+ msm/mi_disp/mi_sde_connector.c | 474 ++++++++++++++++++++++++++---------------
+ msm/mi_disp/mi_sde_connector.h |  18 +-
+ msm/msm_drv.h                  |   3 +
+ msm/sde/hfi/hfi_kms.c          |   6 +-
+ msm/sde/sde_connector.c        |  12 +-
+ msm/sde/sde_connector.h        |   2 +
+ msm/sde/sde_crtc.c             |   6 +-
+ msm/sde/sde_crtc.h             |   3 +
+ msm/sde/sde_encoder.c          |  77 +++++--
+ msm/sde/sde_encoder.h          |   6 +
+ msm/sde/sde_kms.c              | 113 ++++++++--
+ msm/sde/sde_trace.h            |  24 +++
+ 15 files changed, 547 insertions(+), 226 deletions(-)
+
+diff --git a/msm/dsi/dsi_drm.c b/msm/dsi/dsi_drm.c
+index c8ffdba6767935494019f3a1cd4bdb5adf126729..e8f03e1e0475e9b3ae0c4d3c917d14987aafe9bd 100644
+--- a/msm/dsi/dsi_drm.c
++++ b/msm/dsi/dsi_drm.c
+@@ -1491,8 +1491,8 @@ void dsi_conn_enable_event(struct drm_connector *connector,
+ 			event_idx, &event_info, enable);
+ }
+ 
+-int dsi_conn_post_kickoff(struct drm_connector *connector,
+-	struct msm_display_conn_params *params)
++int dsi_conn_post_kickoff_emv(struct drm_connector *connector,
++		struct msm_display_conn_params *params, struct dsi_display **emv_display)
+ {
+ 	struct drm_encoder *encoder;
+ 	struct drm_bridge *bridge;
+@@ -1588,14 +1588,18 @@ int dsi_conn_post_kickoff(struct drm_connector *connector,
+ 	}
+ 
+ #if defined(CONFIG_VIS_DISPLAY_V1) || defined(CONFIG_VIS_DISPLAY_V2_D2)
+-	if (is_mi_dev_support_nova()) {
+-		mi_sde_connector_send_emv_queue_work(connector);
+-	}
++	if (emv_display && is_mi_dev_support_nova())
++		*emv_display = display;
+ #endif
+ 
+ 	return 0;
+ }
+ 
++int dsi_conn_post_kickoff(struct drm_connector *connector, struct msm_display_conn_params *params)
++{
++	return dsi_conn_post_kickoff_emv(connector, params, NULL);
++}
++
+ struct dsi_bridge *dsi_drm_bridge_init(struct dsi_display *display,
+ 				       struct drm_device *dev,
+ 				       struct drm_encoder *encoder)
+diff --git a/msm/dsi/dsi_drm.h b/msm/dsi/dsi_drm.h
+index a3425bfb3e98411e1c7ed0c0e45c487c62cc459e..b990f8d2e4c6ce4104f8768fe1999529f8e6ac66 100644
+--- a/msm/dsi/dsi_drm.h
++++ b/msm/dsi/dsi_drm.h
+@@ -129,6 +129,10 @@ int dsi_conn_pre_kickoff(struct drm_connector *connector,
+ int dsi_conn_post_kickoff(struct drm_connector *connector,
+ 		struct msm_display_conn_params *params);
+ 
++/* Return the Nova display only after this DSI post-kickoff completes. */
++int dsi_conn_post_kickoff_emv(struct drm_connector *connector,
++		struct msm_display_conn_params *params, struct dsi_display **emv_display);
++
+ /**
+  * dsi_convert_to_drm_mode - Update drm mode with dsi mode information
+  * @dsi_mode: input parameter. structure having dsi mode information.
+diff --git a/msm/mi_disp/mi_disp_feature.c b/msm/mi_disp/mi_disp_feature.c
+index 17e5abf2639af76202351ac7b99117323be52e6c..9cedbdb08cd9f3047c597c1e31ecc86be7b4ab6c 100644
+--- a/msm/mi_disp/mi_disp_feature.c
++++ b/msm/mi_disp/mi_disp_feature.c
+@@ -24,6 +24,7 @@
+ #include <uapi/linux/sched/types.h>
+ 
+ #include <drm/mi_disp.h>
++#include "mi_sde_connector.h"
+ #include "mi_disp_print.h"
+ #include "mi_disp_core.h"
+ #include "mi_disp_feature.h"
+@@ -70,6 +71,9 @@ static int mi_disp_feature_thread_create(struct disp_feature *df, int disp_id)
+ 	/* set realtime priority */
+ 	sched_set_fifo(dd_ptr->worker->task);
+ 
++	if (dd_ptr->intf_type == MI_INTF_DSI)
++		mi_emv_attach(disp_id, dd_ptr->display, dd_ptr->worker);
++
+ 	init_waitqueue_head(&dd_ptr->pending_wq);
+ 	atomic_set(&dd_ptr->pending_doze_cnt, 0);
+ 
+@@ -91,6 +95,8 @@ static int mi_disp_feature_thread_destroy(struct disp_feature *df, int disp_id)
+ 
+ 	dd_ptr = &df->d_display[disp_id];
+ 	if (dd_ptr->worker) {
++		if (dd_ptr->intf_type == MI_INTF_DSI)
++			mi_emv_detach(disp_id, dd_ptr->display);
+ 		kthread_destroy_worker(dd_ptr->worker);
+ 	}
+ 
+@@ -420,8 +426,13 @@ err_core_deinit:
+ 
+ void mi_disp_feature_deinit(void)
+ {
++	int i;
++
+ 	if (!g_disp_feature)
+ 		return;
++	for (i = MI_DISP_PRIMARY; i < MI_DISP_MAX; i++)
++		if (g_disp_feature->d_display[i].intf_type == MI_INTF_DSI)
++			mi_emv_detach(i, g_disp_feature->d_display[i].display);
+ 	device_destroy(g_disp_feature->class, g_disp_feature->dev_id);
+ 	mi_disp_cdev_unregister(g_disp_feature->cdev);
+ 	kfree(g_disp_feature);
+diff --git a/msm/mi_disp/mi_sde_connector.c b/msm/mi_disp/mi_sde_connector.c
+index 777d258bcb9364b61817f268f2d549062e06d575..7d0f1f837e4dcfaa9176934db4f4aacb91c83ebc 100644
+--- a/msm/mi_disp/mi_sde_connector.c
++++ b/msm/mi_disp/mi_sde_connector.c
+@@ -7,6 +7,11 @@
+ #define pr_fmt(fmt) "mi_sde_connector:[%s:%d] " fmt, __func__, __LINE__
+ 
+ #include <drm/sde_drm.h>
++#include <linux/atomic.h>
++#include <linux/refcount.h>
++#include <linux/slab.h>
++#include <linux/string.h>
++#include <linux/uaccess.h>
+ #include "msm_drv.h"
+ #include "sde_connector.h"
+ #include "sde_encoder.h"
+@@ -285,201 +290,279 @@ int mi_sde_connector_flat_fence(struct drm_connector *connector)
+ 	return rc;
+ }
+ 
+-int mi_sde_connector_send_emv_queue_work(struct drm_connector *connector)
+-{
++/* Protocol word counts exclude the first (NVTX) word of each 1 KiB packet. */
++#define MI_EMV_PACKAGE_WORDS 256
++#define MI_EMV_CHUNK_BYTES 3072
++#define MI_EMV_TRANSPORT_WINDOW_NS (16 * NSEC_PER_MSEC)
+ 
+-	struct dsi_display *display;
+-	struct dsi_panel *panel;
+-	struct mi_dsi_panel_cfg *mi_cfg;
+-	int disp_id = 0;
+-	struct disp_feature *df = mi_get_disp_feature();
+-	struct disp_display *dd_ptr;
+-	struct disp_work *send_emv_work;
+-	struct sde_connector *c_conn;
+-	if (!connector) {
+-		DISP_ERROR("invalid connector ptr\n");
+-		return -EINVAL;
+-	}
++static atomic64_t mi_emv_serial = ATOMIC64_INIT(0);
+ 
+-	c_conn = to_sde_connector(connector);
+-	if (c_conn->connector_type != DRM_MODE_CONNECTOR_DSI)
+-		return 0;
++struct mi_emv_packet {
++	refcount_t refs;
++	u64 serial;
++	ktime_t deadline;
++	u32 bytes;
++	u32 data[];
++};
+ 
+-	display = (struct dsi_display *)c_conn->display;
+-	if (!display || !display->panel) {
+-		DISP_ERROR("invalid display/panel ptr\n");
+-		return -EINVAL;
+-	}
+-	panel = display->panel;
+-	mi_cfg = &panel->mi_cfg;
++static struct mi_emv_packet *mi_emv_pack(const struct MiEmvConfig *cfg, ktime_t deadline)
++{
++	const u32 *mv = cfg->mvInfo;
++	struct mi_emv_packet *packet;
++	u32 count, used, take, pos, i;
++	u32 *tx;
++
++	if (!cfg->mv_info_size || cfg->mv_info_size > MI_EMV_MAX_SIZE)
++		return ERR_PTR(-EINVAL);
++	/* An explicit disable or idle marker sends no DSI command on 406. */
++	if (!cfg->emv_enable_state || ((mv[0] & 0xffff) >= 40000 && !(mv[0] & 0xf0000)))
++		return NULL;
++	if (cfg->mv_info_size < 18 || mv[13] > cfg->mv_info_size - 18)
++		return ERR_PTR(-EINVAL);
++	count = mv[13];
++	/* Seven header words, at most one continuation for every 255 grid
++	 * words (including a boundary before the footer), and two footer words.
++	 */
++	used = 7 + count + (count + 6) / (MI_EMV_PACKAGE_WORDS - 1) + 2;
++	packet = kmalloc(struct_size(packet, data, used), GFP_KERNEL);
++	if (!packet)
++		return ERR_PTR(-ENOMEM);
++	refcount_set(&packet->refs, 1);
++	packet->deadline = deadline;
++	packet->serial = atomic64_inc_return_relaxed(&mi_emv_serial);
++	tx = packet->data;
++	tx[0] = 0x0854564e;
++	tx[1] = 0x4154454d;
++	tx[2] = (mv[3] << 16) | (mv[4] & 0xffff);
++	tx[3] = 0x10000801;
++	tx[4] = (mv[7] << 16) | (mv[8] & 0xffff);
++	tx[5] = (mv[9] << 16) | (mv[10] & 0xffff);
++	tx[6] = (mv[11] << 16) | (mv[12] & 0xffff);
++
++	for (i = 0, pos = 7; i < count; i += take) {
++		if (pos % MI_EMV_PACKAGE_WORDS == 0)
++			tx[pos++] = 0x0954564e;
++		take = min(count - i, MI_EMV_PACKAGE_WORDS - pos % MI_EMV_PACKAGE_WORDS);
++		memcpy(&tx[pos], &mv[14 + i], take * sizeof(*tx));
++		pos += take;
++	}
++	if (pos % MI_EMV_PACKAGE_WORDS == 0)
++		tx[pos++] = 0x0954564e;
++	tx[pos++] = (mv[14 + count] << 16) | (mv[15 + count] & 0xffff);
++	tx[pos++] = (mv[16 + count] << 16) | (mv[17 + count] & 0xffff);
++	packet->bytes = pos * sizeof(*tx);
++	return packet;
++}
+ 
+-	mutex_lock(&mi_cfg->emv_info_lock);
+-	if (mi_cfg->emv_cfg.emv_enable_state == 0) {
+-		mutex_unlock(&mi_cfg->emv_info_lock);
+-		return -EINVAL;
+-	}
+-	mutex_unlock(&mi_cfg->emv_info_lock);
++enum mi_emv_stage { EMV_COMMIT, EMV_WORKER, EMV_BEFORE_KICKOFF, EMV_DETACH };
++enum mi_emv_status { EMV_OK, EMV_EXPIRED, EMV_BUSY, EMV_DSI_ERROR, EMV_CANCELLED,
++		     EMV_OFFLINE, EMV_ALREADY_PENDING, EMV_NO_DISPLAY_COMMIT };
+ 
+-	send_emv_work = kzalloc(sizeof(*send_emv_work), GFP_KERNEL);
+-	if (!send_emv_work) {
+-		DISP_ERROR("failed to allocate delayed_work buffer\n");
+-		return -ENOMEM;
++static enum mi_emv_status mi_emv_send(struct dsi_display *display,
++		const struct mi_emv_packet *packet)
++{
++	struct dsi_cmd_desc cmd = { .msg = { .type = 0x39 } };
++	struct dsi_panel_cmd_set cmds = { .cmds = &cmd, .count = 1, .state = DSI_CMD_SET_STATE_HS };
++	u32 sent, chunk;
++	enum mi_emv_status status = EMV_BUSY;
++
++	if (!display || !display->panel)
++		return EMV_OFFLINE;
++	if (ktime_after(ktime_get(), packet->deadline))
++		return EMV_EXPIRED;
++	/* Never make the next kickoff wait for panel power transitions or
++	 * another DSI user while attempting to finish this batch.
++	 */
++	if (!mutex_trylock(&display->display_lock))
++		return EMV_BUSY;
++	if (!mutex_trylock(&display->panel->panel_lock))
++		goto unlock_display;
++	if (ktime_after(ktime_get(), packet->deadline)) {
++		status = EMV_EXPIRED;
++		goto unlock_panel;
++	}
++
++	/* After the first chunk is accepted, finish this packet as a unit
++	 * before the next kickoff. The transport is bounded to three writes.
++	 */
++	status = EMV_OK;
++	SDE_ATRACE_BEGIN("mi_sde_connector_send_emv");
++	for (sent = 0; sent < packet->bytes; sent += chunk) {
++		chunk = min_t(u32, MI_EMV_CHUNK_BYTES, packet->bytes - sent);
++		cmd.msg.tx_buf = (const u8 *)packet->data + sent;
++		cmd.msg.tx_len = chunk;
++		if (mi_dsi_display_cmd_write_locked(display, &cmds)) {
++			status = EMV_DSI_ERROR;
++			break;
++		}
+ 	}
+-
+-	disp_id = mi_get_disp_id(panel->type);
+-	dd_ptr = &df->d_display[disp_id];
+-
+-	kthread_init_work(&send_emv_work->work, mi_sde_connector_send_emv_work_handler);
+-	send_emv_work->dd_ptr = dd_ptr;
+-	send_emv_work->wq = &dd_ptr->pending_wq;
+-	send_emv_work->data = connector;
+-	return kthread_queue_work(dd_ptr->worker, &send_emv_work->work);
++	SDE_ATRACE_END("mi_sde_connector_send_emv");
++unlock_panel:
++	dsi_panel_release_panel_lock(display->panel);
++unlock_display:
++	mutex_unlock(&display->display_lock);
++	return status;
+ }
+ 
+-void mi_sde_connector_send_emv_work_handler(struct kthread_work *work) {
+-	struct disp_work *emv_work = container_of(work, struct disp_work, work);
+-	struct drm_connector *connector = emv_work->data;
+-	struct sde_connector *c_conn;
+-	struct dsi_display *dsi_display;
+-	struct mi_dsi_panel_cfg *mi_cfg;
+-	struct dsi_panel_cmd_set tmp_cmd_sets;
+-	struct mipi_dsi_msg mipi_cmd;
+-	struct dsi_cmd_desc tmp_cmds;
+-	int rc = 0;
+-	bool test_pattern;
+-	// Max buffer size must less than (4096-4)byte for single transfer
+-	u32 mv_cmd_buf_size = 3072;
+-	u32 mv_package_size = 1024;
+-	u32 mv_payload_size = mv_package_size - 4;
+-	u32 meta_size = 0;
+-	u32 mv_size = 0;
+-	u32 tx_size = 0;
+-	u32 buf_pos = 0;
+-	u32 mv_pos = 0;
+-	u32 copy_size  = 0;
+-	u32 remain_size = 0;
+-	u32 tx_total_bytes = 0;
+-	u32 sent_bytes = 0;
+-	u32 current_chunk = 0;
+-	u32 *mv_src = NULL;
+-	u32 *tx_buffer = NULL;
+-
+-	if (!connector) {
+-		DISP_ERROR("invalid connector ptr\n");
+-		goto end;
+-	}
++void mi_emv_put(struct mi_emv_packet *packet)
++{
++	if (packet && refcount_dec_and_test(&packet->refs))
++		kfree(packet);
++}
+ 
+-	c_conn = to_sde_connector(connector);
+-	if (c_conn->connector_type != DRM_MODE_CONNECTOR_DSI)
+-		goto end;
++/* A single reusable work item per panel, on its existing display worker. */
++struct mi_emv_dispatch {
++	struct mutex gate;
++	struct kthread_work work;
++	struct dsi_display *display;
++	struct kthread_worker *worker;
++	struct drm_device *dev;
++	u32 connector_mask;
++	struct mi_emv_packet *packet;
++};
++
++static struct mi_emv_dispatch emv[MI_DISP_MAX] = {
++	[MI_DISP_PRIMARY] = { .gate = __MUTEX_INITIALIZER(emv[MI_DISP_PRIMARY].gate) },
++	[MI_DISP_SECONDARY] = { .gate = __MUTEX_INITIALIZER(emv[MI_DISP_SECONDARY].gate) },
++};
++static DEFINE_MUTEX(emv_lifecycle_lock);
++
++static void mi_emv_clear_locked(struct mi_emv_dispatch *slot)
++{
++	struct mi_emv_packet *packet = slot->packet;
+ 
+-	dsi_display = (struct dsi_display *)c_conn->display;
+-	if (!dsi_display || !dsi_display->panel) {
+-		DISP_ERROR("invalid display/panel ptr\n");
+-		goto end;
+-	}
++	/* Publish completion after the final DSI write and before the next kickoff. */
++	smp_store_release(&slot->packet, NULL);
++	mi_emv_put(packet);
++}
+ 
+-	mi_cfg = &dsi_display->panel->mi_cfg;
++static void mi_emv_finish_locked(struct mi_emv_dispatch *slot, enum mi_emv_stage stage, bool send)
++{
++	enum mi_emv_status status;
+ 
+-	mutex_lock(&mi_cfg->emv_info_lock);
++	if (!slot->packet)
++		return;
++	status = send ? mi_emv_send(slot->display, slot->packet) : EMV_CANCELLED;
++	trace_mi_emv_batch(slot->connector_mask, slot->packet->serial, stage, status);
++	mi_emv_clear_locked(slot);
++}
+ 
+-	if (mi_cfg->emv_cfg.emv_enable_state == 0) {
+-		DISP_DEBUG("[EXTMV] EMV disabled, skip sending\n");
+-		mutex_unlock(&mi_cfg->emv_info_lock);
+-		goto end;
+-	}
+-	mi_cfg->emv_cfg.emv_enable_state = 0;
+-	SDE_ATRACE_BEGIN("mi_sde_connector_send_emv_work_handler");
+-
+-	// Check EMV data is valid
+-	meta_size = mi_cfg->emv_cfg.mvInfo[0] & 0xFFFF;
+-	test_pattern = !!(mi_cfg->emv_cfg.mvInfo[0] & 0xF0000);
+-	if (meta_size >= 40000 && test_pattern == false) {
+-		DISP_DEBUG("[EXTMV] Skip ext mv transfer meta_size(%u) test_pattern(%d)", meta_size, test_pattern);
+-		mutex_unlock(&mi_cfg->emv_info_lock);
+-		goto error_data_invalid;
+-	}
+-
+-	mv_size = mi_cfg->emv_cfg.mvInfo[13] * 4;
+-	tx_size = (((24 + mv_size + 8) / mv_payload_size) * mv_package_size) + (((24 + mv_size + 8) % mv_payload_size) + 4);
+-
+-	tx_buffer = kmalloc(tx_size, GFP_KERNEL);
+-	if (!tx_buffer){
+-		DISP_ERROR("failed to allocate tx_buffer\n");
+-		mutex_unlock(&mi_cfg->emv_info_lock);
+-		goto error_data_invalid;
+-	}
+-
+-	// header data
+-	tx_buffer[0] = 0x0854564E;
+-	tx_buffer[1] = 0x4154454D;
+-	tx_buffer[2] = (mi_cfg->emv_cfg.mvInfo[4] & 0xFFFF) | (mi_cfg->emv_cfg.mvInfo[3] << 16);
+-	tx_buffer[3] = 0x10000801;
+-	tx_buffer[4] = (mi_cfg->emv_cfg.mvInfo[8] & 0xFFFF) | (mi_cfg->emv_cfg.mvInfo[7] << 16);
+-	tx_buffer[5] = (mi_cfg->emv_cfg.mvInfo[10] & 0xFFFF) | (mi_cfg->emv_cfg.mvInfo[9] << 16);
+-	tx_buffer[6] = (mi_cfg->emv_cfg.mvInfo[12] & 0xFFFF) | (mi_cfg->emv_cfg.mvInfo[11] << 16);
+-
+-	buf_pos = 7;
+-	mv_pos = 14;
+-	mv_src = &(mi_cfg->emv_cfg.mvInfo[0]);
+-	remain_size = mv_size;
+-
+-	copy_size = min(mv_size, (mv_package_size - 28));
+-	while (remain_size > 0) {
+-		DISP_DEBUG("[EXTMV] buf_pos: %u mv_pos: %u remain_size: %u copy_size: %u tx_size: %u\n", buf_pos, mv_pos, remain_size, copy_size, tx_size);
+-		if ((buf_pos * 4 + copy_size) > tx_size) {
+-			DISP_ERROR("[EXTMV] buffer overflow detected\n");
+-			mutex_unlock(&mi_cfg->emv_info_lock);
+-			goto error_send_fail;
+-		}
+-		memcpy(tx_buffer + buf_pos, mv_src + mv_pos, copy_size);
+-		remain_size -= copy_size;
+-		mv_pos += (copy_size / 4);
+-		buf_pos += (copy_size / 4);
++static void mi_emv_work(struct kthread_work *work)
++{
++	struct mi_emv_dispatch *slot = container_of(work, struct mi_emv_dispatch, work);
+ 
+-		if (remain_size <= 0) {
+-			break;
+-		}
++	mutex_lock(&slot->gate);
++	mi_emv_finish_locked(slot, EMV_WORKER, true);
++	mutex_unlock(&slot->gate);
++}
+ 
+-		tx_buffer[buf_pos++] = 0x0954564E;
+-		copy_size = min(remain_size, mv_payload_size);
+-	}
++void mi_emv_attach(int id, struct dsi_display *display, struct kthread_worker *worker)
++{
++	struct mi_emv_dispatch *slot;
++
++	if (!MI_NOVA_EMV_ENABLED || !is_support_disp_id(id) || !display || IS_ERR_OR_NULL(worker))
++		return;
++	slot = &emv[id];
++	mutex_lock(&emv_lifecycle_lock);
++	mutex_lock(&slot->gate);
++	if (!slot->worker) {
++		kthread_init_work(&slot->work, mi_emv_work);
++		slot->worker = worker;
++		WRITE_ONCE(slot->display, display);
++	}
++	mutex_unlock(&slot->gate);
++	mutex_unlock(&emv_lifecycle_lock);
++}
+ 
+-	if (buf_pos % (mv_package_size / 4) == 0) {
+-		tx_buffer[buf_pos++] = 0x0954564E;
+-	}
+-	tx_buffer[buf_pos++] = (mi_cfg->emv_cfg.mvInfo[(mv_size / 4) + 15] & 0x0000FFFF) | (mi_cfg->emv_cfg.mvInfo[(mv_size / 4) + 14] << 16);
+-	tx_buffer[buf_pos++] = (mi_cfg->emv_cfg.mvInfo[(mv_size / 4) + 17] & 0x0000FFFF) | (mi_cfg->emv_cfg.mvInfo[(mv_size / 4) + 16] << 16);
++void mi_emv_detach(int id, struct dsi_display *display)
++{
++	struct mi_emv_dispatch *slot;
++	bool stop;
++
++	if (!MI_NOVA_EMV_ENABLED || !is_support_disp_id(id) || !display)
++		return;
++	slot = &emv[id];
++	mutex_lock(&emv_lifecycle_lock);
++	mutex_lock(&slot->gate);
++	stop = slot->display == display;
++	if (stop) {
++		WRITE_ONCE(slot->display, NULL);
++		slot->worker = NULL;
++		mi_emv_finish_locked(slot, EMV_DETACH, false);
++	}
++	mutex_unlock(&slot->gate);
++	if (stop)
++		kthread_cancel_work_sync(&slot->work);
++	mutex_unlock(&emv_lifecycle_lock);
++}
+ 
+-	tx_total_bytes = buf_pos * sizeof(u32);
+-	mutex_unlock(&mi_cfg->emv_info_lock);
+-	while (sent_bytes < tx_total_bytes) {
+-		current_chunk = min(mv_cmd_buf_size, tx_total_bytes - sent_bytes);
+-		DISP_DEBUG("[EXTMV] current_chunk: %u sent_bytes: %u tx_total_bytes: %u\n", current_chunk, sent_bytes, tx_total_bytes);
+-		mipi_cmd.tx_len = current_chunk;
+-		mipi_cmd.tx_buf = (u8 *)tx_buffer + sent_bytes;
+-		mipi_cmd.type = 0x39;
+-		mipi_cmd.channel = 0x00;
+-		memcpy(&(tmp_cmds.msg), &mipi_cmd, sizeof(struct mipi_dsi_msg));
+-		tmp_cmd_sets.cmds = &tmp_cmds;
+-		tmp_cmd_sets.count = 1;
+-		tmp_cmd_sets.state = DSI_CMD_SET_STATE_HS;
+-		rc = mi_dsi_display_cmd_write(dsi_display, &tmp_cmd_sets);
+-		if (rc) {
+-			DISP_ERROR("[EXTMV] It is failed to send mv[%d],rc=%d\n", mv_pos, rc);
+-			goto error_send_fail;
+-		}
+-		sent_bytes += current_chunk;
++void mi_emv_before_kickoff(struct drm_device *dev, u32 affected, u32 continuing)
++{
++	struct mi_emv_dispatch *slot;
++	unsigned int i;
++
++	if (!MI_NOVA_EMV_ENABLED)
++		return;
++	for (i = 0; i < ARRAY_SIZE(emv); i++) {
++		slot = &emv[i];
++		/* Pair with slot publication and completion before deciding to skip the gate. */
++		if (!smp_load_acquire(&slot->packet) ||
++		    !(READ_ONCE(slot->connector_mask) & affected))
++			continue;
++		/* The previous image is still displayed. If its worker has not
++		 * run, take over the one fresh batch before starting the next
++		 * kickoff. Never flush unrelated work from the vendor queue.
++		 */
++		mutex_lock(&slot->gate);
++		if (slot->dev == dev && (slot->connector_mask & affected))
++			mi_emv_finish_locked(slot, EMV_BEFORE_KICKOFF,
++					slot->connector_mask & continuing);
++		mutex_unlock(&slot->gate);
+ 	}
++}
+ 
+-error_send_fail:
+-	kfree(tx_buffer);
+-error_data_invalid:
+-	SDE_ATRACE_END("mi_sde_connector_send_emv_work_handler");
+-end:
+-	return;
++void mi_emv_after_kickoff(struct drm_connector *connector, struct dsi_display *display,
++		struct mi_emv_packet *packet)
++{
++	struct mi_emv_dispatch *slot;
++	u32 mask = drm_connector_mask(connector);
++	enum mi_emv_status status;
++	int id;
++
++	id = display && display->panel ? mi_get_disp_id(display->panel->type) : -1;
++	if (!is_support_disp_id(id)) {
++		trace_mi_emv_batch(mask, packet->serial, EMV_COMMIT, EMV_OFFLINE);
++		return;
++	}
++	slot = &emv[id];
++	mutex_lock(&slot->gate);
++	if (slot->display != display) {
++		status = EMV_OFFLINE;
++	} else if (slot->packet) {
++		status = EMV_ALREADY_PENDING;
++	} else if (ktime_after(ktime_get(), packet->deadline)) {
++		status = EMV_EXPIRED;
++	} else {
++		status = EMV_OK;
++		refcount_inc(&packet->refs);
++		slot->dev = connector->dev;
++		WRITE_ONCE(slot->connector_mask, mask);
++		/* Publish the connector mask and packet together for before_kickoff. */
++		smp_store_release(&slot->packet, packet);
++		/* A pending callback from an invalidated commit can service the
++		 * current slot. Never append a backlog of old packet callbacks.
++		 */
++		kthread_queue_work(slot->worker, &slot->work);
++	}
++	trace_mi_emv_batch(mask, packet->serial, EMV_COMMIT, status);
++	mutex_unlock(&slot->gate);
+ }
+ 
++void mi_emv_no_display_commit(struct drm_connector *connector, const struct mi_emv_packet *packet)
++{
++	trace_mi_emv_batch(drm_connector_mask(connector), packet->serial,
++			EMV_COMMIT, EMV_NO_DISPLAY_COMMIT);
++}
+ 
+ int mi_sde_connector_get_dc_status(struct drm_connector *connector)
+ {
+@@ -638,7 +721,8 @@ int mi_sde_connector_install_properties(struct sde_connector *c_conn)
+ 	return rc;
+ }
+ 
+-int mi_sde_connector_set_emv_buffer(struct sde_connector *c_conn, void __user *usr_ptr)
++static int mi_sde_connector_set_legacy_emv_buffer(struct sde_connector *c_conn,
++		void __user *usr_ptr)
+ {
+ 	struct dsi_display *display;
+ 	struct mi_dsi_panel_cfg *mi_cfg;
+@@ -685,3 +769,43 @@ unlock_out:
+ 	mutex_unlock(&mi_cfg->emv_info_lock);
+ 	return rc;
+ }
++
++static bool mi_emv_uses_nova(void)
++{
++#if defined(CONFIG_VIS_DISPLAY_V1) || defined(CONFIG_VIS_DISPLAY_V2_D2)
++	return is_mi_dev_support_nova();
++#else
++	return false;
++#endif
++}
++
++int mi_sde_connector_set_emv_buffer(struct sde_connector *c_conn,
++		struct sde_connector_state *state, void __user *usr_ptr)
++{
++	struct mi_emv_packet *packet;
++	struct MiEmvConfig *cfg;
++	ktime_t deadline = ktime_add_ns(ktime_get(), MI_EMV_TRANSPORT_WINDOW_NS);
++
++	if (!mi_emv_uses_nova())
++		return mi_sde_connector_set_legacy_emv_buffer(c_conn, usr_ptr);
++
++	if (!c_conn || !state || !usr_ptr || !c_conn->display ||
++	    c_conn->connector_type != DRM_MODE_CONNECTOR_DSI)
++		return -EINVAL;
++
++	cfg = memdup_user(usr_ptr, sizeof(*cfg));
++	if (IS_ERR(cfg))
++		return PTR_ERR(cfg);
++	packet = mi_emv_pack(cfg, deadline);
++	kfree(cfg);
++	if (IS_ERR(packet))
++		return PTR_ERR(packet);
++
++	/* Two writes in the same uncommitted atomic state describe one
++	 * display transition. A separately prepared state owns its own copy.
++	 */
++	mi_emv_put(state->mi_emv);
++	state->mi_emv = packet;
++	state->mi_emv_reset = !packet;
++	return 0;
++}
+diff --git a/msm/mi_disp/mi_sde_connector.h b/msm/mi_disp/mi_sde_connector.h
+index b846c6632939f1ab2e2788af6e4355aa66510ea6..cc997eb59cb3e4a42e09023a0c9c1133761dac2f 100644
+--- a/msm/mi_disp/mi_sde_connector.h
++++ b/msm/mi_disp/mi_sde_connector.h
+@@ -13,7 +13,11 @@
+ #include <drm/drm_connector.h>
+ #include <drm/mi_disp.h>
+ 
++struct kthread_worker;
+ struct sde_connector;
++struct sde_connector_state;
++struct dsi_display;
++struct mi_emv_packet;
+ 
+ int mi_sde_connector_register_esd_irq(struct sde_connector *c_conn);
+ 
+@@ -32,10 +36,14 @@ int mi_sde_connector_state_get_mi_mode_info(struct drm_connector_state *conn_sta
+ 
+ int mi_sde_connector_install_properties(struct sde_connector *c_conn);
+ 
+-void mi_sde_connector_send_emv_work_handler(struct kthread_work *work);
+-
+-int mi_sde_connector_send_emv_queue_work(struct drm_connector *connector);
+-
+-int mi_sde_connector_set_emv_buffer(struct sde_connector *c_conn, void __user *usr_ptr);
++void mi_emv_attach(int id, struct dsi_display *display, struct kthread_worker *worker);
++void mi_emv_detach(int id, struct dsi_display *display);
++void mi_emv_before_kickoff(struct drm_device *dev, u32 affected, u32 continuing);
++void mi_emv_after_kickoff(struct drm_connector *connector, struct dsi_display *display,
++		struct mi_emv_packet *packet);
++void mi_emv_no_display_commit(struct drm_connector *connector, const struct mi_emv_packet *packet);
++void mi_emv_put(struct mi_emv_packet *packet);
++int mi_sde_connector_set_emv_buffer(struct sde_connector *c_conn,
++		struct sde_connector_state *state, void __user *usr_ptr);
+ 
+ #endif /* _MI_SDE_CONNECTOR_H_ */
+diff --git a/msm/msm_drv.h b/msm/msm_drv.h
+index ad8584cb5fb6fa2fe38acd1267198fbf73226276..41bf5b5d7b699957dae361dbe65ce220534a7201 100644
+--- a/msm/msm_drv.h
++++ b/msm/msm_drv.h
+@@ -78,6 +78,9 @@ struct msm_fence_cb;
+ struct msm_gem_address_space;
+ struct msm_gem_vma;
+ 
++#define MI_NOVA_EMV_ENABLED \
++	(IS_ENABLED(CONFIG_VIS_DISPLAY_V1) || IS_ENABLED(CONFIG_VIS_DISPLAY_V2_D2))
++
+ #define NUM_DOMAINS    4    /* one for KMS, then one per gpu core (?) */
+ #define MAX_CRTCS      16
+ #define MAX_PLANES     32
+diff --git a/msm/sde/hfi/hfi_kms.c b/msm/sde/hfi/hfi_kms.c
+index 25fc7e4aa0f5160c2647fbd7235145571e5f4a55..c2d4c542bc15d401a46e25b3159a4cc92a8e3169 100644
+--- a/msm/sde/hfi/hfi_kms.c
++++ b/msm/sde/hfi/hfi_kms.c
+@@ -84,7 +84,7 @@ static int hfi_kms_prepare_commit(struct sde_kms *kms,
+ static int hfi_kms_trigger_commit(struct sde_kms *kms,
+ 		struct drm_atomic_state *state)
+ {
+-	int i, ret;
++	int i, ret = 0, trigger_rc;
+ 	u32 disp_id;
+ 	u32 payload = HFI_COMMIT;
+ 	struct hfi_cmdbuf_t *cmd_buf;
+@@ -117,7 +117,7 @@ static int hfi_kms_trigger_commit(struct sde_kms *kms,
+ 			return -EINVAL;
+ 		}
+ 
+-		ret = hfi_adapter_add_set_property(&hfi_kms->hfi_client, cmd_buf,
++		trigger_rc = hfi_adapter_add_set_property(&hfi_kms->hfi_client, cmd_buf,
+ 				HFI_COMMAND_DISPLAY_FRAME_TRIGGER, MSM_DRV_HFI_ID,
+ 				HFI_PAYLOAD_TYPE_U32, &payload, sizeof(u32), 0);
+ 
+@@ -136,6 +136,8 @@ static int hfi_kms_trigger_commit(struct sde_kms *kms,
+ 			SDE_ERROR("failed to send commit buffer\n");
+ 			return ret;
+ 		}
++		if (MI_NOVA_EMV_ENABLED && !trigger_rc)
++			to_sde_crtc_state(crtc_state)->mi_emv_hfi_submitted = true;
+ 		hfi_crtc_set_pending_enc_mask(to_sde_crtc(crtc), 0);
+ 	}
+ 
+diff --git a/msm/sde/sde_connector.c b/msm/sde/sde_connector.c
+index 50de351303ef511505b327e208358d12e28733fd..afb44efb36edb78cf9e094e81aa86fe0a3de00ce 100644
+--- a/msm/sde/sde_connector.c
++++ b/msm/sde/sde_connector.c
+@@ -2399,6 +2399,9 @@ static void sde_connector_atomic_destroy_state(struct drm_connector *connector,
+ 		c_conn = to_sde_connector(connector);
+ 	c_state = to_sde_connector_state(state);
+ 
++	mi_emv_put(c_state->mi_emv);
++	c_state->mi_emv = NULL;
++
+ 	if (c_state->out_fb)
+ 		_sde_connector_destroy_fb(c_conn, c_state);
+ 
+@@ -2494,6 +2497,13 @@ sde_connector_atomic_duplicate_state(struct drm_connector *connector)
+ 		c_state->dyn_hdr_meta.dynamic_hdr_payload_size = 0;
+ 	}
+ 
++	/* msm_property_duplicate_state copies the private struct. The old
++	 * state owns its one-shot EMV packet until that state is destroyed.
++	 */
++	c_state->mi_emv = NULL;
++	c_state->mi_emv_reset = false;
++	c_state->property_values[CONNECTOR_PROP_MI_EMV_INFO].value = 0;
++
+ 	/* Clear privacy layer info from prev state */
+ 	c_state->privacy_layer_updated = false;
+ 
+@@ -3027,7 +3037,7 @@ static int sde_connector_atomic_set_property(struct drm_connector *connector,
+ 		}
+ 		break;
+ 	case CONNECTOR_PROP_MI_EMV_INFO:
+-		rc = mi_sde_connector_set_emv_buffer(c_conn, (void *)(uintptr_t)val);
++		rc = mi_sde_connector_set_emv_buffer(c_conn, c_state, u64_to_user_ptr(val));
+ 		if (rc)
+ 			SDE_ERROR_CONN(c_conn, "cannot get emv info %d\n", rc);
+ 		break;
+diff --git a/msm/sde/sde_connector.h b/msm/sde/sde_connector.h
+index 60ae6d83477232733defb9fa1671c6642b6f1748..f4f36c2e6c70f8e1a799ebb13f634a7eb3e30842 100644
+--- a/msm/sde/sde_connector.h
++++ b/msm/sde/sde_connector.h
+@@ -1027,6 +1027,8 @@ struct sde_connector_state {
+ 	struct sde_drm_dnsc_blur_cfg dnsc_blur_cfg[DNSC_BLUR_MAX_COUNT];
+ 	u32 dnsc_blur_lut;
+ 	enum sde_wb_usage_type usage_type;
++	struct mi_emv_packet *mi_emv; /* One-shot payload owned by this atomic state. */
++	bool mi_emv_reset;
+ };
+ 
+ /**
+diff --git a/msm/sde/sde_crtc.c b/msm/sde/sde_crtc.c
+index 6a520d7a5efa6d1fa8a597a5e5060c885e301f72..409a53ce8e6a10319559353e8906ec6338637b70 100644
+--- a/msm/sde/sde_crtc.c
++++ b/msm/sde/sde_crtc.c
+@@ -5895,7 +5895,8 @@ void sde_crtc_commit_kickoff(struct drm_crtc *crtc,
+ 		if (encoder->crtc != crtc)
+ 			continue;
+ 
+-		sde_encoder_kickoff(encoder, true);
++		if (sde_encoder_kickoff_observed(encoder, true) && MI_NOVA_EMV_ENABLED && !is_error)
++			cstate->mi_emv_kicked_encoders |= drm_encoder_mask(encoder);
+ 	}
+ 
+ 	/* store the event after frame trigger */
+@@ -6056,6 +6057,9 @@ static struct drm_crtc_state *sde_crtc_duplicate_state(struct drm_crtc *crtc)
+ 			old_cstate, cstate,
+ 			&cstate->property_state, cstate->property_values);
+ 	mutex_unlock(&sde_crtc->property_info.property_lock);
++	cstate->mi_emv_kicked_encoders = 0;
++	cstate->mi_emv_done_encoders = 0;
++	cstate->mi_emv_hfi_submitted = false;
+ 	sde_cp_duplicate_state_info(&old_cstate->base, &cstate->base);
+ 
+ 	/* duplicate base helper */
+diff --git a/msm/sde/sde_crtc.h b/msm/sde/sde_crtc.h
+index 5388e848f77efa36a5cc414895c471cf0afac1e3..bda7a404b39a3dbae1ea1446289d3ff3a99b5b11 100644
+--- a/msm/sde/sde_crtc.h
++++ b/msm/sde/sde_crtc.h
+@@ -771,6 +771,9 @@ struct sde_crtc_state {
+ 	bool in_loopback_transition;
+ 	struct sde_io_res cac_mixer_roi[MAX_MIXERS_PER_CRTC];
+ 	uint32_t num_prim_mixers;
++	u32 mi_emv_kicked_encoders;
++	u32 mi_emv_done_encoders;
++	bool mi_emv_hfi_submitted;
+ };
+ 
+ enum sde_crtc_irq_state {
+diff --git a/msm/sde/sde_encoder.c b/msm/sde/sde_encoder.c
+index 6ddd6095129b358bace8c39f35ac4357653a8ba4..db2aea038519243f484a2b20c5212ad4b29bac64 100644
+--- a/msm/sde/sde_encoder.c
++++ b/msm/sde/sde_encoder.c
+@@ -2793,7 +2793,7 @@ int sde_encoder_handle_dma_fence_out_of_order(struct drm_encoder *drm_enc)
+ 	return rc;
+ }
+ 
+-int sde_encoder_hw_fence_error_handle(struct drm_encoder *drm_enc)
++int sde_encoder_hw_fence_error_observed(struct drm_encoder *drm_enc, bool *had_fault)
+ {
+ 	struct sde_encoder_virt *sde_enc;
+ 	struct sde_encoder_phys *phys_enc;
+@@ -2802,11 +2802,15 @@ int sde_encoder_hw_fence_error_handle(struct drm_encoder *drm_enc)
+ 	int rc = 0;
+ 	enum msm_disp_op disp_op;
+ 
++	if (had_fault)
++		*had_fault = false;
+ 	sde_enc = to_sde_encoder_virt(drm_enc);
+ 	if (!sde_enc || !sde_enc->phys_encs[0] ||
+ 		!sde_enc->phys_encs[0]->sde_hw_fence_error_status)
+ 		return 0;
+ 
++	if (had_fault)
++		*had_fault = true;
+ 	SDE_EVT32(DRMID(drm_enc), SDE_EVTLOG_FUNC_ENTRY);
+ 
+ 	phys_enc = sde_enc->phys_encs[0];
+@@ -2853,6 +2857,11 @@ int sde_encoder_hw_fence_error_handle(struct drm_encoder *drm_enc)
+ 	return rc;
+ }
+ 
++int sde_encoder_hw_fence_error_handle(struct drm_encoder *encoder)
++{
++	return sde_encoder_hw_fence_error_observed(encoder, NULL);
++}
++
+ static void sde_encoder_input_event_handler(struct input_handle *handle,
+ 	unsigned int type, unsigned int code, int value)
+ {
+@@ -5521,7 +5530,7 @@ static inline void _sde_encoder_trigger_flush_helper(struct drm_encoder *drm_enc
+  * config_changed: if true new config is applied, avoid increment of retire
+  *	count if false
+  */
+-static inline void _sde_encoder_trigger_flush(struct drm_encoder *drm_enc,
++static inline bool _sde_encoder_trigger_flush(struct drm_encoder *drm_enc,
+ 		struct sde_encoder_phys *phys,
+ 		struct sde_ctl_flush_cfg *extra_flush,
+ 		bool config_changed)
+@@ -5532,14 +5541,14 @@ static inline void _sde_encoder_trigger_flush(struct drm_encoder *drm_enc,
+ 	int pend_ret_fence_cnt;
+ 	struct sde_connector *c_conn;
+ 	bool is_dp, is_hdmi;
+-	bool is_vid_mode;
++	bool is_vid_mode, valid;
+ 	u32 linecount = 0xffff;
+ 	enum msm_disp_op disp_op;
+ 
+ 	if (!drm_enc || !phys) {
+ 		SDE_ERROR("invalid argument(s), drm_enc %d, phys_enc %d\n",
+ 				!drm_enc, !phys);
+-		return;
++		return false;
+ 	}
+ 
+ 	disp_op = sde_encoder_get_disp_op(drm_enc);
+@@ -5548,13 +5557,13 @@ static inline void _sde_encoder_trigger_flush(struct drm_encoder *drm_enc,
+ 
+ 	if (!phys->hw_pp) {
+ 		SDE_ERROR("invalid pingpong hw\n");
+-		return;
++		return false;
+ 	}
+ 
+ 	ctl = phys->hw_ctl;
+ 	if (!ctl || !phys->ops.trigger_flush) {
+ 		SDE_ERROR("missing ctl/trigger cb\n");
+-		return;
++		return false;
+ 	}
+ 
+ 	if (phys->split_role == ENC_ROLE_SKIP) {
+@@ -5562,7 +5571,7 @@ static inline void _sde_encoder_trigger_flush(struct drm_encoder *drm_enc,
+ 				"skip flush pp%d ctl%d\n",
+ 				phys->hw_pp->idx - PINGPONG_0,
+ 				ctl->idx - CTL_0);
+-		return;
++		return false;
+ 	}
+ 
+ 	is_dp = phys->hw_intf && phys->hw_intf->cap->type == INTF_DP;
+@@ -5603,6 +5612,7 @@ static inline void _sde_encoder_trigger_flush(struct drm_encoder *drm_enc,
+ 
+ 	if (phys->hw_intf && phys->hw_intf->ops.get_line_count[disp_op])
+ 		linecount = phys->hw_intf->ops.get_line_count[disp_op](phys->hw_intf);
++	valid = !phys->fence_error_handle_in_progress;
+ 	phys->ops.trigger_flush(phys);
+ 
+ 	spin_unlock_irqrestore(&sde_enc->enc_spinlock, lock_flags);
+@@ -5618,6 +5628,7 @@ static inline void _sde_encoder_trigger_flush(struct drm_encoder *drm_enc,
+ 		SDE_EVT32(DRMID(drm_enc), phys->intf_idx - INTF_0, ctl->idx - CTL_0,
+ 				pend_ret_fence_cnt, DPUID(drm_enc->dev), SDE_EVTLOG_FUNC_CASE2);
+ 	}
++	return valid;
+ }
+ 
+ /**
+@@ -5849,7 +5860,7 @@ static void _sde_encoder_setup_misr(struct sde_encoder_virt *sde_enc)
+  * config_changed: if true new config is applied. Avoid regdma_flush and
+  *	incrementing the retire count if false.
+  */
+-static void _sde_encoder_kickoff_phys(struct sde_encoder_virt *sde_enc,
++static bool _sde_encoder_kickoff_phys(struct sde_encoder_virt *sde_enc,
+ 		bool config_changed)
+ {
+ 	struct sde_hw_ctl *ctl;
+@@ -5859,14 +5870,14 @@ static void _sde_encoder_kickoff_phys(struct sde_encoder_virt *sde_enc,
+ 	struct msm_drm_private *priv = NULL;
+ 	struct sde_kms *sde_kms = NULL;
+ 	struct sde_encoder_phys *phys_enc;
+-	bool is_regdma_blocking = false, is_vid_mode = false;
++	bool is_regdma_blocking = false, is_vid_mode = false, flushed = false;
+ 	struct sde_crtc *sde_crtc;
+ 	struct sde_cesta_scc_status scc_status = {0, };
+ 	enum msm_disp_op disp_op;
+ 
+ 	if (!sde_enc) {
+ 		SDE_ERROR("invalid encoder\n");
+-		return;
++		return false;
+ 	}
+ 
+ 	disp_op = sde_encoder_get_disp_op(&sde_enc->base);
+@@ -5910,8 +5921,9 @@ static void _sde_encoder_kickoff_phys(struct sde_encoder_virt *sde_enc,
+ 				!phys->ops.needs_single_flush(phys)) {
+ 			if (config_changed && ctl->ops.reg_dma_flush[disp_op])
+ 				ctl->ops.reg_dma_flush[disp_op](ctl, is_regdma_blocking);
+-			_sde_encoder_trigger_flush(&sde_enc->base, phys, 0x0,
+-					config_changed);
++			if (_sde_encoder_trigger_flush(&sde_enc->base, phys, NULL,
++					config_changed) && phys == sde_enc->cur_master)
++				flushed = true;
+ 		} else if (ctl->ops.get_pending_flush[disp_op]) {
+ 			ctl->ops.get_pending_flush[disp_op](ctl, &pending_flush);
+ 		}
+@@ -5922,7 +5934,7 @@ static void _sde_encoder_kickoff_phys(struct sde_encoder_virt *sde_enc,
+ 		ctl = sde_enc->cur_master->hw_ctl;
+ 		if (config_changed && ctl->ops.reg_dma_flush[disp_op])
+ 			ctl->ops.reg_dma_flush[disp_op](ctl, is_regdma_blocking);
+-		_sde_encoder_trigger_flush(&sde_enc->base, sde_enc->cur_master,
++		flushed |= _sde_encoder_trigger_flush(&sde_enc->base, sde_enc->cur_master,
+ 						&pending_flush,
+ 						config_changed);
+ 	}
+@@ -5993,6 +6005,7 @@ handle_elevated_ahb_vote:
+ 		sde_enc->elevated_ahb_vote = false;
+ 	}
+ 
++	return flushed;
+ }
+ 
+ static void _sde_encoder_ppsplit_swap_intf_for_right_only_update(
+@@ -7634,13 +7647,14 @@ int sde_encoder_vid_wait_for_active(
+ }
+ #endif
+ 
+-void sde_encoder_kickoff(struct drm_encoder *drm_enc, bool config_changed)
++bool sde_encoder_kickoff_observed(struct drm_encoder *drm_enc, bool config_changed)
+ {
+ 	struct sde_encoder_virt *sde_enc;
+ 	struct sde_encoder_phys *phys;
+ 	struct sde_kms *sde_kms;
+ 	enum msm_disp_op disp_op;
+ 	unsigned int i;
++	bool flushed;
+ 	int ret;
+ #ifdef MI_DISPLAY_MODIFY
+ 	struct dsi_bridge *c_bridge = NULL;
+@@ -7651,7 +7665,7 @@ void sde_encoder_kickoff(struct drm_encoder *drm_enc, bool config_changed)
+ #endif
+ 	if (!drm_enc) {
+ 		SDE_ERROR("invalid encoder\n");
+-		return;
++		return false;
+ 	}
+ 
+ 	SDE_ATRACE_BEGIN("encoder_kickoff");
+@@ -7678,7 +7692,7 @@ void sde_encoder_kickoff(struct drm_encoder *drm_enc, bool config_changed)
+ 			SDE_ERROR("kickoff halop failed ret:%d\n", ret);
+ 
+ 		SDE_ATRACE_END("encoder_kickoff");
+-		return;
++		return ret == 0;
+ 	}
+ 
+ 	if (sde_enc->delay_kickoff) {
+@@ -7698,7 +7712,7 @@ void sde_encoder_kickoff(struct drm_encoder *drm_enc, bool config_changed)
+ 	sde_kms = sde_encoder_get_kms(&sde_enc->base);
+ 	if (!sde_kms) {
+ 		SDE_ERROR("invalid sde_kms\n");
+-		return;
++		return false;
+ 	}
+ 	if (sde_enc->cur_master && IS_DISP_OP_HWIO(disp_op))
+ 		_sde_encoder_update_retire_txq(sde_enc->cur_master, sde_kms);
+@@ -7718,7 +7732,7 @@ void sde_encoder_kickoff(struct drm_encoder *drm_enc, bool config_changed)
+ #endif
+ 
+ 	/* All phys encs are ready to go, trigger the kickoff */
+-	_sde_encoder_kickoff_phys(sde_enc, config_changed);
++	flushed = _sde_encoder_kickoff_phys(sde_enc, config_changed);
+ 
+ 	/* allow phys encs to handle any post-kickoff business */
+ 	for (i = 0; i < sde_enc->num_phys_encs; i++) {
+@@ -7744,6 +7758,12 @@ void sde_encoder_kickoff(struct drm_encoder *drm_enc, bool config_changed)
+ #endif
+ 
+ 	SDE_ATRACE_END("encoder_kickoff");
++	return flushed;
++}
++
++void sde_encoder_kickoff(struct drm_encoder *encoder, bool config_changed)
++{
++	sde_encoder_kickoff_observed(encoder, config_changed);
+ }
+ 
+ void sde_encoder_helper_get_pp_line_count(struct drm_encoder *drm_enc,
+@@ -9266,8 +9286,8 @@ u32 sde_encoder_phys_delay_dcs(struct drm_encoder *drm_enc)
+ 	return delay_time;
+ }
+ 
+-int sde_encoder_wait_for_event(struct drm_encoder *drm_enc,
+-	enum msm_event_wait event)
++int sde_encoder_wait_for_event_observed(struct drm_encoder *drm_enc,
++		enum msm_event_wait event, bool *observed)
+ {
+ 	int (*fn_wait)(struct sde_encoder_phys *phys_enc) = NULL;
+ 	struct sde_encoder_virt *sde_enc = NULL;
+@@ -9279,6 +9299,8 @@ int sde_encoder_wait_for_event(struct drm_encoder *drm_enc,
+ #endif
+ 	enum msm_disp_op disp_op;
+ 
++	if (observed)
++		*observed = false;
+ 	if (!drm_enc) {
+ 		SDE_ERROR("invalid encoder\n");
+ 		return -EINVAL;
+@@ -9289,6 +9311,8 @@ int sde_encoder_wait_for_event(struct drm_encoder *drm_enc,
+ 	disp_op = sde_encoder_get_disp_op(drm_enc);
+ 	if (sde_enc->hal_ops.wait_for_event[disp_op]) {
+ 		count = sde_enc->hal_ops.wait_for_event[disp_op](sde_enc, event);
++		if (observed)
++			*observed = count > 0;
+ 		if (count <= 0) {
+ 			ret = -ETIMEDOUT;
+ 			SDE_ERROR("wait for event failure\n");
+@@ -9320,10 +9344,18 @@ int sde_encoder_wait_for_event(struct drm_encoder *drm_enc,
+ 		}
+ 
+ 		if (phys && fn_wait) {
++			/* A disabled, missing or secondary physical encoder cannot
++			 * acknowledge the scanout of the panel's primary encoder.
++			 */
++			bool active_master = observed && phys == sde_enc->cur_master &&
++					phys->enable_state == SDE_ENC_ENABLED;
++
+ 			snprintf(atrace_buf, sizeof(atrace_buf),
+ 				"wait_completion_event_%d", event);
+ 			SDE_ATRACE_BEGIN(atrace_buf);
+ 			ret = fn_wait(phys);
++			if (active_master && !ret)
++				*observed = true;
+ 			SDE_ATRACE_END(atrace_buf);
+ 			if (ret) {
+ 				SDE_ERROR_ENC(sde_enc, "intf_type:%d, event:%d i:%d, failed:%d\n",
+@@ -9349,6 +9381,11 @@ int sde_encoder_wait_for_event(struct drm_encoder *drm_enc,
+ 	return ret;
+ }
+ 
++int sde_encoder_wait_for_event(struct drm_encoder *drm_enc, enum msm_event_wait event)
++{
++	return sde_encoder_wait_for_event_observed(drm_enc, event, NULL);
++}
++
+ void sde_encoder_helper_get_jitter_bounds_ns(u32 frame_rate,
+ 		u32 jitter_num, u32 jitter_denom,
+ 		ktime_t *l_bound, ktime_t *u_bound)
+diff --git a/msm/sde/sde_encoder.h b/msm/sde/sde_encoder.h
+index 203b437a21859a8152b74d0b30873c7bbe79f6b2..c7023b113b0dbe42113fc70a3a7a4ce2634b19fb 100644
+--- a/msm/sde/sde_encoder.h
++++ b/msm/sde/sde_encoder.h
+@@ -703,6 +703,8 @@ void sde_encoder_handle_hw_fence_error(int ctl_idx, struct sde_kms *sde_kms, u32
+  * return: 0 on success; error code otherwise
+  */
+ int sde_encoder_hw_fence_error_handle(struct drm_encoder *drm_enc);
++/* Report whether this invocation handled a hardware fault, including successful recovery. */
++int sde_encoder_hw_fence_error_observed(struct drm_encoder *encoder, bool *had_fault);
+ 
+ /**
+  * sde_encoder_register_vblank_callback - provide callback to encoder that
+@@ -774,6 +776,8 @@ void sde_encoder_trigger_kickoff_pending(struct drm_encoder *encoder);
+  * @config_changed: if true new configuration is applied on the control path
+  */
+ void sde_encoder_kickoff(struct drm_encoder *encoder, bool config_changed);
++/* Report whether the active master reached its flush or firmware kickoff. */
++bool sde_encoder_kickoff_observed(struct drm_encoder *encoder, bool config_changed);
+ 
+ /**
+  * sde_encoder_wait_for_event - Waits for encoder events
+@@ -792,6 +796,8 @@ void sde_encoder_kickoff(struct drm_encoder *encoder, bool config_changed);
+  *                        cmd mode -> pp_done
+  * Returns: 0 on success, -EWOULDBLOCK if already signaled, error otherwise
+  */
++int sde_encoder_wait_for_event_observed(struct drm_encoder *encoder, enum msm_event_wait event,
++		bool *observed);
+ int sde_encoder_wait_for_event(struct drm_encoder *drm_encoder,
+ 						enum msm_event_wait event);
+ 
+diff --git a/msm/sde/sde_kms.c b/msm/sde/sde_kms.c
+index c536b9172f86163f36820640636a592ef6018d2e..fd185f7b14c7679b62bfcda083eccabbecf7bd48 100644
+--- a/msm/sde/sde_kms.c
++++ b/msm/sde/sde_kms.c
+@@ -1451,14 +1451,16 @@ static void sde_kms_prepare_commit(struct msm_kms *kms,
+ 	struct msm_drm_private *priv;
+ 	struct drm_device *dev;
+ 	struct drm_encoder *encoder;
++	struct drm_connector *conn;
++	struct drm_connector_state *conn_state, *old_conn_state;
+ 	struct drm_crtc *crtc;
+-	struct drm_crtc_state *cstate;
++	struct drm_crtc_state *cstate, *old_cstate;
+ 	struct sde_vm_ops *vm_ops;
+ 	enum msm_disp_op disp_op;
+ 	int i, rc, ret = 0;
+ 	bool power_on_commit = true;
+ 
+-	if (!kms)
++	if (!kms || !state)
+ 		return;
+ 	sde_kms = to_sde_kms(kms);
+ 	dev = sde_kms->dev;
+@@ -1466,6 +1468,18 @@ static void sde_kms_prepare_commit(struct msm_kms *kms,
+ 	if (!dev || !dev->dev_private)
+ 		return;
+ 	priv = dev->dev_private;
++	/* Stop a pending batch before a panel migration, modeset or explicit idle. */
++	for_each_oldnew_connector_in_state(state, conn, old_conn_state, conn_state, i) {
++		if (MI_NOVA_EMV_ENABLED && (to_sde_connector_state(conn_state)->mi_emv_reset ||
++		    old_conn_state->crtc != conn_state->crtc))
++			mi_emv_before_kickoff(dev, drm_connector_mask(conn), 0);
++	}
++
++	for_each_oldnew_crtc_in_state(state, crtc, old_cstate, cstate, i) {
++		if (MI_NOVA_EMV_ENABLED && drm_atomic_crtc_needs_modeset(cstate))
++			mi_emv_before_kickoff(dev,
++					old_cstate->connector_mask | cstate->connector_mask, 0);
++	}
+ 
+ 	SDE_ATRACE_BEGIN("prepare_commit");
+ 	rc = pm_runtime_resume_and_get(sde_kms->dev->dev);
+@@ -1530,7 +1544,7 @@ static void sde_kms_commit(struct msm_kms *kms,
+ {
+ 	struct sde_kms *sde_kms;
+ 	struct drm_crtc *crtc;
+-	struct drm_crtc_state *old_crtc_state;
++	struct drm_crtc_state *old_crtc_state, *new_crtc_state;
+ 	int i, ret = 0;
+ 	enum msm_disp_op disp_op;
+ 
+@@ -1544,7 +1558,15 @@ static void sde_kms_commit(struct msm_kms *kms,
+ 	}
+ 
+ 	SDE_ATRACE_BEGIN("sde_kms_commit");
+-	for_each_old_crtc_in_state(old_state, crtc, old_crtc_state, i) {
++	for_each_oldnew_crtc_in_state(old_state, crtc, old_crtc_state, new_crtc_state, i) {
++		u32 old_mask = old_crtc_state->connector_mask;
++		u32 new_mask = new_crtc_state->connector_mask;
++		u32 continuing = old_crtc_state->active && new_crtc_state->active &&
++				!drm_atomic_crtc_needs_modeset(new_crtc_state) &&
++				new_crtc_state == crtc->state ? old_mask & new_mask : 0;
++
++		if (MI_NOVA_EMV_ENABLED)
++			mi_emv_before_kickoff(sde_kms->dev, old_mask | new_mask, continuing);
+ 		if (crtc->state->active) {
+ 			SDE_EVT32(DRMID(crtc), old_state);
+ 			sde_crtc_commit_kickoff(crtc, old_crtc_state);
+@@ -1557,6 +1579,17 @@ static void sde_kms_commit(struct msm_kms *kms,
+ 		if (ret)
+ 			SDE_ERROR("fail to trigger commit\n");
+ 	}
++	if (MI_NOVA_EMV_ENABLED && disp_op == MSM_DISP_OP_HFI) {
++		/* Each CRTC needs its own accepted firmware trigger. A later
++		 * CRTC in the same transaction may fail independently.
++		 */
++		for_each_new_crtc_in_state(old_state, crtc, new_crtc_state, i) {
++			struct sde_crtc_state *s = to_sde_crtc_state(new_crtc_state);
++
++			if (!s->mi_emv_hfi_submitted)
++				s->mi_emv_kicked_encoders = 0;
++		}
++	}
+ 
+ 	SDE_ATRACE_END("sde_kms_commit");
+ }
+@@ -1830,6 +1863,29 @@ exit:
+ 	return rc;
+ }
+ 
++static bool sde_kms_emv_wait_succeeded(bool observed, int wait_rc, bool had_fault, int recovery_rc)
++{
++	return observed && !wait_rc && !had_fault && !recovery_rc;
++}
++
++static bool sde_kms_emv_confirmed(struct drm_atomic_state *transaction,
++		struct drm_connector *connector, struct drm_connector_state *state)
++{
++	struct drm_crtc_state *frame;
++	struct sde_crtc_state *sde_frame;
++
++	if (state != connector->state || !state->crtc || !state->best_encoder ||
++	    state->best_encoder->crtc != state->crtc)
++		return false;
++	frame = drm_atomic_get_new_crtc_state(transaction, state->crtc);
++	if (!frame || frame != state->crtc->state || !frame->active)
++		return false;
++	sde_frame = to_sde_crtc_state(frame);
++
++	return sde_frame->mi_emv_kicked_encoders & sde_frame->mi_emv_done_encoders &
++			drm_encoder_mask(state->best_encoder);
++}
++
+ static void sde_kms_complete_commit(struct msm_kms *kms,
+ 		struct drm_atomic_state *old_state)
+ {
+@@ -1838,7 +1894,7 @@ static void sde_kms_complete_commit(struct msm_kms *kms,
+ 	struct drm_crtc *crtc;
+ 	struct drm_crtc_state *old_crtc_state;
+ 	struct drm_connector *connector;
+-	struct drm_connector_state *old_conn_state;
++	struct drm_connector_state *old_conn_state, *new_conn_state;
+ 	struct msm_display_conn_params params;
+ 	struct sde_vm_ops *vm_ops;
+ 	int i, rc = 0;
+@@ -1866,19 +1922,35 @@ static void sde_kms_complete_commit(struct msm_kms *kms,
+ 			_sde_kms_secure_ctrl(sde_kms, crtc, true);
+ 	}
+ 
+-	for_each_old_connector_in_state(old_state, connector,
+-			old_conn_state, i) {
+-		struct sde_connector *c_conn;
++	for_each_oldnew_connector_in_state(old_state, connector,
++			old_conn_state, new_conn_state, i) {
++		struct sde_connector *c_conn = to_sde_connector(connector);
++		struct mi_emv_packet *packet = to_sde_connector_state(new_conn_state)->mi_emv;
++		struct dsi_display *emv_display = NULL;
+ 
+-		c_conn = to_sde_connector(connector);
+-		if (!c_conn->ops.post_kickoff)
++		if (!c_conn->ops.post_kickoff) {
++			if (packet)
++				mi_emv_no_display_commit(connector, packet);
+ 			continue;
++		}
+ 
+ 		memset(&params, 0, sizeof(params));
+ 
++		/* old_state contains both sides of this specific transaction. A
++		 * connector state being prepared for a later commit is independent.
++		 */
+ 		sde_connector_complete_qsync_commit(connector, &params);
+-
+-		rc = c_conn->ops.post_kickoff(connector, &params);
++		if (packet && c_conn->ops.post_kickoff == dsi_conn_post_kickoff &&
++		    sde_kms_emv_confirmed(old_state, connector, new_conn_state))
++			rc = dsi_conn_post_kickoff_emv(connector, &params, &emv_display);
++		else
++			rc = c_conn->ops.post_kickoff(connector, &params);
++		if (packet) {
++			if (emv_display)
++				mi_emv_after_kickoff(connector, emv_display, packet);
++			else
++				mi_emv_no_display_commit(connector, packet);
++		}
+ 		if (rc) {
+ 			pr_err("Connector Post kickoff failed rc=%d\n",
+ 					 rc);
+@@ -1911,8 +1983,8 @@ static void sde_kms_wait_for_commit_done(struct msm_kms *kms,
+ 	struct sde_kms *sde_kms;
+ 	struct drm_encoder *encoder, *cwb_enc = NULL;
+ 	struct drm_device *dev;
+-	int ret;
+-	bool cwb_disabling;
++	int ret, recovery_rc;
++	bool cwb_disabling, observed, had_fault;
+ 
+ 	if (!kms || !crtc || !crtc->state) {
+ 		SDE_ERROR("invalid params\n");
+@@ -1954,8 +2026,9 @@ static void sde_kms_wait_for_commit_done(struct msm_kms *kms,
+ 		 * mode panels. This may be a no-op for command mode panels.
+ 		 */
+ 		SDE_EVT32_VERBOSE(DRMID(crtc));
+-		ret = sde_encoder_wait_for_event(encoder, cwb_disabling ?
+-						MSM_ENC_TX_COMPLETE : MSM_ENC_COMMIT_DONE);
++		ret = sde_encoder_wait_for_event_observed(encoder,
++				cwb_disabling ? MSM_ENC_TX_COMPLETE : MSM_ENC_COMMIT_DONE,
++				&observed);
+ 		if (ret && ret != -EWOULDBLOCK) {
+ 			SDE_ERROR("crtc:%d, enc:%d, cwb_d:%d, wait for commit done failed ret:%d\n",
+ 					DRMID(crtc), DRMID(encoder), cwb_disabling, ret);
+@@ -1965,7 +2038,13 @@ static void sde_kms_wait_for_commit_done(struct msm_kms *kms,
+ 			break;
+ 		}
+ 
+-		sde_encoder_hw_fence_error_handle(encoder);
++		recovery_rc = sde_encoder_hw_fence_error_observed(encoder, &had_fault);
++		if (MI_NOVA_EMV_ENABLED && !cwb_disabling && encoder->crtc == crtc &&
++		    sde_kms_emv_wait_succeeded(observed, ret, had_fault, recovery_rc)) {
++			struct sde_crtc_state *frame = to_sde_crtc_state(crtc->state);
++
++			frame->mi_emv_done_encoders |= drm_encoder_mask(encoder);
++		}
+ 
+ 		sde_crtc_complete_flip(crtc, NULL);
+ 	}
+diff --git a/msm/sde/sde_trace.h b/msm/sde/sde_trace.h
+index 62dbd154b461af5a664a93c8c1ade951871d5611..fbf341b1397a743b158fc21b2bd2718c19d7442c 100644
+--- a/msm/sde/sde_trace.h
++++ b/msm/sde/sde_trace.h
+@@ -17,6 +17,30 @@
+ #undef TRACE_INCLUDE_FILE
+ #define TRACE_INCLUDE_FILE sde_trace
+ 
++/* EMV transport diagnostics expose a per-packet serial and transport outcome. */
++TRACE_EVENT(mi_emv_batch,
++	TP_PROTO(u32 mask, u64 serial, int stage, int status),
++	TP_ARGS(mask, serial, stage, status),
++	TP_STRUCT__entry(
++		__field(u32, mask)
++		__field(u64, serial)
++		__field(int, stage)
++		__field(int, status)
++	),
++	TP_fast_assign(
++		__entry->mask = mask;
++		__entry->serial = serial;
++		__entry->stage = stage;
++		__entry->status = status;
++	),
++	TP_printk("mask=%#x serial=%llu stage=%s status=%s", __entry->mask, __entry->serial,
++		__print_symbolic(__entry->stage, {0, "commit"}, {1, "worker"},
++			{2, "before_kickoff"}, {3, "detach"}),
++		__print_symbolic(__entry->status, {0, "ok"}, {1, "expired"},
++			{2, "busy"}, {3, "dsi_error"}, {4, "cancelled"},
++			{5, "offline"}, {6, "already_pending"}, {7, "no_display_commit"}))
++);
++
+ TRACE_EVENT(sde_perf_set_qos_luts,
+ 	TP_PROTO(u32 pnum, u32 fmt, u32 mode, u32 danger_lut,
+ 		u32 safe_lut, u64 creq_lut),
