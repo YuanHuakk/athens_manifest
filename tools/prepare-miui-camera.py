@@ -3,6 +3,7 @@
 """Prepare stock athens Xiaomi Camera 6.7.000480.0 for a custom ROM."""
 
 import argparse
+import os
 import subprocess
 import tempfile
 import zipfile
@@ -12,8 +13,8 @@ DEX_FILES = ("classes.dex", "classes4.dex", "classes5.dex", "classes6.dex")
 SMALI_HELPERS = Path(__file__).parent / "miui-camera"
 
 
-def run_tool(*command: str | Path) -> None:
-    subprocess.run([str(argument) for argument in command], check=True)
+def run_tool(*command: str | Path, env: dict[str, str] | None = None) -> None:
+    subprocess.run([str(argument) for argument in command], check=True, env=env)
 
 
 def replace_once(path: Path, old: str, new: str) -> None:
@@ -205,6 +206,10 @@ def prepare_camera(
         aligned = work / "aligned.apk"
         run_tool(build_tools / "zipalign", "-f", "-P", "16", "4", unsigned, aligned)
         # MIUIX requires the ROM platform certificate for hidden API access.
+        signing_env = dict(os.environ)
+        signing_env["PATH"] = os.pathsep.join(
+            (str(java.parent), signing_env.get("PATH", os.defpath))
+        )
         run_tool(
             build_tools / "apksigner",
             "sign",
@@ -215,6 +220,7 @@ def prepare_camera(
             "--out",
             output,
             aligned,
+            env=signing_env,
         )
 
 
