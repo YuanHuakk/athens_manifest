@@ -8,7 +8,8 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-DEX_FILES = ("classes.dex", "classes4.dex", "classes5.dex")
+DEX_FILES = ("classes.dex", "classes4.dex", "classes5.dex", "classes6.dex")
+SMALI_HELPERS = Path(__file__).parent / "miui-camera"
 
 
 def run_tool(*command: str | Path) -> None:
@@ -23,7 +24,7 @@ def replace_once(path: Path, old: str, new: str) -> None:
 
 
 def patch_smali(work: Path) -> None:
-    """Adapt app permissions, MIVI metadata, and RAW saving for AOSP."""
+    """Adapt the stock camera app for Athens on AOSP."""
     replace_once(
         work / "classes.dex.smali/com/android/camera/a$c.smali",
         "    const v0, 0x7f140ce3\n\n    invoke-static {v3, v0}, LF1/p4;->g(Landroid/app/Activity;I)V\n",
@@ -74,9 +75,76 @@ def patch_smali(work: Path) -> None:
     )
     helper = work / "classes.dex.smali/org/pixelos/camera/RawMetadata.smali"
     helper.parent.mkdir(parents=True, exist_ok=True)
-    helper.write_text(
-        (Path(__file__).parent / "miui-camera/RawMetadata.smali").read_text()
+    helper.write_text((SMALI_HELPERS / helper.name).read_text())
+
+    # Arm the handoff only after starting the external Google Lens activity.
+    replace_once(
+        work / "classes.dex.smali/A4/f0.smali",
+        "    :goto_ee\n    if-eqz v2, :cond_10f\n\n"
+        "    check-cast p1, Landroidx/lifecycle/i0;",
+        "    :goto_ee\n    if-eqz v2, :cond_10f\n\n"
+        "    invoke-static {}, Lorg/pixelos/camera/LensCameraHandoff;->launched()V\n\n"
+        "    check-cast p1, Landroidx/lifecycle/i0;",
     )
+    open_camera = work / "classes6.dex.smali/ui/e.smali"
+    replace_once(
+        open_camera,
+        ".field public final g:Z\n",
+        ".field public final g:Z\n\n.field private deferredForLens:Z\n",
+    )
+    replace_once(
+        open_camera,
+        "    const/16 v0, 0xa\n\n    const/4 v1, 0x0\n",
+        """    # A superseded request can already be on the camera thread when its message is removed.
+    iget-boolean v0, p0, Lui/e;->deferredForLens:Z
+    if-eqz v0, :continue_open
+    iget-object v0, p0, Lui/c;->d:Ljava/lang/ref/WeakReference;
+    invoke-virtual {v0}, Ljava/lang/ref/Reference;->get()Ljava/lang/Object;
+    move-result-object v0
+    check-cast v0, Lyq/a$a;
+    if-eqz v0, :discard_deferred
+    invoke-virtual {v0}, Lyq/g;->a()Z
+    move-result v0
+    if-eqz v0, :continue_open
+
+    :discard_deferred
+    invoke-static {}, Lui/b;->a()Lui/b;
+    move-result-object v0
+    return-object v0
+
+    :continue_open
+    const/16 v0, 0xa
+
+    const/4 v1, 0x0
+""",
+    )
+    replace_once(
+        open_camera,
+        "    :cond_2da\n    invoke-static {}, LI6/q;->i()LI6/q;",
+        """    :cond_2da
+    invoke-static {}, Lui/c;->b()Lti/a$b;
+    move-result-object v4
+    iget-object v4, v4, Lti/a$b;->a:Landroid/hardware/camera2/CameraManager;
+    invoke-static {}, Lti/c;->d()Landroid/os/Handler;
+    move-result-object v5
+    invoke-static {v4, v5}, Lorg/pixelos/camera/LensCameraHandoff;->shouldWait(Landroid/hardware/camera2/CameraManager;Landroid/os/Handler;)Z
+    move-result v4
+    if-eqz v4, :open_after_lens
+
+    iput-boolean v3, p0, Lui/e;->deferredForLens:Z
+    const-wide/16 v4, 0x32
+    invoke-static {v3, p0, v4, v5}, Lti/c;->b(ILui/c;J)V
+    invoke-static {}, Lui/b;->a()Lui/b;
+    move-result-object v0
+    return-object v0
+
+    :open_after_lens
+    invoke-static {}, LI6/q;->i()LI6/q;""",
+    )
+    # Keep the helper's method references out of the nearly full primary DEX.
+    helper = work / "classes6.dex.smali/org/pixelos/camera/LensCameraHandoff.smali"
+    helper.parent.mkdir(parents=True, exist_ok=True)
+    helper.write_text((SMALI_HELPERS / helper.name).read_text())
 
 
 def prepare_camera(
