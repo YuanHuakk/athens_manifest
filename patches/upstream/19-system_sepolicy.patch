@@ -1,44 +1,80 @@
 diff --git a/Android.bp b/Android.bp
-index 9ff4263ff6..4cb1ed1557 100644
+index 9bd4f7e0b20bfaf9d1561a7321ff8d07db9919c2..fc7108f7cde59fb58adf2374cff2a09ce018f8c5 100644
 --- a/Android.bp
 +++ b/Android.bp
-@@ -680,7 +680,6 @@
+@@ -680,7 +680,6 @@ se_policy_binary {
      name: "precompiled_sepolicy_without_vendor",
      srcs: [":precompiled_sepolicy_without_vendor_srcs"],
      installable: false, // used only for Treble labeling tests
 -    permissive_domains_on_user_builds: ["backuptool", "su"],
  }
-
+ 
  filegroup {
-@@ -714,10 +713,6 @@
-     },
+@@ -715,10 +714,6 @@ precompiled_se_policy_binary {
      required: [
          "sepolicy_neverallows",
--    ],
+     ],
 -    permissive_domains_on_user_builds: [
 -        "backuptool",
 -        "su",
-     ],
+-    ],
  }
-
+ 
+ // policy for recovery
+diff --git a/private/property_contexts b/private/property_contexts
+index 38f3fea1e83db3634cdb174eb6c5f6339a660b0e..6167708cf013df6ba5b8daff0943efc3c53165d6 100644
+--- a/private/property_contexts
++++ b/private/property_contexts
+@@ -656,6 +656,7 @@ persist.bluetooth.a2dp_offload.cap                          u:object_r:bluetooth
+ persist.bluetooth.a2dp_offload.disabled                     u:object_r:bluetooth_a2dp_offload_prop:s0 exact bool
+ persist.bluetooth.leaudio_offload.disabled                  u:object_r:bluetooth_a2dp_offload_prop:s0 exact bool
+ persist.bluetooth.bluetooth_audio_hal.disabled              u:object_r:bluetooth_audio_hal_prop:s0 exact bool
++ro.bluetooth.a2dp_aptx_adaptive_offload.supported              u:object_r:bluetooth_audio_hal_prop:s0 exact bool
+ persist.bluetooth.btsnoopenable                             u:object_r:exported_bluetooth_prop:s0 exact bool
+ persist.bluetooth.btsnoopdefaultmode                        u:object_r:bluetooth_prop:s0 exact enum empty disabled filtered full
+ persist.bluetooth.btsnooplogmode                            u:object_r:bluetooth_prop:s0 exact enum empty disabled filtered full
+diff --git a/private/service_contexts b/private/service_contexts
+index de000430b6b1c7c18fa1e51ff0fe27dcda8da0d5..a4afd7ab964a4347ae185d6369c88c02bd5e02a0 100644
+--- a/private/service_contexts
++++ b/private/service_contexts
+@@ -43,6 +43,7 @@ is_flag_enabled(RELEASE_HARDWARE_BLUETOOTH_RANGING_SERVICE, `
+ ')
+ android.hardware.bluetooth.lmp_event.IBluetoothLmpEvent/default      u:object_r:hal_bluetooth_service:s0
+ android.hardware.bluetooth.audio.IBluetoothAudioProviderFactory/default u:object_r:hal_audio_service:s0
++android.hardware.bluetooth.audio.IBluetoothAudioProviderFactory/aptx_adaptive u:object_r:hal_audio_service:s0
+ android.hardware.bluetooth.socket.IBluetoothSocket/default           u:object_r:hal_bluetooth_service:s0
+ android.hardware.bluetooth.socket.IBluetoothSocket/lpp               u:object_r:hal_bluetooth_lpp_service:s0
+ android.hardware.bluetooth.gatt.IBluetoothGatt/default               u:object_r:hal_bluetooth_lpp_service:s0
 diff --git a/private/su.te b/private/su.te
-index 4d453f71ee..ace40ea4e4 100644
+index 4d453f71ee004a9f2cb59dc63d1c19030e70c868..ace40ea4e48433ab1df32ba520f80e37d162bc15 100644
 --- a/private/su.te
 +++ b/private/su.te
-@@ -29,6 +29,9 @@
-   # Exempt userdebug-only coredomains from Treble labeling tests (b/493040969)
+@@ -30,6 +30,9 @@ userdebug_or_eng(`
    typeattribute su_virtualizationmanager treble_labeling_violators;
    typeattribute su_virtmgr_crosvm treble_labeling_violators;
-+
+ 
 +  # su is also permissive to permit setenforce.
 +  permissive su;
-
++
    app_domain(su)
-
-@@ -141,6 +144,3 @@
+ 
+   # Do not audit accesses to keystore2 namespace for the su domain.
+@@ -141,6 +144,3 @@ userdebug_or_eng(`
    typeattribute su hal_wifi_hostapd_client;
    typeattribute su hal_wifi_supplicant_client;
  ')
 -
 -# su is also permissive to permit setenforce.
 -permissive su;
+diff --git a/build/soong/service_fuzzer_bindings.go b/build/soong/service_fuzzer_bindings.go
+index dd83ae0e8049597982bb50bed63d4eebb14c7f48..811485578e64c50fac576f3cbfba40e383cd035d 100644
+--- a/build/soong/service_fuzzer_bindings.go
++++ b/build/soong/service_fuzzer_bindings.go
+@@ -50,6 +50,7 @@ var (
+ 		"android.hardware.biometrics.fingerprint.IFingerprint/virtual":                       EXCEPTION_NO_FUZZER,
+ 		"android.hardware.biometrics.fingerprint.virtualhal.IVirtualHal/virtual":             EXCEPTION_NO_FUZZER,
+ 		"android.hardware.bluetooth.audio.IBluetoothAudioProviderFactory/default":            EXCEPTION_NO_FUZZER,
++		"android.hardware.bluetooth.audio.IBluetoothAudioProviderFactory/aptx_adaptive":      EXCEPTION_NO_FUZZER,
+ 		"android.hardware.broadcastradio.IBroadcastRadio/amfm":                               []string{"android.hardware.broadcastradio-service.default_fuzzer"},
+ 		"android.hardware.broadcastradio.IBroadcastRadio/dab":                                []string{"android.hardware.broadcastradio-service.default_fuzzer"},
+ 		"android.hardware.bluetooth.IBluetoothHci/default":                                   EXCEPTION_NO_FUZZER,

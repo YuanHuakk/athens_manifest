@@ -1,0 +1,327 @@
+diff --git a/thermalCommon.cpp b/thermalCommon.cpp
+index 2401e7a169dc79ab04e010f09c71851b4247c2e7..c4f819e5d21ed4940f9d8574ab7b7960e794f6cf 100644
+--- a/thermalCommon.cpp
++++ b/thermalCommon.cpp
+@@ -137,8 +137,15 @@ ThermalCommon::ThermalCommon(const virtualCB &inp_cb):
+ 
+ ThermalCommon::~ThermalCommon()
+ {
+-	exitMode = true;
+-	virtualThread.join();
++	if (virtualThread.joinable()) {
++		pthread_mutex_lock(&waitMutex);
++		exitMode = true;
++		pthread_cond_signal(&waitCond);
++		pthread_mutex_unlock(&waitMutex);
++		virtualThread.join();
++	}
++	pthread_cond_destroy(&waitCond);
++	pthread_mutex_destroy(&waitMutex);
+ }
+ 
+ static int writeToFile(std::string_view path, std::string data)
+@@ -322,6 +329,7 @@ int ThermalCommon::initialize_sensor(struct target_therm_cfg& cfg, int sens_idx)
+ 	sensor.y_intercept = cfg.y_intercept;
+ 	sensor.sampling_period_ms = cfg.sampling_period_ms;
+ 	sensor.virtual_sensor_flag = cfg.virtual_sensor_flag;
++	sensor.poll_trip_sensor = cfg.poll_trip_sensor;
+ 
+ 	for (idx = 0; idx <= (size_t)ThrottlingSeverity::SHUTDOWN; idx++) {
+ 		sensor.thresh.hotThrottlingThresholds.push_back(UNKNOWN_TEMPERATURE);
+@@ -338,11 +346,9 @@ int ThermalCommon::initialize_sensor(struct target_therm_cfg& cfg, int sens_idx)
+ 	}
+ 	sens.push_back(sensor);
+ 
+-	if (sensor.virtual_sensor_flag) {
+-		pthread_mutex_init(&waitMutex, NULL);
+-		pthread_cond_init(&waitCond, NULL);
++	if (sensor.virtual_sensor_flag && !virtualThread.joinable()) {
+ 		try {
+-			virtualThread = std::thread(&ThermalCommon::TripSensorMonitorLoop, this, &sens.back());
++			virtualThread = std::thread(&ThermalCommon::TripSensorMonitorLoop, this, sensor);
+ 		} catch(...) {
+ 			LOG(ERROR) << "Virtual thread creation failed" << std::endl;
+ 		}
+@@ -821,45 +827,56 @@ int ThermalCommon::read_trip_temperature(struct therm_sensor& sensor)
+ 	return temp;
+ }
+ 
+-void ThermalCommon::TripSensorMonitorLoop(struct therm_sensor *vs)
++void ThermalCommon::TripSensorMonitorLoop(therm_sensor sensor)
+ {
+ 	struct timespec time_val;
+-	char file_name[MAX_PATH];
+-	int ret = 0, temp = 0;
+-	std::string buf;
+-
+-	if (!vs->virtual_sensor_flag)
+-		return;
+ 
+ 	pthread_mutex_lock(&waitMutex);
+ 	/* Temperature can be >= trip before we start */
+-	temp = read_trip_temperature(*vs);
+-	if (temp >= vs->trip_sensor_thresholds)
++	if (read_trip_temperature(sensor) >= sensor.trip_sensor_thresholds)
+ 		pollingMode = true;
+ 
+ 	while (!exitMode) {
+-		/* Poll if polling mode is true OR if throttling status is not NONE */
+-		if (pollingMode || vs->t.throttlingStatus != ThrottlingSeverity::NONE) {
++		if (sensor.poll_trip_sensor || pollingMode ||
++		    sensor.t.throttlingStatus != ThrottlingSeverity::NONE) {
+ 			clock_gettime(CLOCK_REALTIME, &time_val);
+-			time_val.tv_sec += vs->sampling_period_ms / 1000;
+-			time_val.tv_nsec += (vs->sampling_period_ms % 1000) * 1000000;
++			time_val.tv_sec += sensor.sampling_period_ms / 1000;
++			time_val.tv_nsec += (sensor.sampling_period_ms % 1000) * 1000000;
++			time_val.tv_sec += time_val.tv_nsec / 1000000000;
++			time_val.tv_nsec %= 1000000000;
+ 			pthread_cond_timedwait(&waitCond, &waitMutex,
+ 								&time_val);
+ 		} else {
+ 			pthread_cond_wait(&waitCond, &waitMutex);
+ 		}
+ 
+-		ret = virtual_sensor_read_temperature(*vs);
+-		if (ret < 0)
++		if (exitMode)
++			break;
++
++		if (sensor.poll_trip_sensor) {
++			const int temp = read_trip_temperature(sensor);
++			if (temp >= sensor.trip_sensor_thresholds)
++				pollingMode = true;
++			else if (temp >= 0 && temp < sensor.trip_sensor_thresholds_clr)
++				pollingMode = false;
++			if (!pollingMode && sensor.t.throttlingStatus == ThrottlingSeverity::NONE)
++				continue;
++		}
++
++		if (virtual_sensor_read_temperature(sensor) < 0)
+ 			continue;
+ 
+-		int severity = estimateSeverity(*vs);
++		int severity = estimateSeverity(sensor);
+ 		if (severity != -1) {
+-			LOG(ERROR) << "sensor: " << vs->sensor_name <<" temperature: "
+-				<< vs->t.value << " old: " <<
+-				(int)vs->lastThrottleStatus << " new: " <<
+-				(int)vs->t.throttlingStatus << std::endl;
+-			cb(vs);
++			LOG(ERROR) << "sensor: " << sensor.sensor_name <<" temperature: "
++				<< sensor.t.value << " old: " <<
++				(int)sensor.lastThrottleStatus << " new: " <<
++				(int)sensor.t.throttlingStatus << std::endl;
++		}
++		if (severity != -1 || sensor.poll_trip_sensor) {
++			pthread_mutex_unlock(&waitMutex);
++			cb(&sensor);
++			pthread_mutex_lock(&waitMutex);
+ 		}
+ 	}
+ 
+diff --git a/thermalCommon.h b/thermalCommon.h
+index cd53fee361cdd9a536129e3e169fdf65a339c7f4..7667f083df67fe0ed087b1fe79b9966cd59f4404 100644
+--- a/thermalCommon.h
++++ b/thermalCommon.h
+@@ -69,13 +69,14 @@ class ThermalCommon {
+ 			return cdev;
+ 		};
+ 
+-		pthread_mutex_t waitMutex;
+-		pthread_cond_t waitCond;
+-		bool pollingMode, exitMode;
++		pthread_mutex_t waitMutex = PTHREAD_MUTEX_INITIALIZER;
++		pthread_cond_t waitCond = PTHREAD_COND_INITIALIZER;
++		bool pollingMode = false;
+ 
+ 	private:
+-		void TripSensorMonitorLoop(struct therm_sensor *sensor);
++		void TripSensorMonitorLoop(therm_sensor sensor);
+ 		std::thread virtualThread;
++		bool exitMode = false;
+ 		int ncpus;
+ 		virtualCB cb;
+ 		std::vector<struct target_therm_cfg> cfg;
+diff --git a/thermalConfig.cpp b/thermalConfig.cpp
+index ecf547ca9e768889cccb4ecd4231222e90acdfa1..69736b4c424f9cd4739f8c3279541d293b4bc1c1 100644
+--- a/thermalConfig.cpp
++++ b/thermalConfig.cpp
+@@ -32,8 +32,10 @@
+  * SPDX-License-Identifier: BSD-3-Clause-Clear
+  */
+ 
++#include <algorithm>
+ #include <unordered_map>
+ #include <android-base/logging.h>
++#include <android-base/properties.h>
+ #include <aidl/android/hardware/thermal/BnThermal.h>
+ 
+ #include "thermalData.h"
+@@ -3793,6 +3795,32 @@ namespace thermal {
+ 		},
+ 	};
+ 
++	// Xiaomi Athens HyperOS OS4.0.6.0.XPICNXM thermal HAL calibration.
++	const target_therm_cfg athens_skin = {
++		TemperatureType::SKIN,
++		{ "xo-therm" },
++		"skin",
++		{
++			[LIGHT] = 48000,
++			[MODERATE] = 49000,
++			[SEVERE] = 50000,
++			[CRITICAL] = 60000,
++			[EMERGENCY] = 61000,
++			[SHUTDOWN] = 90000,
++		},
++		true, // Positive thresholds.
++		true, // Leave kernel trip points to the device thermal policy.
++		true, // Virtual sensor.
++		{ "xo-therm" },
++		{ 0.76 },
++		"xo-therm",
++		40000,
++		38000,
++		5160,
++		5000,
++		true, // The kernel trip point does not signal the polling threshold.
++	};
++
+ 	std::vector<std::string> cpu_sensors_hamoa = {
+ 		"cpu-0-0-1-thermal",
+ 		"cpu-0-1-1-thermal",
+@@ -4901,6 +4929,16 @@ namespace thermal {
+ 			}
+ 		}
+ 
++		if (::android::base::GetProperty("ro.product.vendor.device", "") == "athens") {
++			const auto skin = std::find_if(conf.begin(), conf.end(), [](const target_therm_cfg& entry) {
++				return entry.type == TemperatureType::SKIN && entry.label == "skin";
++			});
++			if (skin != conf.end())
++				*skin = athens_skin;
++			else
++				conf.push_back(athens_skin);
++		}
++
+ 		return conf;
+ 	}
+ 
+diff --git a/thermalData.h b/thermalData.h
+index 485e8101c6b5f96c4038a879f33616d079a12cb6..9b30a06cf3eee57d8fa145c6ef56a3b23d081407 100644
+--- a/thermalData.h
++++ b/thermalData.h
+@@ -89,6 +89,7 @@ using ::aidl::android::hardware::thermal::ThrottlingSeverity;
+ 		int trip_sensor_thresholds_clr;
+ 		int y_intercept;
+ 		uint32_t sampling_period_ms;
++		bool poll_trip_sensor = false;
+ 	};
+ 
+ 	struct target_therm_cfg {
+@@ -106,6 +107,7 @@ using ::aidl::android::hardware::thermal::ThrottlingSeverity;
+ 		int trip_sensor_thresholds_clr;
+ 		int y_intercept;
+ 		uint32_t sampling_period_ms;
++		bool poll_trip_sensor = false;
+ 	};
+ 
+ 	struct therm_cdev {
+diff --git a/thermalUtilsNetlink.cpp b/thermalUtilsNetlink.cpp
+index 2b4be75a1b4c368d752ff9925223d7124258483b..dbd0169a5cc406400d67004a1e52ab8909d62820 100644
+--- a/thermalUtilsNetlink.cpp
++++ b/thermalUtilsNetlink.cpp
+@@ -51,8 +51,9 @@ namespace thermal {
+ 
+ ThermalUtils::ThermalUtils(const ueventCB &inp_cb, const notifyCB &inp_cdev_cb):
+ 	cfg(),
+-	cmnInst(std::bind(&ThermalUtils::virtualNotify, this,
+-				std::placeholders::_1)),
++	cb(inp_cb),
++	notify(inp_cdev_cb),
++	cmnInst([this](therm_sensor* sensor) { virtualNotify(*sensor); }),
+ 	monitor(std::bind(&ThermalUtils::eventParse, this,
+ 				std::placeholders::_1,
+ 				std::placeholders::_2,
+@@ -65,9 +66,7 @@ ThermalUtils::ThermalUtils(const ueventCB &inp_cb, const notifyCB &inp_cdev_cb):
+ 				std::placeholders::_2),
+ 		std::bind(&ThermalUtils::cdevEventParse, this,
+ 				std::placeholders::_1,
+-				std::placeholders::_2)),
+-	cb(inp_cb),
+-	notify(inp_cdev_cb)
++					std::placeholders::_2))
+ {
+ 	int ret = 0;
+ 	std::vector<struct therm_sensor> sensorList;
+@@ -156,9 +155,17 @@ void ThermalUtils::Notify(struct therm_sensor& sens)
+ 	}
+ }
+ 
+-void ThermalUtils::virtualNotify(struct therm_sensor *sens)
++void ThermalUtils::virtualNotify(therm_sensor& sensor)
+ {
+-	cb(sens->t);
++	if (sensor.poll_trip_sensor) {
++		std::lock_guard<std::mutex> lock(sens_cb_mutex);
++		const auto entry = thermalConfig.find(sensor.tzn);
++		if (entry == thermalConfig.end() ||
++		    entry->second.t.throttlingStatus == sensor.t.throttlingStatus)
++			return;
++		entry->second.t.throttlingStatus = sensor.t.throttlingStatus;
++	}
++	cb(sensor.t);
+ }
+ 
+ void ThermalUtils::cdevNotify(struct therm_cdev& cdev, int state)
+@@ -297,7 +304,9 @@ int ThermalUtils::readTemperatures(std::vector<Temperature>& temp)
+ 		ret = cmnInst.read_temperature(sens);
+ 		if (ret < 0)
+ 			return ret;
+-		Notify(sens);
++		// The trip-polling worker owns severity transitions for this sensor.
++		if (!sens.poll_trip_sensor)
++			Notify(sens);
+ 		_temp.push_back(sens.t);
+ 	}
+ 
+@@ -321,7 +330,8 @@ int ThermalUtils::readTemperatures(TemperatureType type,
+ 		ret = cmnInst.read_temperature(sens);
+ 		if (ret < 0)
+ 			return ret;
+-		Notify(sens);
++		if (!sens.poll_trip_sensor)
++			Notify(sens);
+ 		_temp.push_back(sens.t);
+ 	}
+ 
+diff --git a/thermalUtilsNetlink.h b/thermalUtilsNetlink.h
+index 7608e933fe8304e4b3fe64be03cf6910ddc1f678..45a042db58f50abc28cf9331448d1a4f546d9b0c 100644
+--- a/thermalUtilsNetlink.h
++++ b/thermalUtilsNetlink.h
+@@ -72,8 +72,6 @@ class ThermalUtils {
+                                             std::vector<CoolingDevice>& cdev);
+ 	private:
+ 		ThermalConfig cfg;
+-		ThermalCommon cmnInst;
+-		ThermalMonitor monitor;
+ 		std::unordered_map<int, struct therm_sensor>
+ 			thermalConfig;
+ 		std::unordered_map<int, struct therm_cdev>
+@@ -83,12 +81,14 @@ class ThermalUtils {
+ 		std::mutex cdev_cb_mutex;
+ 		ueventCB cb;
+ 		notifyCB notify;
++		ThermalCommon cmnInst;
++		ThermalMonitor monitor;
+ 
+ 		void VirturalSensorEventParse(struct therm_sensor& sens, int tzn, int temp);
+ 		void eventParse(int tzn, int trip, int temp);
+ 		void sampleParse(int tzn, int temp);
+ 		void eventCreateParse(int tzn, const char *name);
+-		void virtualNotify(struct therm_sensor *sens);
++		void virtualNotify(therm_sensor& sensor);
+ 		void Notify(struct therm_sensor& sens);
+ 		void cdevNotify(struct therm_cdev& cdev, int state);
+ 		void cdevEventParse(int cdevn, int state);

@@ -1,0 +1,811 @@
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index 9e104257a72189eea107705293ed14a54398c9b4..09ed4423cca028c11cd82a3d14ccb2a376557ca4 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -17,7 +17,8 @@
+ 
+         <receiver
+             android:name=".receiver.StartFreeformReceiver"
+-            android:exported="true" >
++            android:exported="true"
++            android:permission="com.libremobileos.permission.START_FREEFORM">
+             <intent-filter>
+                 <action android:name="com.libremobileos.freeform.START_FREEFORM" />
+             </intent-filter>
+diff --git a/app/src/main/java/com/libremobileos/freeform/receiver/StartFreeformReceiver.kt b/app/src/main/java/com/libremobileos/freeform/receiver/StartFreeformReceiver.kt
+index cac2517ed23fae13dcee46e089815939efccbda4..b74c59bc382cc76dbaf7b50ec6aabb800c369a21 100644
+--- a/app/src/main/java/com/libremobileos/freeform/receiver/StartFreeformReceiver.kt
++++ b/app/src/main/java/com/libremobileos/freeform/receiver/StartFreeformReceiver.kt
+@@ -3,6 +3,7 @@ package com.libremobileos.freeform.receiver
+ import android.content.BroadcastReceiver
+ import android.content.Context
+ import android.content.Intent
++import android.os.UserHandle
+ import com.libremobileos.freeform.LMOFreeform
+ import com.libremobileos.freeform.LMOFreeformServiceManager
+ import com.libremobileos.freeform.utils.Debug
+@@ -26,7 +27,7 @@ class StartFreeformReceiver : BroadcastReceiver() {
+             if (Debug.isDebug) logger.d("onReceive ${intent.extras}")
+             val packageName = intent.getStringExtra("packageName")
+             val activityName = intent.getStringExtra("activityName")
+-            val userId = intent.getIntExtra("userId", 0)
++            val userId = intent.getIntExtra("userId", UserHandle.myUserId())
+             val taskId = intent.getIntExtra("taskId", -1)
+ 
+             if (packageName != null && activityName != null) {
+diff --git a/freeform-server/src/main/java/com/libremobileos/freeform/server/LMOFreeformUIService.java b/freeform-server/src/main/java/com/libremobileos/freeform/server/LMOFreeformUIService.java
+index b16e1adde1bb6603192676251edaf81956a6977a..cad2e27dbac5a312c761c5624ceead12dc5bf89f 100644
+--- a/freeform-server/src/main/java/com/libremobileos/freeform/server/LMOFreeformUIService.java
++++ b/freeform-server/src/main/java/com/libremobileos/freeform/server/LMOFreeformUIService.java
+@@ -73,7 +73,7 @@ public class LMOFreeformUIService extends ILMOFreeformUIService.Stub {
+         if (Binder.getCallingUid() != SYSTEM_UID) {
+             throw new SecurityException("Caller must be system");
+         }
+-        FreeformWindowManager.removeWindow(freeformId, true /*close*/);
++        handler.post(() -> FreeformWindowManager.closeWindow(freeformId));
+     }
+ 
+     @Override
+diff --git a/freeform-server/src/main/java/com/libremobileos/freeform/server/ui/FreeformConfig.kt b/freeform-server/src/main/java/com/libremobileos/freeform/server/ui/FreeformConfig.kt
+index 1fa32d95a9c92b33aea228a53739d40c1aed85c2..92020eb8fad9be8ff3e408fa77d8664af6e88d9f 100644
+--- a/freeform-server/src/main/java/com/libremobileos/freeform/server/ui/FreeformConfig.kt
++++ b/freeform-server/src/main/java/com/libremobileos/freeform/server/ui/FreeformConfig.kt
+@@ -12,9 +12,6 @@ data class FreeformConfig @JvmOverloads constructor(
+     var hangUpWidth: Int = 300,
+     var hangUpHeight: Int = 400,
+     var isHangUp: Boolean = false,
+-    // 记录挂起前的位置，以便恢复
+-    var notInHangUpX: Int = 0,
+-    var notInHangUpY: Int = 0,
+     //小窗屏幕宽高，与view的比例
+     var freeformWidth: Int = 1080,
+     var freeformHeight: Int = 1920,
+diff --git a/freeform-server/src/main/java/com/libremobileos/freeform/server/ui/FreeformTaskStackListener.kt b/freeform-server/src/main/java/com/libremobileos/freeform/server/ui/FreeformTaskStackListener.kt
+index e36517ffd8f9f7f7ee7d228416ac5554f78a0632..06668b4a85b66abb7dbf07ea793283964e81b6fc 100644
+--- a/freeform-server/src/main/java/com/libremobileos/freeform/server/ui/FreeformTaskStackListener.kt
++++ b/freeform-server/src/main/java/com/libremobileos/freeform/server/ui/FreeformTaskStackListener.kt
+@@ -5,7 +5,6 @@ import android.app.ITaskStackListener
+ import android.content.ComponentName
+ import android.os.Build
+ import android.util.Slog
+-import android.view.Display
+ import android.view.Surface
+ import com.libremobileos.freeform.server.Debug.dlog
+ import com.libremobileos.freeform.server.LMOFreeformServiceHolder
+@@ -18,7 +17,7 @@ class FreeformTaskStackListener(
+     private val window: FreeformWindow
+ ) : ITaskStackListener.Stub() {
+ 
+-    var taskId = -1
++    @Volatile var taskId = -1
+ 
+     companion object {
+         private const val TAG = "LMOFreeform/FreeformTaskStackListener"
+@@ -78,7 +77,7 @@ class FreeformTaskStackListener(
+     override fun onTaskRemoved(taskId: Int) {
+         if (this.taskId == taskId) {
+             dlog(TAG, "onTaskRemoved $taskId")
+-            window.destroy("onTaskRemoved", true)
++            window.handler.post { window.destroy("onTaskRemoved") }
+         }
+     }
+ 
+@@ -145,8 +144,8 @@ class FreeformTaskStackListener(
+     }
+ 
+     override fun onTaskDisplayChanged(taskId: Int, newDisplayId: Int) {
+-        if (taskId == this.taskId && newDisplayId == Display.DEFAULT_DISPLAY) {
+-            window.destroy("onTaskDisplayChanged: $taskId to main display", false)
++        if (taskId == this.taskId && newDisplayId != displayId) {
++            window.handler.post { window.destroy("onTaskDisplayChanged: $taskId to $newDisplayId") }
+         } else if (newDisplayId == displayId) {
+             this.taskId = taskId
+             dlog(TAG, "onTaskDisplayChanged: $taskId to freeform display")
+diff --git a/freeform-server/src/main/java/com/libremobileos/freeform/server/ui/FreeformWindow.kt b/freeform-server/src/main/java/com/libremobileos/freeform/server/ui/FreeformWindow.kt
+index 3d21a371368a5b0c1c915604dc11e2aca80ff212..8b3f1419a534ba50a630e4ceaa38bd65622b4e69 100644
+--- a/freeform-server/src/main/java/com/libremobileos/freeform/server/ui/FreeformWindow.kt
++++ b/freeform-server/src/main/java/com/libremobileos/freeform/server/ui/FreeformWindow.kt
+@@ -1,7 +1,11 @@
+ package com.libremobileos.freeform.server.ui
+ 
++import android.animation.ValueAnimator
+ import android.annotation.SuppressLint
++import android.app.ActivityManager.LOCK_TASK_MODE_NONE
++import android.app.ActivityTaskManager.INVALID_TASK_ID
+ import android.content.Context
++import android.content.Intent
+ import android.graphics.drawable.Drawable
+ import android.graphics.PixelFormat
+ import android.graphics.SurfaceTexture
+@@ -21,6 +25,7 @@ import android.view.Surface
+ import android.view.TextureView
+ import android.view.View
+ import android.view.ViewGroup
++import android.view.WindowInsets
+ import android.view.WindowManager
+ import android.view.animation.PathInterpolator
+ import android.widget.FrameLayout
+@@ -65,35 +70,36 @@ class FreeformWindow(
+     var defaultDisplayRotation = context.display.rotation
+     private val hangUpGestureListener = HangUpGestureListener(this)
+     private val defaultDisplayInfo = DisplayInfo()
+-    private val destroyRunnable = Runnable { destroy("destroyRunnable", true) }
++    private val destroyRunnable = Runnable { destroy("close timeout") }
+     
+     private var appPackageName: String = ""
+     private var appIcon: Drawable? = null
+-    private var isInitialized = false
++    private var closing = false
++    private var destroyed = false
++    private var positionAnimator: ValueAnimator? = null
+ 
+     private val rotationWatcher = object : IRotationWatcher.Stub() {
+         override fun onRotationChanged(rotation: Int) {
+             dlog(TAG, "onRotationChanged($rotation)")
+-            defaultDisplayWidth = context.resources.displayMetrics.widthPixels
+-            defaultDisplayHeight = context.resources.displayMetrics.heightPixels
+-            defaultDisplayRotation = context.display.rotation
+-            measureSize()
+             handler.post {
++                if (destroyed) return@post
++                defaultDisplayWidth = context.resources.displayMetrics.widthPixels
++                defaultDisplayHeight = context.resources.displayMetrics.heightPixels
++                defaultDisplayRotation = context.display.rotation
++                measureSize()
+                 changeOrientation()
+-                if (freeformConfig.isHangUp) toHangUp()
+-                else makeSureFreeformInScreen()
++                measureScale()
++                LMOFreeformServiceHolder.resizeFreeform(
++                    this@FreeformWindow,
++                    freeformConfig.freeformWidth,
++                    freeformConfig.freeformHeight,
++                    freeformConfig.densityDpi
++                )
++                freeformView?.surfaceTexture?.setDefaultBufferSize(
++                    freeformConfig.freeformWidth,
++                    freeformConfig.freeformHeight
++                )
+             }
+-            measureScale()
+-            LMOFreeformServiceHolder.resizeFreeform(
+-                this@FreeformWindow,
+-                freeformConfig.freeformWidth,
+-                freeformConfig.freeformHeight,
+-                freeformConfig.densityDpi
+-            )
+-            freeformView?.surfaceTexture?.setDefaultBufferSize(
+-                freeformConfig.freeformWidth,
+-                freeformConfig.freeformHeight
+-            )
+         }
+     }
+ 
+@@ -112,6 +118,7 @@ class FreeformWindow(
+         private val M3_ACCELERATE = PathInterpolator(0.3f, 0.0f, 0.8f, 0.15f)
+         private const val M3_DURATION_EXIT = 60L
+         private const val M3_DURATION_ENTER = 110L
++        private const val WINDOW_POSITION_DURATION_MS = 180L
+         private const val SHIFT_DP = 4f
+         private const val CONTROL_MODE_SETTING = "freeform_control_mode"
+         private const val CONTROL_MODE_BUTTON = "Button"
+@@ -120,22 +127,26 @@ class FreeformWindow(
+         private const val LEGACY_GESTURE_MODE = "1"
+     }
+ 
+-    init {
+-        if (LMOFreeformServiceHolder.ping()) {
+-            Slog.i(TAG, "FreeformWindow init")
+-            extractPackageInfo()
+-            populateFreeformConfig()
+-            handler.post {
+-                if (addFreeformView()) {
+-                    isInitialized = true
+-                } else {
+-                    destroy("init:addFreeform failed")
+-                }
+-            }
+-        } else {
++    fun initialize() {
++        if (!LMOFreeformServiceHolder.ping()) {
+             Slog.e(TAG, "FreeformWindow init failed: service not running")
+             destroy("init:service not running")
++            return
+         }
++        extractPackageInfo()
++        populateFreeformConfig()
++        if (!addFreeformView()) destroy("init:addFreeform failed")
++    }
++
++    fun canRestore(packageName: String, userId: Int, taskId: Int): Boolean {
++        if (closing || destroyed || appConfig.pendingIntent != null || appConfig.userId != userId ||
++            appConfig.packageName != packageName) return false
++        val currentTaskId = freeformTaskStackListener?.taskId ?: appConfig.taskId
++        return taskId == INVALID_TASK_ID || currentTaskId == taskId
++    }
++
++    fun restore() {
++        if (freeformConfig.isHangUp) handleHangUp()
+     }
+ 
+     override fun onDisplayPaused() {
+@@ -173,22 +184,35 @@ class FreeformWindow(
+     override fun onDisplayAdd(displayId: Int) {
+         Slog.i(TAG, "onDisplayAdd displayId=$displayId, $appConfig")
+         handler.post {
++            if (closing || destroyed) {
++                LMOFreeformServiceHolder.releaseFreeform(this)
++                return@post
++            }
+             this.displayId = displayId
+-            freeformTaskStackListener = FreeformTaskStackListener(displayId, this)
+-            SystemServiceHolder.activityTaskManager.registerTaskStackListener(freeformTaskStackListener)
+-            if (appConfig.taskId != -1) {
+-                dlog(TAG, "moving taskId=${appConfig.taskId} to freeform display")
+-                freeformTaskStackListener!!.taskId = appConfig.taskId
+-                runCatching {
+-                    // TODO: find a new way for this since getTaskDescription was removed in fwb commit a7cae90a991e
+-                    // if (SystemServiceHolder.activityTaskManager.getTaskDescription(appConfig.taskId) == null) {
+-                    //     throw Exception("stale task")
+-                    // }
+-                    SystemServiceHolder.activityTaskManager.moveRootTaskToDisplay(appConfig.taskId, displayId)
+-                }
+-                .onFailure { e ->
+-                    Slog.e(TAG, "failed to move task ${appConfig.taskId}: $e, fallback to startApp")
+-                    startApp()
++            val listener = FreeformTaskStackListener(displayId, this)
++            freeformTaskStackListener = listener
++            SystemServiceHolder.activityTaskManager.registerTaskStackListener(listener)
++            if (appConfig.taskId != INVALID_TASK_ID) {
++                val taskManager = SystemServiceHolder.activityTaskManager
++                val moved = runCatching {
++                    val task = FreeformWindowManager.findMovableTask(
++                        appConfig.packageName, appConfig.userId, appConfig.taskId
++                    )
++                    val component = task?.topActivity ?: return@runCatching false
++                    if (taskManager.lockTaskModeState != LOCK_TASK_MODE_NONE ||
++                        !taskManager.isActivityStartAllowedOnDisplay(
++                            displayId, Intent().setComponent(component), null, appConfig.userId
++                        )
++                    ) return@runCatching false
++                    listener.taskId = appConfig.taskId
++                    taskManager.moveRootTaskToDisplay(appConfig.taskId, displayId)
++                    true
++                }.onFailure { e ->
++                    Slog.w(TAG, "Could not move task ${appConfig.taskId} into small window", e)
++                }.getOrDefault(false)
++                if (!moved) {
++                    destroy("onDisplayAdd: task is no longer eligible")
++                    return@post
+                 }
+             } else if (appConfig.userId == -100) {
+                 if (appConfig.pendingIntent == null) destroy("onDisplayAdd:userId=-100, but pendingIntent is null")
+@@ -222,17 +246,14 @@ class FreeformWindow(
+     }
+ 
+     override fun onDisplayHasSecureWindowOnScreenChanged(displayId: Int, hasSecureWindowOnScreen: Boolean) {
+-        if (displayId != this.displayId) return;
+-        dlog(TAG, "onDisplayHasSecureWindowOnScreenChanged: $hasSecureWindowOnScreen")
+-        windowParams.apply {
+-            flags = if (hasSecureWindowOnScreen) {
+-                flags or WindowManager.LayoutParams.FLAG_SECURE
+-            } else {
+-                flags xor WindowManager.LayoutParams.FLAG_SECURE
+-            }
+-        }
+         handler.post {
++            if (destroyed || displayId != this.displayId) return@post
+             val layout = freeformWindowView ?: freeformLayout ?: return@post
++            val secureFlag = WindowManager.LayoutParams.FLAG_SECURE
++            val flags = if (hasSecureWindowOnScreen) windowParams.flags or secureFlag
++                    else windowParams.flags and secureFlag.inv()
++            if (windowParams.flags == flags) return@post
++            windowParams.flags = flags
+             runCatching { windowManager.updateViewLayout(layout, windowParams) }
+                 .onFailure { Slog.e(TAG, "updateViewLayout failed: $it") }
+         }
+@@ -304,7 +325,7 @@ class FreeformWindow(
+     @SuppressLint("WrongConstant")
+     private fun addFreeformView(): Boolean {
+         dlog(TAG, "addFreeformView")
+-        val tmpFreeformLayout = resourceHolder.getLayout(FREEFORM_LAYOUT)!! ?: return false
++        val tmpFreeformLayout = resourceHolder.getLayout(FREEFORM_LAYOUT) ?: return false
+         freeformLayout = tmpFreeformLayout
+         freeformWindowView = FrameLayout(context).apply {
+             clipChildren = false
+@@ -388,6 +409,7 @@ class FreeformWindow(
+             type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+             width = WindowManager.LayoutParams.WRAP_CONTENT
+             height = WindowManager.LayoutParams.WRAP_CONTENT
++            gravity = Gravity.CENTER
+             flags = WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+@@ -417,95 +439,105 @@ class FreeformWindow(
+      */
+     @SuppressLint("ClickableViewAccessibility")
+     fun handleHangUp() {
+-        val rootView = freeformRootView ?: return
+-        val layout = freeformWindowView ?: freeformLayout ?: return
+         val topBar = topBarView ?: return
+         val bottomBar = bottomBarView ?: return
+         val view = freeformView ?: return
+-        
++        if (closing || destroyed) return
++
+         if (freeformConfig.isHangUp) {
+-            windowParams.apply {
+-                x = freeformConfig.notInHangUpX
+-                y = freeformConfig.notInHangUpY
+-                flags = flags or WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM
+-            }
+-            rootView.layoutParams.apply {
+-                width = freeformConfig.width
+-                height = freeformConfig.height
+-            }
+-            windowManager.updateViewLayout(layout, windowParams)
++            windowParams.flags = windowParams.flags or WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM
+             topBar.visibility = View.VISIBLE
+             bottomBar.visibility = View.VISIBLE
+             freeformConfig.isHangUp = false
+             view.setOnTouchListener(this)
+         } else {
+-            freeformConfig.notInHangUpX = windowParams.x
+-            freeformConfig.notInHangUpY = windowParams.y
+-            toHangUp()
++            windowParams.flags = windowParams.flags and WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM.inv()
+             topBar.visibility = View.GONE
+             bottomBar.visibility = View.GONE
+             freeformConfig.isHangUp = true
+             val gestureDetector = GestureDetector(context, hangUpGestureListener)
+             view.setOnTouchListener { _, event ->
+                 gestureDetector.onTouchEvent(event)
+-                if (event.action == MotionEvent.ACTION_UP) makeSureFreeformInScreen()
++                if (freeformConfig.isHangUp &&
++                    (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL)) {
++                    makeSureFreeformInScreen(animate = true)
++                }
+                 true
+             }
+         }
++        changeOrientation(animatePosition = true)
+     }
+ 
+-    /**
+-     * Called in system handler
+-     */
+-    fun toHangUp() {
+-        val rootView = freeformRootView ?: return
+-        val layout = freeformWindowView ?: freeformLayout ?: return
+-        
+-        windowParams.apply {
+-            x = (defaultDisplayWidth / 2 - freeformConfig.hangUpWidth / 2)
+-            y = -(defaultDisplayHeight / 2 - freeformConfig.hangUpHeight / 2)
+-            flags = flags xor WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM
+-        }
+-        rootView.layoutParams = rootView.layoutParams.apply {
+-            width = freeformConfig.hangUpWidth
+-            height = freeformConfig.hangUpHeight
+-        }
+-        runCatching { windowManager.updateViewLayout(layout, windowParams) }.onFailure { Slog.e(TAG, "$it") }
++    fun cancelPositionAnimation() {
++        positionAnimator?.cancel()
++        positionAnimator = null
+     }
+ 
+-    /**
+-     * Called in uiHandler
+-     */
+-    fun makeSureFreeformInScreen() {
++    /** Keep the full window controls visible, and dock minimized windows on the nearest edge. */
++    fun makeSureFreeformInScreen(animate: Boolean = false) {
+         val rootView = freeformRootView ?: return
+-        
+-        if (!freeformConfig.isHangUp) {
+-            val maxWidth = defaultDisplayWidth
+-            val maxHeight = (defaultDisplayHeight * 0.9).roundToInt()
+-            if (rootView.layoutParams.width > maxWidth || rootView.layoutParams.height > maxHeight) {
+-                rootView.layoutParams = rootView.layoutParams.apply {
+-                    width = min(rootView.width, maxWidth)
+-                    height = min(rootView.height, maxHeight)
++        val layout = freeformWindowView ?: return
++        if (destroyed || closing || !layout.isAttachedToWindow) return
++
++        val metrics = windowManager.currentWindowMetrics
++        val insets = metrics.windowInsets.getInsets(windowParams.fitInsetsTypes or WindowInsets.Type.displayCutout())
++        val availableWidth = metrics.bounds.width() - insets.left - insets.right
++        val availableHeight = metrics.bounds.height() - insets.top - insets.bottom
++        val controlsHeight = if (freeformConfig.isHangUp) 0 else
++            (topBarView?.layoutParams?.height ?: 0) + (bottomBarView?.layoutParams?.height ?: 0)
++        if (availableWidth <= 0 || availableHeight <= controlsHeight) return
++
++        val params = rootView.layoutParams
++        val width = params.width.coerceIn(1, availableWidth)
++        val height = params.height.coerceIn(1, availableHeight - controlsHeight)
++        if (params.width != width || params.height != height) {
++            params.width = width
++            params.height = height
++            rootView.layoutParams = params
++        }
++        val maxX = (availableWidth - width) / 2
++        val maxY = (availableHeight - height - controlsHeight) / 2
++        val targetX = if (freeformConfig.isHangUp) {
++            if (windowParams.x < 0) -maxX else maxX
++        } else {
++            windowParams.x.coerceIn(-maxX, maxX)
++        }
++        val targetY = windowParams.y.coerceIn(-maxY, maxY)
++        cancelPositionAnimation()
++        if (animate && (targetX != windowParams.x || targetY != windowParams.y)) {
++            val startX = windowParams.x
++            val startY = windowParams.y
++            positionAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
++                duration = WINDOW_POSITION_DURATION_MS
++                interpolator = M3_DECELERATE
++                addUpdateListener {
++                    if (!layout.isAttachedToWindow) return@addUpdateListener
++                    val progress = it.animatedValue as Float
++                    windowParams.x = (startX + (targetX - startX) * progress).roundToInt()
++                    windowParams.y = (startY + (targetY - startY) * progress).roundToInt()
++                    windowManager.updateViewLayout(layout, windowParams)
+                 }
++                start()
+             }
++            return
+         }
+-        if (windowParams.x < -(defaultDisplayWidth / 2)) FreeformAnimation.moveInScreenAnimator(windowParams.x, -(defaultDisplayWidth / 2), 300, true, this)
+-        else if (windowParams.x > (defaultDisplayWidth / 2)) FreeformAnimation.moveInScreenAnimator(windowParams.x, (defaultDisplayWidth / 2), 300, true, this)
+-        if (windowParams.y < -(defaultDisplayHeight / 2)) FreeformAnimation.moveInScreenAnimator(windowParams.y, -(defaultDisplayHeight / 2), 300, false, this)
+-        else if (windowParams.y > (defaultDisplayHeight / 2)) FreeformAnimation.moveInScreenAnimator(windowParams.y, (defaultDisplayHeight / 2), 300, false, this)
++        windowParams.x = targetX
++        windowParams.y = targetY
++        windowManager.updateViewLayout(layout, windowParams)
+     }
+ 
+     /**
+      * Change freeform orientation
+      * Called in system handler
+      */
+-    fun changeOrientation() {
++    fun changeOrientation(animatePosition: Boolean = false) {
+         val rootView = freeformRootView ?: return
+         
+         rootView.layoutParams = rootView.layoutParams.apply {
+             width = if (freeformConfig.isHangUp) freeformConfig.hangUpWidth else freeformConfig.width
+             height = if (freeformConfig.isHangUp) freeformConfig.hangUpHeight else freeformConfig.height
+         }
++        makeSureFreeformInScreen(animatePosition)
+     }
+ 
+     fun getFreeformId(): String {
+@@ -618,31 +650,52 @@ class FreeformWindow(
+     }
+ 
+     fun enterFullscreen() {
++        if (closing || destroyed) return
+         updateTitle(TITLE_OPEN_FULL_SCREEN, openFullScreenIcon, directionY = 1f)
+-        val listener = freeformTaskStackListener
+-        if (listener == null || listener.taskId == -1) {
+-            Slog.e(TAG, "taskId is -1, can`t move")
+-            return
+-        }
+         runCatching {
+-            SystemServiceHolder.activityTaskManager.moveRootTaskToDisplay(listener.taskId, Display.DEFAULT_DISPLAY)
++            val taskId = getTaskIdOnWindowDisplay()
++            if (taskId == INVALID_TASK_ID) {
++                destroy("enterFullscreen: no task on small-window display")
++                return
++            }
++            SystemServiceHolder.activityTaskManager.moveRootTaskToDisplay(taskId, Display.DEFAULT_DISPLAY)
++        }.onSuccess {
++            destroy("enterFullscreen: task moved to main display")
+         }.onFailure {
+             Slog.e(TAG, "enterFullscreen failed", it)
++            freeformLayout?.animate()?.cancel()
++            freeformLayout?.scaleX = 1f
++            freeformLayout?.scaleY = 1f
++            resetTitle(animated = false)
+         }
+     }
+ 
+     fun close() {
++        if (closing || destroyed) return
++        closing = true
++        cancelPositionAnimation()
+         dlog(TAG, "close()")
+         updateTitle(TITLE_CLOSE, closeIcon, directionY = -1f)
+         runCatching {
+-            SystemServiceHolder.activityTaskManager.removeTask(freeformTaskStackListener!!.taskId)
+-            removeView()
++            val taskId = getTaskIdOnWindowDisplay()
++            if (taskId != INVALID_TASK_ID && SystemServiceHolder.activityTaskManager.removeTask(taskId)) {
++                removeView()
++            } else {
++                destroy("close: no task removed from small-window display")
++            }
+         }.onFailure { exception ->
+             Slog.e(TAG, "removeTask failed: ", exception)
+             destroy("window.close() fallback")
+         }
+     }
+ 
++    private fun getTaskIdOnWindowDisplay(): Int {
++        val taskId = freeformTaskStackListener?.taskId ?: INVALID_TASK_ID
++        if (taskId == INVALID_TASK_ID || displayId == Display.INVALID_DISPLAY) return INVALID_TASK_ID
++        val roots = SystemServiceHolder.activityTaskManager.getAllRootTaskInfosOnDisplay(displayId)
++        return if (roots.any { it.taskId == taskId }) taskId else INVALID_TASK_ID
++    }
++
+     fun removeView(runDestroy: Boolean = true) {
+         dlog(TAG, "removeView($runDestroy)")
+         handler.removeCallbacks(destroyRunnable)
+@@ -663,13 +716,15 @@ class FreeformWindow(
+             handler.postDelayed(destroyRunnable, WINDOW_DESTROY_WAIT_MS)
+     }
+ 
+-    fun destroy(callReason: String, shouldRemoveTask: Boolean = false) {
+-        Slog.i(TAG, "destroy ${getFreeformId()}, displayId=$displayId callReason: $callReason")
+-        
+-        if (!isInitialized) {
+-            Slog.w(TAG, "destroy called on uninitialized window")
++    fun destroy(callReason: String) {
++        if (!handler.looper.isCurrentThread) {
++            handler.post { destroy(callReason) }
+             return
+         }
++        if (destroyed) return
++        destroyed = true
++        Slog.i(TAG, "destroy ${getFreeformId()}, displayId=$displayId callReason: $callReason")
++        cancelPositionAnimation()
+         
+         removeView(false)
+         handler.removeCallbacks(destroyRunnable)
+@@ -685,16 +740,9 @@ class FreeformWindow(
+         }
+         
+         LMOFreeformServiceHolder.releaseFreeform(this)
+-        FreeformWindowManager.removeWindow(getFreeformId())
++        FreeformWindowManager.forgetWindow(this)
+         windowManagerInt.unregisterDisplaySecureContentListener(this)
+         
+-        freeformTaskStackListener?.taskId?.let {
+-            if (it != -1 && shouldRemoveTask) {
+-                Slog.i(TAG, "destroy: remove taskId $it again")
+-                runCatching { SystemServiceHolder.activityTaskManager.removeTask(it) }
+-            }
+-        }
+-        
+         packageNameView?.animate()?.cancel()
+         packageNameView?.alpha = 1f
+         packageNameView?.translationY = 0f
+@@ -703,7 +751,6 @@ class FreeformWindow(
+         appIconView?.translationY = 0f
+         packageNameView = null
+         appIconView = null
+-        isInitialized = false
+     }
+     
+     private fun extractPackageInfo() {
+diff --git a/freeform-server/src/main/java/com/libremobileos/freeform/server/ui/FreeformWindowManager.java b/freeform-server/src/main/java/com/libremobileos/freeform/server/ui/FreeformWindowManager.java
+index f74ddb6e2df04f77a43762a4de488f9300bae30b..e57968cde498fe13599ed20e28f8995ee0321b4b 100644
+--- a/freeform-server/src/main/java/com/libremobileos/freeform/server/ui/FreeformWindowManager.java
++++ b/freeform-server/src/main/java/com/libremobileos/freeform/server/ui/FreeformWindowManager.java
+@@ -1,47 +1,116 @@
+ package com.libremobileos.freeform.server.ui;
+ 
++import static android.app.ActivityManager.LOCK_TASK_MODE_NONE;
++import static android.app.ActivityTaskManager.INVALID_TASK_ID;
++import static android.app.WindowConfiguration.ACTIVITY_TYPE_STANDARD;
++import static android.app.WindowConfiguration.WINDOWING_MODE_FULLSCREEN;
+ import static com.libremobileos.freeform.server.Debug.dlog;
+ 
++import android.annotation.Nullable;
++import android.app.ActivityManager.RunningTaskInfo;
++import android.app.ActivityTaskManager.RootTaskInfo;
+ import android.app.PendingIntent;
+ import android.content.ComponentName;
+ import android.content.Context;
+ import android.os.Handler;
+-import android.util.ArrayMap;
++import android.os.RemoteException;
+ import android.util.Slog;
++import android.view.Display;
+ 
+-import java.util.HashMap;
++import com.libremobileos.freeform.server.SystemServiceHolder;
++
++import java.util.ArrayList;
++import java.util.List;
+ 
+ public class FreeformWindowManager {
+-    private static final HashMap<String, FreeformWindow> freeformWindows = new HashMap<>(1);
+     private static final String TAG = "FreeformWindowManager";
++    private static final int MAX_RUNNING_TASKS = 100;
++    // Accessed only on the Freeform UI service handler.
++    private static final ArrayList<FreeformWindow> freeformWindows = new ArrayList<>();
+ 
+     public static void addWindow(
+             Handler handler, Context context,
+             String packageName, String activityName, int userId, int taskId,
+             PendingIntent pendingIntent, int width, int height, int densityDpi) {
+-        AppConfig appConfig = new AppConfig(packageName, activityName, pendingIntent, userId, taskId);
+-        FreeformConfig freeformConfig = new FreeformConfig(width, height, densityDpi);
+-        FreeformWindow window = new FreeformWindow(handler, context, appConfig, freeformConfig);
+-        dlog(TAG, "addWindow: " + packageName + "/" + activityName + ", freeformId=" + window.getFreeformId()
+-                + ", existing freeformWindows=" + freeformWindows);
+-        FreeformWindow oldWindow = freeformWindows.get(window.getFreeformId());
+-        if (oldWindow != null) {
+-            oldWindow.close();
+-            oldWindow.destroy("addWindow", false);
++        handler.post(() -> {
++            int moveTaskId = taskId;
++            if (pendingIntent == null) {
++                if (packageName == null || activityName == null || userId < 0) return;
++                try {
++                    if (SystemServiceHolder.activityTaskManager.getLockTaskModeState()
++                            != LOCK_TASK_MODE_NONE) return;
++                    final String requestedId = packageName + "," + activityName + "," + userId;
++                    boolean hasSameWindow = false;
++                    for (int i = freeformWindows.size() - 1; i >= 0; i--) {
++                        FreeformWindow window = freeformWindows.get(i);
++                        if (window.canRestore(packageName, userId, taskId)) {
++                            window.restore();
++                            return;
++                        }
++                        hasSameWindow |= requestedId.equals(window.getFreeformId());
++                    }
++                    // The existing display unique ID is scoped to package, activity, and user.
++                    if (hasSameWindow) return;
++                    RunningTaskInfo task = findMovableTask(packageName, userId, taskId);
++                    moveTaskId = task != null ? task.taskId : INVALID_TASK_ID;
++                } catch (RemoteException e) {
++                    Slog.w(TAG, "Cannot find a task for small-window launch", e);
++                    return;
++                }
++                if (taskId != INVALID_TASK_ID && moveTaskId == INVALID_TASK_ID) return;
++            }
++
++            AppConfig appConfig = new AppConfig(packageName, activityName, pendingIntent, userId,
++                    moveTaskId);
++            FreeformConfig freeformConfig = new FreeformConfig(width, height, densityDpi);
++            FreeformWindow window = new FreeformWindow(handler, context, appConfig, freeformConfig);
++            freeformWindows.add(window);
++            dlog(TAG, "addWindow: " + window.getFreeformId() + ", taskId=" + moveTaskId);
++            window.initialize();
++        });
++    }
++
++    @Nullable
++    static RunningTaskInfo findMovableTask(String packageName, int userId, int taskId)
++            throws RemoteException {
++        final List<RunningTaskInfo> tasks = SystemServiceHolder.activityTaskManager.getTasks(
++                MAX_RUNNING_TASKS, false /* filterOnlyVisibleRecents */,
++                false /* keepIntentExtra */, Display.DEFAULT_DISPLAY);
++        final List<RootTaskInfo> roots =
++                SystemServiceHolder.activityTaskManager.getAllRootTaskInfosOnDisplay(
++                        Display.DEFAULT_DISPLAY);
++        for (RunningTaskInfo task : tasks) {
++            if (task.userId != userId || !task.isRunning || task.isRealActivityAppLockEnabled
++                    || task.getActivityType() != ACTIVITY_TYPE_STANDARD
++                    || task.getWindowingMode() != WINDOWING_MODE_FULLSCREEN
++                    || !packageMatches(packageName, task.baseActivity)
++                    || (taskId != INVALID_TASK_ID && taskId != task.taskId)
++                    || !packageMatches(packageName, task.topActivity)) {
++                continue;
++            }
++            // The display move API accepts root task IDs, not split-screen child task IDs.
++            for (RootTaskInfo root : roots) {
++                if (root.taskId == task.taskId) return task;
++            }
+         }
+-        freeformWindows.put(window.getFreeformId(), window);
++        return null;
+     }
+ 
+-    /**
+-     * @param freeformId packageName,activityName,userId
+-     */
+-    public static void removeWindow(String freeformId, Boolean close) {
+-        FreeformWindow removedWindow = freeformWindows.remove(freeformId);
+-        if (close && removedWindow != null)
+-            removedWindow.close();
++    private static boolean packageMatches(String packageName, ComponentName activity) {
++        return activity != null && packageName.equals(activity.getPackageName());
++    }
++
++    public static void closeWindow(String freeformId) {
++        for (int i = freeformWindows.size() - 1; i >= 0; i--) {
++            FreeformWindow window = freeformWindows.get(i);
++            if (window.getFreeformId().equals(freeformId)) {
++                window.close();
++                return;
++            }
++        }
+     }
+ 
+-    public static void removeWindow(String freeformId) {
+-        removeWindow(freeformId, false /*close*/);
++    static void forgetWindow(FreeformWindow window) {
++        freeformWindows.remove(window);
+     }
+ }
+diff --git a/freeform-server/src/main/java/com/libremobileos/freeform/server/ui/TouchListener.kt b/freeform-server/src/main/java/com/libremobileos/freeform/server/ui/TouchListener.kt
+index f65e83d0ac48e6dee1b53a1c6e1ffdca1e3233bb..b3bd1727f6cd0d91ddc11b04229a936a500e8aa6 100644
+--- a/freeform-server/src/main/java/com/libremobileos/freeform/server/ui/TouchListener.kt
++++ b/freeform-server/src/main/java/com/libremobileos/freeform/server/ui/TouchListener.kt
+@@ -29,6 +29,7 @@ class MoveTouchListener(
+         
+         when (event.action) {
+             MotionEvent.ACTION_DOWN -> {
++                window.cancelPositionAnimation()
+                 startX = event.rawX
+                 startY = event.rawY
+             }
+@@ -40,8 +41,8 @@ class MoveTouchListener(
+                 startX = event.rawX
+                 startY = event.rawY
+             }
+-            MotionEvent.ACTION_UP -> {
+-                window.makeSureFreeformInScreen()
++            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
++                window.makeSureFreeformInScreen(animate = true)
+             }
+         }
+         return true
+@@ -391,6 +392,7 @@ class ScaleTouchListener(private val window: FreeformWindow, private val isRight
+         
+         when (event.actionMasked) {
+             MotionEvent.ACTION_DOWN -> {
++                window.cancelPositionAnimation()
+                 startX = event.rawX
+                 startY = event.rawY
+                 isPinTriggered = false
+@@ -453,9 +455,9 @@ class ScaleTouchListener(private val window: FreeformWindow, private val isRight
+                 }
+ 
+                 freeformView.surfaceTexture?.let { surfaceTexture ->
++                    window.makeSureFreeformInScreen()
+                     window.freeformConfig.width = rootView.layoutParams.width
+                     window.freeformConfig.height = rootView.layoutParams.height
+-                    window.handler.post { window.makeSureFreeformInScreen() }
+                     window.measureScale()
+                     LMOFreeformServiceHolder.resizeFreeform(
+                         window,
+@@ -492,13 +494,14 @@ class HangUpGestureListener(private val window: FreeformWindow) : SimpleOnGestur
+     private var startX = 0
+     private var startY = 0
+     override fun onDown(e: MotionEvent): Boolean {
++        window.cancelPositionAnimation()
+         startX = window.windowParams.x
+         startY = window.windowParams.y
+-        return super.onDown(e)
++        return true
+     }
+ 
+     override fun onSingleTapUp(e: MotionEvent): Boolean {
+-        window.handler.post { window.handleHangUp() }
++        window.handleHangUp()
+         return true
+     }
+ 
+@@ -523,15 +526,11 @@ class HangUpGestureListener(private val window: FreeformWindow) : SimpleOnGestur
+         val newX = (startX + e2.rawX - e1RawX).roundToInt()
+         val newY = (startY + e2.rawY - e1RawY).roundToInt()
+ 
+-        try {
+-            window.handler.post {
+-                val layout = window.freeformWindowView ?: window.freeformLayout ?: return@post
+-                window.windowManager.updateViewLayout(layout, window.windowParams.apply {
+-                    x = newX
+-                    y = newY
+-                })
+-            }
+-        } catch (e: Exception) {}
++        val layout = window.freeformWindowView ?: return true
++        window.windowManager.updateViewLayout(layout, window.windowParams.apply {
++            x = newX
++            y = newY
++        })
+         return true
+     }
+ 

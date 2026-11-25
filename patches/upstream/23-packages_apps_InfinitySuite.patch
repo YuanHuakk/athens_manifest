@@ -1,0 +1,612 @@
+diff --git a/res/layout/apply_change_button.xml b/res/layout/apply_change_button.xml
+index cfa4fc5d14665d5672cd8602040119f83a875c56..05eb1af97eb4716375190ff8fa6b2072ca58b837 100644
+--- a/res/layout/apply_change_button.xml
++++ b/res/layout/apply_change_button.xml
+@@ -11,7 +11,7 @@
+         android:id="@+id/apply_change"
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+-        android:text="Apply"
++        android:text="@string/apply"
+         android:textAllCaps="false"
+         android:textColor="@color/settingslib_btn_colored_text_material"
+         android:theme="@style/Theme.CollapsingToolbar.Settings"
+diff --git a/res/layout/clock_view_horizontal.xml b/res/layout/clock_view_horizontal.xml
+index 9a8e155d12042bfcd8b2eeab85e9ccd804fc4d1f..7dd8b5227bf275968e37cffbfd3276565d23e4df 100644
+--- a/res/layout/clock_view_horizontal.xml
++++ b/res/layout/clock_view_horizontal.xml
+@@ -43,7 +43,7 @@
+                 android:layout_width="wrap_content"
+                 android:layout_height="wrap_content"
+                 android:fontFamily="@font/ProductSans-Bold"
+-                android:text="Preview"
++                android:text="@string/theme_style_preview"
+                 android:textSize="26sp"
+                 android:textStyle="bold"
+                 android:textColor="@color/black" />
+@@ -74,7 +74,7 @@
+         android:id="@+id/apply_button"
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+-        android:text="Apply"
++        android:text="@string/apply"
+         android:textSize="20sp"
+         android:textColor="#FFFFFF"
+         android:fontFamily="@font/ProductSans-Bold"
+diff --git a/res/layout/icon_view_horizontal.xml b/res/layout/icon_view_horizontal.xml
+index 4394e241899486f26790239d026e3d8e5f7bd109..7db926a8ff8f9c6f92e8f91fcc7ad23b30799c1b 100644
+--- a/res/layout/icon_view_horizontal.xml
++++ b/res/layout/icon_view_horizontal.xml
+@@ -43,7 +43,7 @@
+                 android:layout_width="wrap_content"
+                 android:layout_height="wrap_content"
+                 android:fontFamily="@font/ProductSans-Bold"
+-                android:text="Preview"
++                android:text="@string/theme_style_preview"
+                 android:textSize="26sp"
+                 android:textStyle="bold"
+                 android:textColor="@color/black" />
+@@ -103,7 +103,7 @@
+         android:id="@+id/apply_button"
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+-        android:text="Apply"
++        android:text="@string/apply"
+         android:textSize="20sp"
+         android:textColor="#FFFFFF"
+         android:fontFamily="@font/ProductSans-Bold"
+diff --git a/res/layout/item_view_horizontal.xml b/res/layout/item_view_horizontal.xml
+index 25e98f1666591f0d087a4f9170fd06bd7b98acb1..0eca3a776977ec4dd35389e34332a61eef6ce404 100644
+--- a/res/layout/item_view_horizontal.xml
++++ b/res/layout/item_view_horizontal.xml
+@@ -43,7 +43,7 @@
+                 android:layout_width="wrap_content"
+                 android:layout_height="wrap_content"
+                 android:fontFamily="@font/ProductSans-Bold"
+-                android:text="Preview"
++                android:text="@string/theme_style_preview"
+                 android:textSize="26sp"
+                 android:textStyle="bold"
+                 android:textColor="@color/black" />
+@@ -73,7 +73,7 @@
+         android:id="@+id/apply_button"
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+-        android:text="Apply"
++        android:text="@string/apply"
+         android:textSize="20sp"
+         android:textColor="#FFFFFF"
+         android:fontFamily="@font/ProductSans-Bold"
+diff --git a/res/layout/lockscreen_clock_preview.xml b/res/layout/lockscreen_clock_preview.xml
+index 5f42b381df8aee5bb1e977f0fa81bf04a09ba5ae..6434a2cff9246512e7a5b3ca3ab3944f47932f32 100644
+--- a/res/layout/lockscreen_clock_preview.xml
++++ b/res/layout/lockscreen_clock_preview.xml
+@@ -87,7 +87,7 @@
+                 android:id="@+id/apply_extended_fab"
+                 android:layout_width="wrap_content"
+                 android:layout_height="wrap_content"
+-                android:text="Apply"
++                android:text="@string/apply"
+                 android:textAllCaps="false"
+                 android:textColor="@color/settingslib_btn_colored_text_material"
+                 android:theme="@style/Theme.CollapsingToolbar.Settings"
+diff --git a/res/layout/nav_icon_view_horizontal.xml b/res/layout/nav_icon_view_horizontal.xml
+index b622fdf72cd9390061654329206596d62ccb2907..5af21838c862b86c5736dc22b86119e63d10cbef 100644
+--- a/res/layout/nav_icon_view_horizontal.xml
++++ b/res/layout/nav_icon_view_horizontal.xml
+@@ -43,7 +43,7 @@
+                 android:layout_width="wrap_content"
+                 android:layout_height="wrap_content"
+                 android:fontFamily="@font/ProductSans-Bold"
+-                android:text="Preview"
++                android:text="@string/theme_style_preview"
+                 android:textSize="26sp"
+                 android:textStyle="bold"
+                 android:textColor="@color/black" />
+@@ -95,7 +95,7 @@
+         android:id="@+id/apply_button"
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+-        android:text="Apply"
++        android:text="@string/apply"
+         android:textSize="20sp"
+         android:textColor="#FFFFFF"
+         android:fontFamily="@font/ProductSans-Bold"
+diff --git a/res/layout/shape_view_horizontal.xml b/res/layout/shape_view_horizontal.xml
+index 9c6c6dc86c70d9d3387aba8a90ab244a4bd5efa7..6bcbe6fed15c9a61d97e02008b32535b90437e4b 100644
+--- a/res/layout/shape_view_horizontal.xml
++++ b/res/layout/shape_view_horizontal.xml
+@@ -43,7 +43,7 @@
+                 android:layout_width="wrap_content"
+                 android:layout_height="wrap_content"
+                 android:fontFamily="@font/ProductSans-Bold"
+-                android:text="Preview"
++                android:text="@string/theme_style_preview"
+                 android:textSize="26sp"
+                 android:textStyle="bold"
+                 android:textColor="@color/black" />
+@@ -95,7 +95,7 @@
+         android:id="@+id/apply_button"
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+-        android:text="Apply"
++        android:text="@string/apply"
+         android:textSize="20sp"
+         android:textColor="#FFFFFF"
+         android:fontFamily="@font/ProductSans-Bold"
+diff --git a/res/values-zh-rCN/custom_strings.xml b/res/values-zh-rCN/custom_strings.xml
+index 4f51f977356e50fc367755156a19a247679fbd92..8bea40be22eef483da102307d7c0c75f355ed60c 100644
+--- a/res/values-zh-rCN/custom_strings.xml
++++ b/res/values-zh-rCN/custom_strings.xml
+@@ -637,7 +637,7 @@
+     <string name="qs_header_file_select_title">选择图像</string>
+     <string name="qs_header_offset_title">标题图片偏移</string>
+     <string name="qs_header_offset_summary">调整标题图片大小</string>
+-    <string name="qs_header_file_failed">Couldn\'t load the selected image</string>
++    <string name="qs_header_file_failed">无法加载所选图片</string>
+     <string name="always_on_display_schedule_title">显示时间</string>
+     <string name="always_on_display_schedule_summary">设置始终显示的时间</string>
+     <string name="always_on_display_schedule_sunset">日落</string>
+@@ -878,14 +878,14 @@
+     <string name="game_spoofing_title">游戏伪装</string>
+     <string name="game_spoofing_summary">针对特定游戏的伪装设备属性</string>
+     <string name="spoof_wipe_playstore_title">确定清除 Play 商店数据？</string>
+-    <string name="spoof_wipe_playstore_message">Integrity verdicts are cached by the Play Store. Clearing its data makes the new configuration take effect right away, but signs the Play Store out and clears its download queue.</string>
++    <string name="spoof_wipe_playstore_message">Play 商店会缓存完整性检查结果。清除其数据可以让新配置立即生效，但会退出 Play 商店账号并清空下载队列。</string>
+     <string name="spoof_wipe_confirm">清除数据</string>
+     <string name="pif_active_config">当前使用的配置</string>
+     <string name="pif_no_config">未加载配置</string>
+-    <string name="pif_no_config_summary">Fetch a Pixel fingerprint or import a configuration file</string>
++    <string name="pif_no_config_summary">获取 Pixel 指纹或导入配置文件</string>
+     <string name="pif_config_loaded">配置已载入</string>
+-    <string name="pif_active_model">Spoofing %1$s</string>
+-    <string name="pif_active_model_canary">Spoofing %1$s · Canary</string>
++    <string name="pif_active_model">正在模拟 %1$s</string>
++    <string name="pif_active_model_canary">正在模拟 %1$s · Canary</string>
+     <string name="pif_fetch_pixel_beta">获取 Pixel 指纹</string>
+     <string name="pif_fetching">正在从谷歌获取…</string>
+     <string name="pif_generating">生成配置…</string>
+@@ -935,7 +935,7 @@
+     <string name="pif_logging_title">日志记录</string>
+     <string name="pif_flag_debug_title">调试日志</string>
+     <string name="pif_flag_debug_summary">记录每个已损坏的字段至logcat</string>
+-    <string name="pif_flag_verbose_logs_title">Verbose logs</string>
++    <string name="pif_flag_verbose_logs_title">详细日志</string>
+     <string name="pif_verbose_logs_off">关闭</string>
+     <string name="pif_verbose_logs_basic">基本</string>
+     <string name="pif_verbose_logs_detailed">详细</string>
+@@ -954,20 +954,20 @@
+     <string name="ts_keybox_deleted">Keybox密钥已删除</string>
+     <string name="ts_keybox_status">Keybox</string>
+     <string name="ts_keybox_keys">Keys</string>
+-    <string name="ts_keybox_keys_summary">%1$s · chain of %2$d certificates</string>
+-    <string name="ts_keybox_expiry">Certificate expiry</string>
+-    <string name="ts_keybox_expiry_summary">Earliest leaf certificate expires on %1$s</string>
+-    <string name="ts_days_left">%1$dd left</string>
+-    <string name="ts_revocation_status">Google revocation status</string>
+-    <string name="ts_revocation_checking">Checking with Google…</string>
++    <string name="ts_keybox_keys_summary">%1$s · 证书链包含 %2$d 张证书</string>
++    <string name="ts_keybox_expiry">证书有效期</string>
++    <string name="ts_keybox_expiry_summary">最先到期的叶证书将于 %1$s 到期</string>
++    <string name="ts_days_left">剩余 %1$d 天</string>
++    <string name="ts_revocation_status">Google 吊销状态</string>
++    <string name="ts_revocation_checking">正在向 Google 查询…</string>
+     <string name="ts_revocation_not_yet_checked">尚未检查。点击即可检查</string>
+-    <string name="ts_revocation_valid">Not revoked, and every certificate chain leads to a Google attestation root</string>
+-    <string name="ts_revocation_expiring">Valid, but a certificate expires on %1$s</string>
+-    <string name="ts_revocation_revoked">Revoked by Google (reason: %1$s)</string>
++    <string name="ts_revocation_valid">未被吊销，所有证书链均指向 Google 证明根证书</string>
++    <string name="ts_revocation_expiring">当前有效，但有一张证书将于 %1$s 到期</string>
++    <string name="ts_revocation_revoked">已被 Google 吊销（原因：%1$s）</string>
+     <string name="ts_revocation_suspended">被谷歌封禁(原因： %1$s)</string>
+-    <string name="ts_revocation_expired">A certificate expired on %1$s</string>
+-    <string name="ts_revocation_chain_invalid">The certificate chain does not verify (%1$s)</string>
+-    <string name="ts_revocation_untrusted_root">The chain does not lead to a Google attestation root</string>
++    <string name="ts_revocation_expired">有一张证书已于 %1$s 到期</string>
++    <string name="ts_revocation_chain_invalid">证书链验证失败（%1$s）</string>
++    <string name="ts_revocation_untrusted_root">证书链未指向 Google 证明根证书</string>
+     <string name="ts_revocation_unverified">无法连接到谷歌。稍后将重新检查状态</string>
+     <string name="ts_revocation_error">检查失败: %s</string>
+     <string name="ts_revocation_last_checked">上次检查于 %1$s</string>
+@@ -976,23 +976,23 @@
+     <string name="ts_chip_revoked">已撤销</string>
+     <string name="ts_chip_suspended">已封禁</string>
+     <string name="ts_chip_expired">已过期</string>
+-    <string name="ts_chip_invalid">Invalid chain</string>
+-    <string name="ts_chip_unknown_root">Unknown root</string>
++    <string name="ts_chip_invalid">证书链无效</string>
++    <string name="ts_chip_unknown_root">未知根证书</string>
+     <string name="ts_chip_unverified">未认证</string>
+     <string name="ts_chip_checking">检查中</string>
+     <string name="ts_chip_unchecked">未验证</string>
+-    <string name="ts_flag_revoked_title">Keybox revoked</string>
+-    <string name="ts_flag_revoked_message">Google has revoked this keybox. Strong integrity will fail with it; device integrity may still pass. Import a different keybox to restore strong integrity.</string>
++    <string name="ts_flag_revoked_title">Keybox 已被吊销</string>
++    <string name="ts_flag_revoked_message">Google 已吊销此 Keybox。使用它将无法通过强完整性检查，但仍可能通过设备完整性检查。导入其他 Keybox 可恢复强完整性检查。</string>
+     <string name="ts_flag_suspended_title">Keybox 已被封</string>
+-    <string name="ts_flag_suspended_message">Google has suspended this keybox. Strong integrity will fail while it is suspended. Import a different keybox to restore strong integrity.</string>
++    <string name="ts_flag_suspended_message">Google 已暂停此 Keybox。暂停期间无法通过强完整性检查。导入其他 Keybox 可恢复强完整性检查。</string>
+     <string name="ts_flag_expired_title">Keybox已过期</string>
+-    <string name="ts_flag_expired_message">A certificate in this keybox expired on %1$s. Attestation with it will fail.</string>
++    <string name="ts_flag_expired_message">此 Keybox 中的一张证书已于 %1$s 到期，无法使用它进行证明。</string>
+     <string name="ts_flag_expiring_title">Keybox 即将过期</string>
+-    <string name="ts_flag_expiring_message">A certificate in this keybox expires on %1$s. It keeps working until then.</string>
++    <string name="ts_flag_expiring_message">此 Keybox 中的一张证书将于 %1$s 到期，到期前仍可使用。</string>
+     <string name="ts_flag_chain_title">无效的证书链</string>
+     <string name="ts_flag_chain_message">键盘证书链不验证 (%1$s)。该文件可能已损坏或被篡改。</string>
+     <string name="ts_flag_root_title">无法识别的 Keybox 证书链根</string>
+-    <string name="ts_flag_root_message">This keybox chains to a root that is not a Google hardware attestation root. Strong integrity will most likely fail.</string>
++    <string name="ts_flag_root_message">此 Keybox 的证书链未指向 Google 硬件证明根证书，因此很可能无法通过强完整性检查。</string>
+     <string name="ts_keep_keybox">保持</string>
+     <string name="ts_import_another">导入另一个</string>
+     <string name="ts_target_configuration">目标配置</string>
+@@ -1015,21 +1015,21 @@
+     <string name="ts_verification_auto_count">%1$d 自动</string>
+     <string name="ts_verification_cert_count">%1$d 证书</string>
+     <string name="ts_verification_leaf_count">%1$d 叶形</string>
+-    <string name="ts_verification_skip_count">%1$d skip</string>
++    <string name="ts_verification_skip_count">跳过 %1$d 项</string>
+     <string name="ts_patch_dialog_message">一个日期(YYYY-MM-DD 或 YYYY-MM)，一个跟随当前月份的 YYYY-MM-05类似的模板，或者“否”报告设备自己的补丁。 使用系统/供应商/启动/所有带可选的 [package] 部分的行来单独设置它们。</string>
+     <string name="ts_invalid_patch_date">补丁级别无效。使用 YYYY-MM-DD</string>
+     <string name="ts_invalid_patch">无效的补丁级别。使用日期为 YYYY-MM-DD 模板或 “否”</string>
+     <string name="ts_security_patch">安全补丁日期</string>
+     <string name="ts_no_patch">未设置（使用设备默认值）</string>
+-    <string name="ts_patch_device">Device patch level (no override)</string>
+-    <string name="ts_patch_custom_blocks">Custom per-partition or per-app levels</string>
++    <string name="ts_patch_device">设备安全补丁级别（不覆盖）</string>
++    <string name="ts_patch_custom_blocks">按分区或应用自定义补丁级别</string>
+     <string name="ts_patch_stale_chip">12个月以上</string>
+     <string name="ts_mode_auto">自动</string>
+     <string name="ts_mode_leaf">叶形</string>
+     <string name="ts_mode_cert">证书</string>
+     <string name="ts_mode_skip">跳过</string>
+     <string name="gs_disabled">禁用</string>
+-    <string name="gs_configured_count">%d games configured</string>
++    <string name="gs_configured_count">已配置 %d 款游戏</string>
+     <string name="gs_add_app">添加游戏</string>
+     <string name="gs_configured_apps">已配置游戏</string>
+     <string name="gs_no_apps">未配置游戏</string>
+@@ -1068,4 +1068,63 @@
+     <string name="reading_engine_mode_title">舒适显示（阅读模式）</string>
+     <string name="display_engine_default">默认</string>
+     <string name="display_engine_mode_footer_text">显示引擎基于索尼 Bravia、X - 锐晰技术打造：鲜艳模式提亮增艳，X - 锐晰优化细节与色彩精准度，特丽魅彩拓宽色域。</string>
++
++    <string name="set">设置</string>
++    <string name="ok">确定</string>
++    <string name="never">从不</string>
++    <string name="delete">删除</string>
++    <string name="default_value">默认</string>
++    <string name="unit_seconds">秒</string>
++    <string name="duration_less_than_one_minute">不到 1 分钟</string>
++    <string name="theme_style_preview">预览</string>
++    <string name="lockscreen_battery_info_title">充电信息</string>
++    <string name="power_menu_summary">自定义电源菜单选项</string>
++    <string name="power_menu_lockdown_title">锁定模式</string>
++    <string name="power_menu_users_title">用户</string>
++    <string name="power_menu_emergency_title">紧急呼叫</string>
++    <string name="monet_palette_primary">主色</string>
++    <string name="monet_palette_secondary">次要色</string>
++    <string name="monet_palette_tertiary">第三色</string>
++    <string name="monet_palette_neutral">中性色</string>
++    <string name="monet_primary_chroma">主色饱和度</string>
++    <string name="monet_primary_value">主色明度</string>
++    <string name="monet_secondary_chroma">次要色饱和度</string>
++    <string name="monet_secondary_value">次要色明度</string>
++    <string name="monet_tertiary_chroma">第三色饱和度</string>
++    <string name="monet_tertiary_value">第三色明度</string>
++    <string name="monet_neutral_chroma">中性色饱和度</string>
++    <string name="monet_neutral_value">中性色明度</string>
++    <string name="monet_palette_chroma_summary" formatted="false">100% 为系统默认值。数值越低，颜色越淡，0% 时不保留色彩。数值越高，颜色越鲜艳。</string>
++    <string name="monet_palette_value_summary" formatted="false">100% 为系统默认值。数值越低，颜色越暗；数值越高，颜色越亮。极端数值可能降低文字的可读性。</string>
++    <string name="lockscreen_doubletap_sleep_title">双击锁屏熄屏</string>
++    <string name="status_bar_battery_percent_title">电量百分比</string>
++    <string name="qs_use_status_bar_battery_style">跟随状态栏样式</string>
++    <string name="qs_brightness_slider_category">亮度滑块</string>
++    <string name="qs_brightness_slider_position_title">位置</string>
++    <string name="notification_light_automagic">自动选择颜色</string>
++    <string name="notification_light_override">覆盖所有应用的设置</string>
++    <string name="screen_off_animation_colorfade">淡出</string>
++    <string name="screen_off_animation_iris">光圈闭合</string>
++    <string name="screen_off_animation_desaturate">褪色</string>
++    <string name="screen_off_animation_shutter">快门</string>
++    <string name="volume_panel_category">音量面板</string>
++    <string name="wifi_timeout">Wi-Fi 超时</string>
++    <string name="battery_temperature">电池温度</string>
++    <string name="qs_columns_portrait_title">列数（竖屏）</string>
++    <string name="statusbar_clock_chip_title">时钟背景</string>
++    <string name="status_bar_logo_style_avengers">复仇者联盟</string>
++    <string name="qs_footer_settings_icon_title">设置快捷方式</string>
++    <string name="app_lock_biometrics_allowed_title">允许使用生物识别解锁</string>
++    <string name="radio_info_title">移动网络信息</string>
++    <string name="qs_header_needs_gallery">请先安装图库应用。</string>
++    <string name="increasing_ring_volume_option_title">逐渐提高来电铃声音量</string>
++    <string name="qs_tile_shape_title">快捷设置磁贴形状</string>
++    <string name="force_dark_title">为第三方应用启用深色模式</string>
++    <string name="vbmeta_attestation_title">自动修正 VBMeta 检测结果</string>
++    <string name="vbmeta_attestation_summary">开机时通过密钥认证生成已验证启动哈希值。</string>
++    <string name="spoof_choice_select">选择</string>
++    <string name="gs_invalid_value">%s 的值无效</string>
++    <string name="battery_saver_dark_theme_title">随省电模式开启</string>
++    <string name="battery_saver_dark_theme_summary">省电模式开启期间始终使用深色主题，在 OLED 屏幕上尤其省电。</string>
++    <string name="battery_saver_dark_theme_purpose">启用省电模式时开启深色主题，并在退出省电模式前阻止更改主题。</string>
+ </resources>
+diff --git a/res/values-zh-rCN/infinity_strings.xml b/res/values-zh-rCN/infinity_strings.xml
+index ce4607d5111ce5ca23f141eb43e7541b0fcdcf16..308955b5ab9e6fafc91050acbc06d04b37599404 100644
+--- a/res/values-zh-rCN/infinity_strings.xml
++++ b/res/values-zh-rCN/infinity_strings.xml
+@@ -1,6 +1,6 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+-    <string name="infinity_suite_title">Infinity Suite</string>
++    <string name="infinity_suite_title">Infinity 套件</string>
+     <string name="text_monet_color">Monet 颜色</string>
+     <string name="text_wallpapers">壁纸</string>
+     <string name="text_theme_packs">主题包</string>
+@@ -82,8 +82,8 @@
+     <string name="idle_manager_enforcement_action">强制执行动作</string>
+     <string name="idle_action_rare_bucket">Rare 桶</string>
+     <string name="idle_action_restricted">Restricted 限制</string>
+-    <string name="idle_action_kill_bg">Kill BG</string>
+-    <string name="idle_action_full_kill">Full Kill</string>
++    <string name="idle_action_kill_bg">结束后台进程</string>
++    <string name="idle_action_full_kill">结束应用进程</string>
+     <string name="idle_manager_policy_custom_desc_dynamic">应用空闲 %1$d 分钟后将被处理。</string>
+     <string name="idle_action_rare_bucket_desc">将应用移至 RARE 待机桶。阻止后台作业和闹钟。应用打开时自动恢复。</string>
+     <string name="idle_action_restricted_desc">将应用移至 RESTRICTED 待机桶。最激进的桶。允许极少的后台操作。</string>
+@@ -443,14 +443,14 @@
+     <string name="ts_fetched_keybox_valid">✅ 获取的 keybox 有效，除非被软封禁，否则您将获得所有完整性检查。</string>
+     <string name="ts_fetched_keybox_revoked">❌ 获取的 keybox 已被吊销，所有完整性检查将失败。很快会在此处提供新的 keybox 以供获取。</string>
+     <string name="ts_imported_keybox_revoked">❌ 当前导入的 keybox 已被吊销，无法提供任何完整性检查。</string>
+-    <string name="pif_spoof_netflix">Spoof Netflix</string>
++    <string name="pif_spoof_netflix">模拟 Netflix 设备型号</string>
+     <string name="pif_spoof_netflix_summary">为 Netflix 将设备 Spoof 为 Pixel 型号以绕过 DRM 限制</string>
+-    <string name="pif_spoof_snapchat">Spoof Snapchat</string>
++    <string name="pif_spoof_snapchat">模拟 Snapchat 设备型号</string>
+     <string name="pif_spoof_snapchat_summary">将 Snapchat Spoof 为 Pixel XL 以修复可能的聊天问题</string>
+     <string name="only_json_allowed_toast">❌ 错误：此处仅允许导入 .json 文件</string>
+     <string name="split_qs_title">拆分快速设置面板布局</string>
+     <string name="split_qs_summary">将通知面板（左滑）与展开的快速设置面板（右滑）分离</string>
+-    <string name="doze_peek_title">AOD Peek</string>
++    <string name="doze_peek_title">短暂显示息屏界面</string>
+     <string name="doze_peek_summary">屏幕关闭时短暂显示 Ambient 显示</string>
+     <string name="doze_peek_duration_title">Peek 持续时间</string>
+     <string name="custom_doze_brightness_title">自定义 AOD &amp; 环境显示亮度</string>
+@@ -464,7 +464,7 @@
+     <string name="qs_classic_tile_row_spacing_title">经典磁贴行间距</string>
+     <string name="qs_classic_tile_row_spacing_summary">调整经典模式下各行之间的垂直间距</string>
+     <string name="dynamic_bar_chip_style_title">状态栏芯片样式</string>
+-    <string name="status_bar_dynamic_island_title">Dynamic Island</string>
++    <string name="status_bar_dynamic_island_title">灵动岛</string>
+     <string name="status_bar_dynamic_island_summary">将实时活动、控制和更新带到相机挖孔处</string>
+     <string name="dynamic_island_width_title">Dynamic Island 宽度</string>
+     <string name="dynamic_island_width_summary">修改 Dynamic Island 芯片的水平长度</string>
+diff --git a/res/values/custom_strings.xml b/res/values/custom_strings.xml
+index b750382cccdd576fb90613885ba215cd1c7be24d..1f5989a726eed05713ebdf00ffefcf3b8ce8478e 100644
+--- a/res/values/custom_strings.xml
++++ b/res/values/custom_strings.xml
+@@ -1488,4 +1488,6 @@
+     <string name="battery_saver_dark_theme_summary">Dark theme turns on and stays on while Battery Saver is on. Saves the most battery on OLED screens.</string>
+     <!-- Not shown in the UI; describes the preference for the settings API -->
+     <string name="battery_saver_dark_theme_purpose">Controls whether Battery Saver turns on dark theme and prevents changing it until Battery Saver turns off.</string>
++
++    <string name="theme_style_preview">Preview</string>
+ </resources>
+diff --git a/src/com/infinity/suite/fragments/FontsPicker.java b/src/com/infinity/suite/fragments/FontsPicker.java
+index c6f405fb55cd346c17265d40037f612000a89474..8ceb931fb853e1b1054ace0ebf9e85b80e502874 100644
+--- a/src/com/infinity/suite/fragments/FontsPicker.java
++++ b/src/com/infinity/suite/fragments/FontsPicker.java
+@@ -282,7 +282,9 @@ public class FontsPicker extends SettingsPreferenceFragment {
+             holder.cardView.setStrokeColor(ContextCompat.getColor(context, android.R.color.transparent));
+             holder.cardView.setStrokeWidth(0);
+
+-            holder.title.setText("android".equals(pkg) ? "Default" : label);
++            holder.title.setText("android".equals(pkg)
++                    ? holder.title.getContext().getString(R.string.default_value)
++                    : label);
+             holder.title.setTypeface(getTypeface(holder.title.getContext(), pkg));
+
+             int accentColor = resolveSystemAccentColor(context);
+diff --git a/src/com/infinity/suite/fragments/GameSpoofing.kt b/src/com/infinity/suite/fragments/GameSpoofing.kt
+index 138bf5e6cc844beb2bd05eaf6f666a9e8d91101b..a3e672d80ff8ae7145b3d4467c42e86f19875838 100644
+--- a/src/com/infinity/suite/fragments/GameSpoofing.kt
++++ b/src/com/infinity/suite/fragments/GameSpoofing.kt
+@@ -12,6 +12,7 @@ import android.content.pm.ApplicationInfo
+ import android.graphics.drawable.Drawable
+ import android.os.Bundle
+ import android.provider.Settings
++import android.security.gameprops.GamePropsSpoofService
+ import android.util.Log
+ import android.view.LayoutInflater
+ import android.view.View
+@@ -255,6 +256,7 @@ class GameSpoofing : SettingsPreferenceFragment() {
+         scope.launch {
+             ui.installedApps = withContext(Dispatchers.IO) {
+                 filterInstalledApps(pm = pm, showSystem = true, targeted = emptySet())
++                    .filter { GamePropsSpoofService.isPackageEligible(it.packageName) }
+                     .map { app ->
+                         AppListEntry(
+                             packageName = app.packageName,
+@@ -377,6 +379,7 @@ class GameSpoofing : SettingsPreferenceFragment() {
+                 val games = mutableListOf<Pair<String, Map<String, String>>>()
+                 json.optJSONObject("games")?.let { gamesObj ->
+                     gamesObj.keys().forEach { pkg ->
++                        if (!GamePropsSpoofService.isPackageEligible(pkg)) return@forEach
+                         val propsObj = gamesObj.optJSONObject(pkg) ?: return@forEach
+                         val props = linkedMapOf<String, String>()
+                         propsObj.keys().forEach { k -> props[k] = propsObj.optString(k) }
+diff --git a/src/com/infinity/suite/fragments/IconShapes.java b/src/com/infinity/suite/fragments/IconShapes.java
+index 3a14e157e9f59c77cca7f15079b64f09017af030..1f59361e0629cc77074b7fa6bc271ddbfd71f5eb 100644
+--- a/src/com/infinity/suite/fragments/IconShapes.java
++++ b/src/com/infinity/suite/fragments/IconShapes.java
+@@ -483,7 +483,9 @@ public class IconShapes extends SettingsPreferenceFragment {
+             } else {
+                 Log.e("IconShapes", "Shape drawable is null for package: " + pkg);
+             }
+-            holder.name.setText("android".equals(pkg) ? "Default" : getLabel(holder.name.getContext(), pkg));
++            holder.name.setText("android".equals(pkg)
++                    ? holder.name.getContext().getString(R.string.default_value)
++                    : getLabel(holder.name.getContext(), pkg));
+
+             if (pkg.equals(mAppliedPkg)) {
+                 holder.cardView.setStrokeColor(accentColor);
+diff --git a/src/com/infinity/suite/fragments/LockClockFonts.java b/src/com/infinity/suite/fragments/LockClockFonts.java
+index 671351409bebb7870db812ba1573e45020e3d425..3121a5bcf6a633cbff0a4c6e926014f223c4bdbb 100644
+--- a/src/com/infinity/suite/fragments/LockClockFonts.java
++++ b/src/com/infinity/suite/fragments/LockClockFonts.java
+@@ -283,7 +283,9 @@ public class LockClockFonts extends SettingsPreferenceFragment {
+             holder.cardView.setStrokeColor(ContextCompat.getColor(context, android.R.color.transparent));
+             holder.cardView.setStrokeWidth(0);
+
+-            holder.title.setText("android".equals(pkg) ? "Default" : label);
++            holder.title.setText("android".equals(pkg)
++                    ? holder.title.getContext().getString(R.string.default_value)
++                    : label);
+             holder.title.setTypeface(getTypeface(holder.title.getContext(), pkg));
+
+             int accentColor = resolveSystemAccentColor(context);
+diff --git a/src/com/infinity/suite/fragments/NavbarStyles.java b/src/com/infinity/suite/fragments/NavbarStyles.java
+index 0fcd46ebe8cf2b0d8190ec63ee92ef41c50c2f51..9364b8214dd7fae485dbf1bc9649b804a6f9df65 100644
+--- a/src/com/infinity/suite/fragments/NavbarStyles.java
++++ b/src/com/infinity/suite/fragments/NavbarStyles.java
+@@ -259,7 +259,9 @@ public class NavbarStyles extends SettingsPreferenceFragment {
+         @Override
+         public void onBindViewHolder(CustomViewHolder holder, final int position) {
+             String pkg = mPkgs.get(position);
+-            holder.name.setText("com.android.launcher3".equals(pkg) ? "Default" : getLabel(holder.name.getContext(), pkg));
++            holder.name.setText("com.android.launcher3".equals(pkg)
++                    ? holder.name.getContext().getString(R.string.default_value)
++                    : getLabel(holder.name.getContext(), pkg));
+             
+             holder.cardView.setStrokeColor(ContextCompat.getColor(context, android.R.color.transparent));
+             holder.cardView.setStrokeWidth(0);
+diff --git a/src/com/infinity/suite/fragments/SignalIcons.java b/src/com/infinity/suite/fragments/SignalIcons.java
+index afd82b054aa14ad41de3185a35beb9aaea56ec5a..ef7141e6bdabcc8b5bfb035078f4fa2c92a5465d 100644
+--- a/src/com/infinity/suite/fragments/SignalIcons.java
++++ b/src/com/infinity/suite/fragments/SignalIcons.java
+@@ -261,7 +261,9 @@ public class SignalIcons extends SettingsPreferenceFragment {
+         @Override
+         public void onBindViewHolder(CustomViewHolder holder, final int position) {
+             String pkg = mPkgs.get(position);
+-            holder.name.setText("android".equals(pkg) ? "Default" : getLabel(holder.name.getContext(), pkg));
++            holder.name.setText("android".equals(pkg)
++                    ? holder.name.getContext().getString(R.string.default_value)
++                    : getLabel(holder.name.getContext(), pkg));
+             
+             holder.cardView.setStrokeColor(ContextCompat.getColor(context, android.R.color.transparent));
+             holder.cardView.setStrokeWidth(0);
+diff --git a/src/com/infinity/suite/fragments/StatusbarIcons.java b/src/com/infinity/suite/fragments/StatusbarIcons.java
+index 2e98db69d83079df9ec4d52013aa4837ac74fa5f..44760a22349f9bbda2cccd8e38bb79ad30e5a3be 100644
+--- a/src/com/infinity/suite/fragments/StatusbarIcons.java
++++ b/src/com/infinity/suite/fragments/StatusbarIcons.java
+@@ -271,7 +271,9 @@ public class StatusbarIcons extends SettingsPreferenceFragment {
+         @Override
+         public void onBindViewHolder(CustomViewHolder holder, final int position) {
+             String pkg = mPkgs.get(position);
+-            holder.name.setText("android".equals(pkg) ? "Default" : getLabel(holder.name.getContext(), pkg));
++            holder.name.setText("android".equals(pkg)
++                    ? holder.name.getContext().getString(R.string.default_value)
++                    : getLabel(holder.name.getContext(), pkg));
+             
+             holder.cardView.setStrokeColor(ContextCompat.getColor(context, android.R.color.transparent));
+             holder.cardView.setStrokeWidth(0);
+diff --git a/src/com/infinity/suite/fragments/WifiIcons.java b/src/com/infinity/suite/fragments/WifiIcons.java
+index 3474da00e06063e81aa94459f25ff1a4aa74f4fd..cf78de3bdda526e36635c65017c5aeaad55ec6f4 100644
+--- a/src/com/infinity/suite/fragments/WifiIcons.java
++++ b/src/com/infinity/suite/fragments/WifiIcons.java
+@@ -261,7 +261,9 @@ public class WifiIcons extends SettingsPreferenceFragment {
+         @Override
+         public void onBindViewHolder(CustomViewHolder holder, final int position) {
+             String pkg = mPkgs.get(position);
+-            holder.name.setText("android".equals(pkg) ? "Default" : getLabel(holder.name.getContext(), pkg));
++            holder.name.setText("android".equals(pkg)
++                    ? holder.name.getContext().getString(R.string.default_value)
++                    : getLabel(holder.name.getContext(), pkg));
+             
+             holder.cardView.setStrokeColor(ContextCompat.getColor(context, android.R.color.transparent));
+             holder.cardView.setStrokeWidth(0);
+diff --git a/res/values-zh-rCN/localized_arrays.xml b/res/values-zh-rCN/localized_arrays.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..2207d87f820451fd763baf6eb8cb0070887b0cd6
+--- /dev/null
++++ b/res/values-zh-rCN/localized_arrays.xml
+@@ -0,0 +1,80 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <string-array name="dynamic_bar_chip_style_entries">
++        <item>胶囊形</item>
++        <item>圆形</item>
++    </string-array>
++    <string-array name="icon_style_entries">
++        <item>纯色背景与白色图标</item>
++        <item>渐变背景与白色图标</item>
++        <item>半透明背景与彩色图标</item>
++        <item>强调色描边与图标</item>
++        <item>纯色描边与图标</item>
++        <item>彩色图标（无背景）</item>
++        <item>关闭（使用强调色）</item>
++    </string-array>
++    <string-array name="corner_style_entries">
++        <item>圆角</item>
++        <item>方角</item>
++    </string-array>
++    <string-array name="font_mode_entries">
++        <item>预置字体</item>
++        <item>自定义字体</item>
++    </string-array>
++    <string-array name="cutout_progress_finish_style_entries">
++        <item>弹跳</item>
++        <item>分段依次消失</item>
++        <item>立即消失</item>
++    </string-array>
++    <string-array name="cutout_progress_easing_entries">
++        <item>匀速</item>
++        <item>加速</item>
++        <item>减速</item>
++        <item>先加速后减速</item>
++    </string-array>
++    <string-array name="cutout_progress_position_entries">
++        <item>右侧</item>
++        <item>左侧</item>
++        <item>顶部</item>
++        <item>底部</item>
++        <item>右上角</item>
++        <item>左上角</item>
++        <item>右下角</item>
++        <item>左下角</item>
++    </string-array>
++    <string-array name="cutout_progress_truncate_entries">
++        <item>中间</item>
++        <item>开头</item>
++        <item>末尾</item>
++    </string-array>
++    <string-array name="charging_animation_style_entries">
++        <item>气泡流</item>
++        <item>霓虹光雨</item>
++        <item>光束</item>
++        <item>等离子</item>
++        <item>量子火花</item>
++        <item>星云扩散</item>
++        <item>数字矩阵</item>
++        <item>几何流光</item>
++    </string-array>
++    <string-array name="charging_color_mode_entries">
++        <item>默认绿色</item>
++        <item>强调色</item>
++        <item>彩虹色</item>
++    </string-array>
++    <string-array name="ripple_shape_entries">
++        <item>圆形</item>
++        <item>圆角矩形</item>
++        <item>Nothing 动画</item>
++    </string-array>
++    <string-array name="emoji_style_entries">
++        <item>系统默认</item>
++        <item>iOS</item>
++        <item>三星</item>
++    </string-array>
++    <string-array name="doze_peek_duration_entries">
++        <item>5 秒</item>
++        <item>7 秒</item>
++        <item>10 秒</item>
++    </string-array>
++</resources>

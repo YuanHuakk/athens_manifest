@@ -1,0 +1,1863 @@
+diff --git a/BoardConfig.mk b/BoardConfig.mk
+index 6ed78245fb24e0267a833e0ac657095511b324ad..ff84fd42d743983e51341ad8df07b64e2dfa8456 100644
+--- a/BoardConfig.mk
++++ b/BoardConfig.mk
+@@ -35,6 +35,11 @@ ODM_MANIFEST_FILES := \
+ DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE += \
+     $(DEVICE_PATH)/configs/vintf/compatibility_matrix.athens.xml
+ 
++ifeq ($(TARGET_PRODUCT):$(ATHENS_APTX_ADAPTIVE_TEST_BUILD),infinity_athens:true)
++DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE += \
++    $(DEVICE_PATH)/compat/aptx_adaptive_stock/compatibility_matrix.aptx_adaptive.xml
++endif
++
+ # SELinux policy
+ BOARD_VENDOR_SEPOLICY_DIRS += $(DEVICE_PATH)/sepolicy/vendor
+ SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS += $(DEVICE_PATH)/sepolicy/private
+diff --git a/calculator/Android.bp b/calculator/Android.bp
+new file mode 100644
+index 0000000000000000000000000000000000000000..c8e9d7ef01fbd16d22b3a313f16dbb4baec3aea5
+--- /dev/null
++++ b/calculator/Android.bp
+@@ -0,0 +1,14 @@
++// SPDX-License-Identifier: Apache-2.0
++
++android_app_import {
++    name: "MIUICalculator",
++    apk: "//vendor/xiaomi/athens:athens_miui_calculator_apk",
++    optional_uses_libs: ["androidx.window.extensions", "androidx.window.sidecar"],
++    overrides: ["CalculatorGooglePrebuilt_85006267", "ExactCalculator"],
++    product_specific: true,
++    presigned: true,
++    preprocessed: true,
++    dex_preopt: {
++        enabled: false,
++    },
++}
+diff --git a/compat/aptx_adaptive/Android.bp b/compat/aptx_adaptive/Android.bp
+new file mode 100644
+index 0000000000000000000000000000000000000000..d3e6fc3e83f75a216dddcddeee59fba116829f41
+--- /dev/null
++++ b/compat/aptx_adaptive/Android.bp
+@@ -0,0 +1,44 @@
++// SPDX-License-Identifier: Apache-2.0
++
++cc_library_shared {
++    name: "athens_btaudio_offload_if",
++    stem: "btaudio_offload_if",
++    enabled: select(soong_config_variable("athens_bluetooth", "aptx_adaptive"), {
++        true: true,
++        default: false,
++    }),
++    vendor: true,
++    compile_multilib: "64",
++    srcs: ["BtaudioOffload.cpp"],
++    header_libs: ["libaudio_system_headers"],
++    shared_libs: [
++        "libbase",
++        "libdl",
++    ],
++}
++
++cc_library_shared {
++    name: "libathens_aptx_adaptive_v6",
++    enabled: select(soong_config_variable("athens_bluetooth", "aptx_adaptive"), {
++        true: true,
++        default: false,
++    }),
++    vendor: true,
++    compile_multilib: "64",
++    defaults: ["latest_android_hardware_bluetooth_audio_ndk_shared"],
++    srcs: ["AptxAdaptiveOffload.cpp"],
++    include_dirs: ["hardware/qcom-caf/sm8850/audio/pal/plugins/codecs"],
++    header_libs: [
++        "//hardware/qcom-caf/sm8850:libarosal_headers",
++        "//hardware/qcom-caf/sm8850:libspf-headers",
++        "libaudio_system_headers",
++        "libhardware_headers",
++    ],
++    shared_libs: [
++        "libbase",
++        "libbinder_ndk",
++        "libbluetooth_audio_session_aidl",
++        "libfmq",
++        "liblog",
++    ],
++}
+diff --git a/compat/aptx_adaptive/AptxAdaptiveBridge.h b/compat/aptx_adaptive/AptxAdaptiveBridge.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..6ced551b3e4443b1df26c0d2456d030c71120411
+--- /dev/null
++++ b/compat/aptx_adaptive/AptxAdaptiveBridge.h
+@@ -0,0 +1,19 @@
++// SPDX-License-Identifier: Apache-2.0
++
++#pragma once
++
++#include <system/audio.h>
++
++struct AptxAdaptiveBridge {
++    bool (*is_ready)();
++    bool (*owns_stream)();
++    int (*start)();
++    int (*suspend)();
++    void (*stop)();
++    void* (*get_codec_config)(uint8_t* multicast, uint8_t* device_count, audio_format_t* format);
++    uint16_t (*get_latency_ms)();
++    int (*get_latency_modes)(size_t* count, size_t max, uint32_t* modes);
++    int (*set_latency_mode)(uint32_t mode);
++};
++
++extern "C" const AptxAdaptiveBridge* athens_aptx_adaptive_bridge();
+diff --git a/compat/aptx_adaptive/AptxAdaptiveOffload.cpp b/compat/aptx_adaptive/AptxAdaptiveOffload.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..5ef9529bf54dfafe3712dca01d8fb6423121e18e
+--- /dev/null
++++ b/compat/aptx_adaptive/AptxAdaptiveOffload.cpp
+@@ -0,0 +1,241 @@
++// SPDX-License-Identifier: Apache-2.0
++
++#include <BluetoothAudioSessionControl_V6.h>
++#include <android-base/logging.h>
++
++#include <algorithm>
++#include <atomic>
++#include <cerrno>
++#include <chrono>
++#include <condition_variable>
++#include <cstddef>
++#include <cstdint>
++#include <mutex>
++#include <optional>
++
++#include "AptxAdaptiveBridge.h"
++#include "bt_aptx.h"
++
++namespace {
++
++namespace bt = aidl::android::hardware::bluetooth::audio;
++using Session = bt::BluetoothAudioSessionControl_V6;
++constexpr auto kSession = bt::SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH;
++// These are the C API values in the SM8850 PAL Bluetooth.h.
++constexpr int kSuccess = 0;
++constexpr int kUnsupported = 1;
++constexpr int kFailure = 2;
++constexpr int kDisconnected = 6;
++constexpr int kReconfiguration = 8;
++constexpr auto kControlTimeout = std::chrono::milliseconds(4500);
++static_assert(sizeof(audio_aptx_ad_encoder_config_t) == 72);
++static_assert(offsetof(audio_aptx_ad_encoder_config_t, sink_cap) == 60);
++
++std::optional<bt::CodecConfiguration> GetAdaptiveConfig() {
++    const auto config = Session::GetAudioConfig(kSession);
++    if (config.getTag() != bt::AudioConfiguration::a2dpConfig) return std::nullopt;
++    const auto& codec = config.get<bt::AudioConfiguration::a2dpConfig>();
++    if (codec.codecType != bt::CodecType::APTX_ADAPTIVE ||
++        codec.config.getTag() != bt::CodecConfiguration::CodecSpecific::aptxAdaptiveConfig) {
++        return std::nullopt;
++    }
++    return codec;
++}
++
++int ToPalStatus(bt::BluetoothAudioStatus status) {
++    switch (status) {
++        case bt::BluetoothAudioStatus::SUCCESS:
++            return kSuccess;
++        case bt::BluetoothAudioStatus::UNSUPPORTED_CODEC_CONFIGURATION:
++            return kUnsupported;
++        case bt::BluetoothAudioStatus::RECONFIGURATION:
++            return kReconfiguration;
++        default:
++            return kFailure;
++    }
++}
++
++class AdaptiveStream {
++  public:
++    bool OwnsStream() const { return owns_stream_; }
++
++    int Start() { return Control(true); }
++    int Suspend() { return Control(false); }
++
++    // A2DP StopStream does not return a control ACK to PAL. Wait for the
++    // acknowledged suspend before allowing another start on this session.
++    void Stop() { Control(false, true); }
++
++    void SetLowLatency(bool enabled) { low_latency_ = enabled; }
++
++  private:
++    int Control(bool start, bool release_stream = false) {
++        std::lock_guard command_lock(command_mutex_);
++        const bool owns_stream = release_stream ? owns_stream_.exchange(false) : owns_stream_.load();
++        if (!GetAdaptiveConfig().has_value()) return kDisconnected;
++        if (!start && !owns_stream) return kSuccess;
++
++        if (cookie_ == bt::kObserversCookieUndefined) {
++            cookie_ = Session::RegisterControlResultCback(
++                    kSession,
++                    {.control_result_cb_ =
++                             [this](uint16_t, bool start_reply, bt::BluetoothAudioStatus status) {
++                                 std::lock_guard lock(event_mutex_);
++                                 if (pending_ == start_reply) {
++                                     reply_ = ToPalStatus(status);
++                                     event_.notify_one();
++                                 }
++                             },
++                     .session_changed_cb_ =
++                             [this](uint16_t) {
++                                 std::lock_guard lock(event_mutex_);
++                                 owns_stream_ = false;
++                                 timed_out_ = false;
++                                 if (pending_.has_value()) {
++                                     reply_ = kDisconnected;
++                                     event_.notify_one();
++                                 }
++                             },
++                     .audio_configuration_changed_cb_ = {},
++                     .low_latency_mode_allowed_cb_ = {}});
++            if (cookie_ == bt::kObserversCookieUndefined) return kFailure;
++        }
++
++        std::unique_lock event_lock(event_mutex_);
++        // A late ACK cannot be distinguished from a fresh command until the
++        // provider starts or ends the session.
++        if (timed_out_) return kFailure;
++        pending_ = start;
++        reply_.reset();
++        event_lock.unlock();
++        const bool sent = start ? Session::StartStream(kSession, low_latency_)
++                                : Session::SuspendStream(kSession);
++        event_lock.lock();
++        if (sent &&
++            !event_.wait_for(event_lock, kControlTimeout, [this] { return reply_.has_value(); })) {
++            timed_out_ = true;
++            LOG(WARNING) << "aptX Adaptive: timed out waiting for Bluetooth stream control";
++        }
++        pending_.reset();
++        int result = sent ? reply_.value_or(kFailure) : kDisconnected;
++        if (start && result == kSuccess) owns_stream_ = true;
++        return result;
++    }
++
++    std::mutex command_mutex_;
++    uint16_t cookie_ = bt::kObserversCookieUndefined;
++    std::atomic<bool> owns_stream_{false};
++    std::atomic<bool> low_latency_{false};
++    std::mutex event_mutex_;
++    std::condition_variable event_;
++    std::optional<bool> pending_;
++    std::optional<int> reply_;
++    bool timed_out_ = false;
++};
++
++AdaptiveStream& GetAdaptiveStream() {
++    // The registered observer shares the audio HAL process lifetime.
++    static auto* const stream = new AdaptiveStream;
++    return *stream;
++}
++
++std::optional<audio_aptx_ad_encoder_config_t> ToPalConfig(const bt::CodecConfiguration& config) {
++    const auto& aptx =
++            config.config.get<bt::CodecConfiguration::CodecSpecific::aptxAdaptiveConfig>();
++    unsigned rate;
++    switch (aptx.sampleRateHz) {
++        case 48000:
++            rate = APTX_AD_48;
++            break;
++        case 96000:
++            rate = APTX_AD_96;
++            break;
++        default:
++            return std::nullopt;
++    }
++    audio_aptx_ad_encoder_config_t pal{};
++    if (aptx.aptxAdaptiveConfigStream.size() != sizeof(pal.sink_cap)) return std::nullopt;
++    pal.sampling_rate = rate;
++    pal.mtu = config.peerMtu;
++    pal.channel_mode = static_cast<int32_t>(aptx.channelMode);
++    pal.min_sink_modeA = aptx.sinkBufferingMs.minLowLatency;
++    pal.max_sink_modeA = aptx.sinkBufferingMs.maxLowLatency;
++    pal.min_sink_modeB = aptx.sinkBufferingMs.minHighQuality;
++    pal.max_sink_modeB = aptx.sinkBufferingMs.maxHighQuality;
++    pal.min_sink_modeC = aptx.sinkBufferingMs.minTws;
++    pal.max_sink_modeC = aptx.sinkBufferingMs.maxTws;
++    pal.encoder_mode = static_cast<uint32_t>(aptx.aptxMode);
++    pal.TTP_modeA_low = static_cast<uint8_t>(aptx.ttp.lowLowLatency);
++    pal.TTP_modeA_high = static_cast<uint8_t>(aptx.ttp.highLowLatency);
++    pal.TTP_modeB_low = static_cast<uint8_t>(aptx.ttp.lowHighQuality);
++    pal.TTP_modeB_high = static_cast<uint8_t>(aptx.ttp.highHighQuality);
++    pal.TTP_TWS_low = static_cast<uint8_t>(aptx.ttp.lowTws);
++    pal.TTP_TWS_high = static_cast<uint8_t>(aptx.ttp.highTws);
++    pal.bits_per_sample = aptx.bitsPerSample;
++    pal.input_mode = static_cast<uint32_t>(aptx.inputMode);
++    pal.fade_duration = aptx.inputFadeDurationMs;
++    std::copy(aptx.aptxAdaptiveConfigStream.begin(), aptx.aptxAdaptiveConfigStream.end(),
++              pal.sink_cap);
++    return pal;
++}
++
++void* GetCodecConfig(uint8_t* multicast, uint8_t* device_count, audio_format_t* format) {
++    if (!GetAdaptiveStream().OwnsStream() || format == nullptr) return nullptr;
++    const auto config = GetAdaptiveConfig();
++    if (!config.has_value()) return nullptr;
++    const auto converted = ToPalConfig(*config);
++    if (!converted.has_value()) return nullptr;
++
++    // PAL retains this pointer and serializes configuration and consumption for
++    // its one Classic A2DP source device.
++    static audio_aptx_ad_encoder_config_t payload;
++    payload = *converted;
++    if (multicast != nullptr) *multicast = 0;
++    if (device_count != nullptr) *device_count = 1;
++    *format = static_cast<audio_format_t>(CODEC_TYPE_APTX_AD);
++    LOG(INFO) << "PAL aptX Adaptive encoder configuration ready";
++    return &payload;
++}
++
++uint16_t GetLatencyMs() {
++    bt::PresentationPosition position;
++    if (!Session::GetPresentationPosition(kSession, position)) return 0;
++    const auto latency_ms = position.remoteDeviceAudioDelayNanos / 1000000;
++    return static_cast<uint16_t>(std::clamp<int64_t>(latency_ms, 0, UINT16_MAX));
++}
++
++int GetLatencyModes(size_t* count, size_t max, uint32_t* modes) {
++    if (count == nullptr || (max != 0 && modes == nullptr)) return -EINVAL;
++    *count = 0;
++    for (const auto mode : Session::GetSupportedLatencyModes(kSession)) {
++        if (*count == max) break;
++        if (mode == bt::LatencyMode::LOW_LATENCY) modes[(*count)++] = AUDIO_LATENCY_MODE_LOW;
++        if (mode == bt::LatencyMode::FREE) modes[(*count)++] = AUDIO_LATENCY_MODE_FREE;
++    }
++    return 0;
++}
++
++int SetLatencyMode(uint32_t mode) {
++    if (mode != AUDIO_LATENCY_MODE_FREE && mode != AUDIO_LATENCY_MODE_LOW) return -EINVAL;
++    const bool low_latency = mode == AUDIO_LATENCY_MODE_LOW;
++    GetAdaptiveStream().SetLowLatency(low_latency);
++    Session::SetLatencyMode(kSession,
++                            low_latency ? bt::LatencyMode::LOW_LATENCY : bt::LatencyMode::FREE);
++    return 0;
++}
++
++}  // namespace
++
++extern "C" const AptxAdaptiveBridge* athens_aptx_adaptive_bridge() {
++    static const AptxAdaptiveBridge bridge = {
++            .is_ready = [] { return GetAdaptiveConfig().has_value(); },
++            .owns_stream = [] { return GetAdaptiveStream().OwnsStream(); },
++            .start = [] { return GetAdaptiveStream().Start(); },
++            .suspend = [] { return GetAdaptiveStream().Suspend(); },
++            .stop = [] { GetAdaptiveStream().Stop(); },
++            .get_codec_config = GetCodecConfig,
++            .get_latency_ms = GetLatencyMs,
++            .get_latency_modes = GetLatencyModes,
++            .set_latency_mode = SetLatencyMode};
++    return &bridge;
++}
+diff --git a/compat/aptx_adaptive/BtaudioOffload.cpp b/compat/aptx_adaptive/BtaudioOffload.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..5ffeb596062551528dde98be4848976222c665db
+--- /dev/null
++++ b/compat/aptx_adaptive/BtaudioOffload.cpp
+@@ -0,0 +1,197 @@
++// SPDX-License-Identifier: Apache-2.0
++
++#include <android-base/logging.h>
++#include <android-base/properties.h>
++#include <dlfcn.h>
++
++#include <cerrno>
++
++#include "AptxAdaptiveBridge.h"
++
++// The SM8850 PAL declares this enum in its C++ Bluetooth.h. Keep the same
++// type name on the C entry points for cross-DSO indirect-call checks.
++enum tSESSION_TYPE : unsigned int { A2DP_HARDWARE_OFFLOAD_DATAPATH = 2 };
++
++namespace {
++
++constexpr int kFailure = 2;
++
++void* GetStockHandle() {
++    static void* const handle = [] {
++        auto* library = dlopen("btaudio_offload_if_stock.so", RTLD_NOW | RTLD_LOCAL);
++        if (library == nullptr) {
++            LOG(ERROR) << "Failed to load stock Bluetooth offload interface: " << dlerror();
++        }
++        return library;
++    }();
++    return handle;
++}
++
++template <typename Function>
++Function GetStockFunction(const char* name) {
++    auto* handle = GetStockHandle();
++    if (handle == nullptr) return nullptr;
++    auto fn = reinterpret_cast<Function>(dlsym(handle, name));
++    if (fn == nullptr) LOG(ERROR) << "Stock Bluetooth offload entry point missing: " << name;
++    return fn;
++}
++
++template <typename Result, typename... Args>
++Result CallStock(const char* name, Result failure, Args... args) {
++    auto fn = GetStockFunction<Result (*)(Args...)>(name);
++    return fn == nullptr ? failure : fn(args...);
++}
++
++template <typename... Args>
++void CallStockVoid(const char* name, Args... args) {
++    if (auto fn = GetStockFunction<void (*)(Args...)>(name); fn != nullptr) fn(args...);
++}
++
++const AptxAdaptiveBridge* GetBridge(tSESSION_TYPE session_type) {
++    static const bool enabled = android::base::GetBoolProperty(
++            "ro.bluetooth.a2dp_aptx_adaptive_offload.supported", false);
++    if (session_type != A2DP_HARDWARE_OFFLOAD_DATAPATH || !enabled) return nullptr;
++    // Load in a separate local dependency group to keep the stock QTI V5
++    // session symbols out of the source V6 bridge's lookup scope.
++    static const AptxAdaptiveBridge* const bridge = [] {
++        auto* handle = dlopen("libathens_aptx_adaptive_v6.so", RTLD_NOW | RTLD_LOCAL);
++        if (handle == nullptr) {
++            LOG(ERROR) << "Failed to load the Athens aptX Adaptive bridge: " << dlerror();
++            return static_cast<const AptxAdaptiveBridge*>(nullptr);
++        }
++        auto entry = reinterpret_cast<decltype(&athens_aptx_adaptive_bridge)>(
++                dlsym(handle, "athens_aptx_adaptive_bridge"));
++        if (entry == nullptr)
++            LOG(ERROR) << "Athens aptX Adaptive bridge API missing: " << dlerror();
++        return entry != nullptr ? entry() : nullptr;
++    }();
++    return bridge;
++}
++
++}  // namespace
++
++extern "C" int audio_stream_open_api(tSESSION_TYPE type) {
++    if (const auto* bridge = GetBridge(type); bridge != nullptr && bridge->is_ready()) return 0;
++    return CallStock(__func__, kFailure, type);
++}
++
++extern "C" int audio_stream_close_api(tSESSION_TYPE type) {
++    const auto* bridge = GetBridge(type);
++    const bool adaptive = bridge != nullptr && (bridge->owns_stream() || bridge->is_ready());
++    if (adaptive) bridge->stop();
++    const int stock_result = CallStock(__func__, 0, type);
++    return adaptive ? 1 : stock_result;
++}
++
++extern "C" int audio_start_stream_api(tSESSION_TYPE type) {
++    if (const auto* bridge = GetBridge(type); bridge != nullptr && bridge->is_ready()) {
++        return bridge->start();
++    }
++    return CallStock(__func__, kFailure, type);
++}
++
++extern "C" int audio_stop_stream_api(tSESSION_TYPE type) {
++    if (const auto* bridge = GetBridge(type); bridge != nullptr && bridge->owns_stream()) {
++        bridge->stop();
++        return 0;
++    }
++    return CallStock(__func__, -ENOSYS, type);
++}
++
++extern "C" int audio_suspend_stream_api(tSESSION_TYPE type) {
++    if (const auto* bridge = GetBridge(type); bridge != nullptr && bridge->owns_stream()) {
++        return bridge->suspend();
++    }
++    return CallStock(__func__, kFailure, type);
++}
++
++extern "C" int audio_check_a2dp_ready_api(tSESSION_TYPE type) {
++    if (const auto* bridge = GetBridge(type); bridge != nullptr && bridge->is_ready()) return 1;
++    return CallStock(__func__, 0, type);
++}
++
++extern "C" void* audio_get_codec_config_api(tSESSION_TYPE type, uint8_t* multicast,
++                                            uint8_t* device_count, audio_format_t* format) {
++    if (const auto* bridge = GetBridge(type); bridge != nullptr && bridge->owns_stream()) {
++        return bridge->get_codec_config(multicast, device_count, format);
++    }
++    return CallStock(__func__, static_cast<void*>(nullptr), type, multicast, device_count, format);
++}
++
++extern "C" uint16_t audio_sink_get_a2dp_latency_api(tSESSION_TYPE type) {
++    if (const auto* bridge = GetBridge(type); bridge != nullptr && bridge->owns_stream()) {
++        return bridge->get_latency_ms();
++    }
++    return CallStock(__func__, uint16_t{0}, type);
++}
++
++extern "C" int audio_stream_get_supported_latency_modes_api(tSESSION_TYPE type, size_t* count,
++                                                            size_t max, uint32_t* modes) {
++    if (const auto* bridge = GetBridge(type); bridge != nullptr && bridge->is_ready()) {
++        return bridge->get_latency_modes(count, max, modes);
++    }
++    return CallStock(__func__, -ENOSYS, type, count, max, modes);
++}
++
++extern "C" int audio_stream_set_latency_mode_api(tSESSION_TYPE type, uint32_t mode) {
++    if (const auto* bridge = GetBridge(type); bridge != nullptr && bridge->is_ready()) {
++        return bridge->set_latency_mode(mode);
++    }
++    return CallStock(__func__, -ENOSYS, type, mode);
++}
++
++// These are the remaining stock entry points resolved by Athens PAL. Keep
++// forwarding them so its non-Adaptive and pre-session paths retain their
++// existing behavior.
++extern "C" void bt_audio_pre_init() {
++    CallStockVoid(__func__);
++}
++
++extern "C" int audio_stream_open() {
++    return CallStock(__func__, kFailure);
++}
++
++extern "C" int audio_stream_close() {
++    return CallStock(__func__, 0);
++}
++
++extern "C" int audio_start_stream() {
++    return CallStock(__func__, kFailure);
++}
++
++extern "C" int audio_stop_stream() {
++    return CallStock(__func__, -ENOSYS);
++}
++
++extern "C" int audio_suspend_stream() {
++    return CallStock(__func__, kFailure);
++}
++
++extern "C" int audio_check_a2dp_ready() {
++    return CallStock(__func__, 0);
++}
++
++extern "C" uint16_t audio_sink_get_a2dp_latency() {
++    return CallStock(__func__, uint16_t{0});
++}
++
++extern "C" void* audio_get_codec_config(uint8_t* multicast, uint8_t* device_count,
++                                        audio_format_t* format) {
++    return CallStock(__func__, static_cast<void*>(nullptr), multicast, device_count, format);
++}
++
++extern "C" bool audio_is_scrambling_enabled() {
++    return CallStock(__func__, false);
++}
++
++extern "C" void audio_handoff_triggered() {
++    CallStockVoid(__func__);
++}
++
++extern "C" void clear_a2dpsuspend_flag() {
++    CallStockVoid(__func__);
++}
++
++extern "C" void update_metadata(tSESSION_TYPE type, void* metadata) {
++    CallStockVoid(__func__, type, metadata);
++}
+diff --git a/compat/aptx_adaptive_stock/Android.bp b/compat/aptx_adaptive_stock/Android.bp
+new file mode 100644
+index 0000000000000000000000000000000000000000..faa9cf52e5f49bb6eb0491179e27ed7c99334184
+--- /dev/null
++++ b/compat/aptx_adaptive_stock/Android.bp
+@@ -0,0 +1,25 @@
++// SPDX-License-Identifier: Apache-2.0
++
++cc_prebuilt_library_shared {
++    name: "btaudio_offload_if_stock",
++    defaults: ["//device/xiaomi/sm8850-common:xiaomi_btaudio_offload_blob_defaults"],
++    enabled: select(soong_config_variable("athens_bluetooth", "aptx_adaptive"), {
++        true: true,
++        default: false,
++    }),
++    target: {
++        android_arm64: {
++            srcs: ["//vendor/xiaomi/athens:athens_btaudio_offload_if_stock"],
++        },
++    },
++}
++
++vintf_fragment {
++    name: "athens_aptx_adaptive_manifest",
++    enabled: select(soong_config_variable("athens_bluetooth", "aptx_adaptive"), {
++        true: true,
++        default: false,
++    }),
++    soc_specific: true,
++    src: "aptx_adaptive.xml",
++}
+diff --git a/compat/aptx_adaptive_stock/aptx_adaptive.xml b/compat/aptx_adaptive_stock/aptx_adaptive.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..fa8857a1a8ad73f621225a461d43ed714e88ea06
+--- /dev/null
++++ b/compat/aptx_adaptive_stock/aptx_adaptive.xml
+@@ -0,0 +1,7 @@
++<manifest version="9.0" type="device">
++    <hal format="aidl">
++        <name>android.hardware.bluetooth.audio</name>
++        <version>6</version>
++        <fqname>IBluetoothAudioProviderFactory/aptx_adaptive</fqname>
++    </hal>
++</manifest>
+diff --git a/compat/aptx_adaptive_stock/compatibility_matrix.aptx_adaptive.xml b/compat/aptx_adaptive_stock/compatibility_matrix.aptx_adaptive.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..d2c831e0ecb5bc626854656919fc554c86508e28
+--- /dev/null
++++ b/compat/aptx_adaptive_stock/compatibility_matrix.aptx_adaptive.xml
+@@ -0,0 +1,11 @@
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<compatibility-matrix version="7.0" type="framework">
++    <hal format="aidl" optional="true">
++        <name>android.hardware.bluetooth.audio</name>
++        <version>6</version>
++        <interface>
++            <name>IBluetoothAudioProviderFactory</name>
++            <instance>aptx_adaptive</instance>
++        </interface>
++    </hal>
++</compatibility-matrix>
+diff --git a/compat/aptx_adaptive_stock/vendor_audio_interfaces.xml b/compat/aptx_adaptive_stock/vendor_audio_interfaces.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..3e2d8478b5a42edbc528089b2b150215379a580e
+--- /dev/null
++++ b/compat/aptx_adaptive_stock/vendor_audio_interfaces.xml
+@@ -0,0 +1,52 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
++ SPDX-License-Identifier: BSD-3-Clause-Clear
++-->
++<libraries>
++    <!--
++    The purpose of this audio interface file is to enable modular and independent service
++    registration. This allows services to be enabled or disabled based on target-specific
++    requirements.
++
++    Example:
++    <library name="ExampleService" libraryName="libexampleService.so"
++            method="registerExampleService" mandatory="true"/>
++    ExampleService is a standalone and independent module.
++    The "registerExampleService" method must follow the API signature:
++    int32_t <function_name>()
++
++    Notes:
++    - Authors are encouraged to provide a detailed description of the service and its purpose.
++    - Services are registered in a defined sequence, from top to bottom.
++    If any mandatory service fails to register, the process will retry. If it fails on the final
++    attempt, the process will crash and automatically restart.
++    - A return value of "0" indicates successful registration.
++    Any non-zero return value indicates a failure in service registration.
++    - If the author of a new service is unsure about its position in the registration order,
++    the entry should be added at the end.
++    -->
++    <!-- Load the V6 Adaptive factory before the stock audio modules introduce V5 AIDL symbols. -->
++    <library name="btaudio_aptx_adaptive" libraryName="android.hardware.bluetooth.audio-impl.so"
++            method="createAptxAdaptiveBluetoothAudioProviderFactory" mandatory="false"/>
++    <library name = "agmservice" libraryName="libagmipcservice.so"
++            method="registerService" mandatory="true"/>
++    <library name = "audiohal-qti" libraryName="libaudiocorehal.qti.so"
++            method="registerServices" mandatory="true"/>
++    <library name = "audiohal-default" libraryName="libaudiocorehal.default.so"
++            method="registerServices" mandatory="true"/>
++    <library name = "palservice" libraryName="libpalipcservice.so"
++            method="registerService" mandatory="true"/>
++    <library name = "paleventnotifierservice" libraryName="libpaleventnotifier.so"
++            method="registerPalNotifierService" mandatory="false"/>
++    <library name = "listenSoundModel" libraryName="liblistensoundmodelaidl.so"
++            method="registerService" mandatory="false"/>
++    <library name = "audioeffecthal" libraryName="libaudioeffecthal.qti.so"
++            method="registerService" mandatory="true"/>
++    <library name = "sthal" libraryName="libsoundtriggerhal.qti.so"
++            method="createISoundTriggerFactory" mandatory="true" />
++    <library name="btaudio_sw" libraryName="android.hardware.bluetooth.audio_sw.so"
++            method="registerIModuleBluetoothSWQti" mandatory="false" />
++    <library name = "asr" libraryName="libqasr.so"
++            method="registerService" mandatory="false" />
++</libraries>
+diff --git a/compat/mivk/Android.bp b/compat/mivk/Android.bp
+new file mode 100644
+index 0000000000000000000000000000000000000000..696674f42dccc8178e0e51542247a5cd31344762
+--- /dev/null
++++ b/compat/mivk/Android.bp
+@@ -0,0 +1,56 @@
++// SPDX-License-Identifier: Apache-2.0
++
++cc_defaults {
++    name: "athens_mivk_prebuilt_defaults",
++    enabled: select(soong_config_variable("athens_mivk", "enabled"), {
++        true: true,
++        default: false,
++    }),
++    system_ext_specific: true,
++    compile_multilib: "64",
++    strip: { none: true },
++    arch: {
++        x86_64: { enabled: false },
++        riscv64: { enabled: false },
++    },
++}
++
++cc_prebuilt_library_shared {
++    name: "libathens_mivk_anf",
++    defaults: ["athens_mivk_prebuilt_defaults"],
++    stem: "libanf",
++    srcs: ["//vendor/xiaomi/athens:athens_mivk_anf"],
++    shared_libs: ["libandroid", "libdl", "liblog", "libz"],
++}
++
++cc_prebuilt_library_shared {
++    name: "libathens_mivk_superframe",
++    defaults: ["athens_mivk_prebuilt_defaults"],
++    stem: "libmisuperframe",
++    srcs: ["//vendor/xiaomi/athens:athens_mivk_superframe"],
++    shared_libs: ["libathens_mivk_anf", "libcutils", "libdl", "liblog", "libvulkan"],
++}
++
++cc_prebuilt_library_shared {
++    name: "libathens_mivk_oem",
++    defaults: ["athens_mivk_prebuilt_defaults"],
++    stem: "libmivk",
++    srcs: ["//vendor/xiaomi/athens:athens_mivk_oem"],
++    shared_libs: [
++        "libathens_mivk_anf",
++        "libathens_mivk_superframe",
++        "libbase",
++        "libbinder",
++        "libcrypto",
++        "libcutils",
++        "libdl",
++        "libgui",
++        "libjsoncpp",
++        "liblog",
++        "libnativewindow",
++        "libui",
++        "libutils",
++        "libvndksupport",
++        "libvulkan",
++    ],
++}
+diff --git a/configs/init/init.athens.rc b/configs/init/init.athens.rc
+index c647be91e8f3c212f085662d8d28e4749c5a96ac..fbe721f68333845856f173454192507dc3f5d171 100644
+--- a/configs/init/init.athens.rc
++++ b/configs/init/init.athens.rc
+@@ -4,4 +4,7 @@
+ # SPDX-License-Identifier: Apache-2.0
+ #
+ 
+-# Reserved for device-specific init actions.
++on post-fs-data
++    # init.qcom.rc creates the camera parent first.
++    mkdir /data/vendor/camera/watermarks 0750 system system
++    restorecon_recursive /data/vendor/camera/watermarks
+diff --git a/configs/init/vendor.novatek.hardware.visdisplaysrv-service.rc b/configs/init/vendor.novatek.hardware.visdisplaysrv-service.rc
+new file mode 100644
+index 0000000000000000000000000000000000000000..120fb78f3f60113c9560ae3643c86496f24452f6
+--- /dev/null
++++ b/configs/init/vendor.novatek.hardware.visdisplaysrv-service.rc
+@@ -0,0 +1,6 @@
++# SPDX-License-Identifier: Apache-2.0
++
++service hal_visdisplaysrv_default /odm/bin/hw/vendor.novatek.hardware.visdisplaysrv-service
++    class hal
++    user root
++    group root
+diff --git a/configs/properties/odm.prop b/configs/properties/odm.prop
+index 5c3f5f3d6b4cc86b3f2e11876173b60a702f3ff1..9e1d7f98451adcfd70ace7e126bdc5853b04aa45 100644
+--- a/configs/properties/odm.prop
++++ b/configs/properties/odm.prop
+@@ -2,8 +2,14 @@
+ 
+ # Display
+ persist.sys.miui_resolution=1156,2510,480
++persist.sys.miui_default_resolution=1156x2510
++vendor.display.default_resolution=1156,2510
+ # The stock vivid LUT overrides Android's natural color mode on wake.
+ ro.vendor.display.vivid_calibration.enable=0
++# Stock Athens Dual DPU and frame capture capabilities.
++ro.vendor.display.dualDPU.support=nt72336
++ro.vendor.display.frame_capture_manager.enable=true
++ro.vendor.display.framemaster.enable=true
+ 
+ # Touch
+ ro.vendor.touchfeature.type=247
+@@ -12,6 +18,9 @@ ro.vendor.touchfeature.type=247
+ ro.vendor.sensor.maxbrightness=7800
+ ro.vendor.proxcal.factor=2.82
+ 
++# The 406 mi_thermald board sensor profiles use the stock non-white-box decoder.
++persist.vendor.aes_whitebox.encrypt=false
++
+ # Fingerprint
+ ro.hardware.fp.fod=true
+ ro.hardware.fp.fod.c=true
+diff --git a/configs/sensors/athens-sensor-features.xml b/configs/sensors/athens-sensor-features.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..9b20c7c38da6c8e9887e56bbd6b30baa3aa152b5
+--- /dev/null
++++ b/configs/sensors/athens-sensor-features.xml
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<permissions>
++    <unavailable-feature name="android.hardware.sensor.ambient_temperature" />
++    <unavailable-feature name="android.hardware.sensor.barometer" />
++    <unavailable-feature name="android.hardware.sensor.relative_humidity" />
++</permissions>
+diff --git a/configs/vintf/compatibility_matrix.athens.xml b/configs/vintf/compatibility_matrix.athens.xml
+index 5336aa7106309c13797d044c230b58f78c6bc68c..6ec91de30673a6f0128f5e17c38dd4a3efc33155 100644
+--- a/configs/vintf/compatibility_matrix.athens.xml
++++ b/configs/vintf/compatibility_matrix.athens.xml
+@@ -37,4 +37,28 @@
+             <instance>default</instance>
+         </interface>
+     </hal>
++    <hal format="aidl" optional="true">
++        <name>vendor.xiaomi.hardware.framecapturemanager</name>
++        <version>1</version>
++        <interface>
++            <name>IFrameCaptureManager</name>
++            <instance>default</instance>
++        </interface>
++    </hal>
++    <hal format="aidl" optional="true">
++        <name>vendor.xiaomi.hardware.framemaster</name>
++        <version>1</version>
++        <interface>
++            <name>IFrameMaster</name>
++            <instance>default</instance>
++        </interface>
++    </hal>
++    <hal format="aidl" optional="true">
++        <name>vendor.novatek.hardware.visdisplaysrv</name>
++        <version>1</version>
++        <interface>
++            <name>IVisdisplaysrv</name>
++            <instance>default</instance>
++        </interface>
++    </hal>
+ </compatibility-matrix>
+diff --git a/device.mk b/device.mk
+index e3be36499824cf766442c346740fe20b65225c04..ba796a5469c0588fcaedab85bb3fc92ad6eab4ab 100644
+--- a/device.mk
++++ b/device.mk
+@@ -25,6 +25,18 @@ PRODUCT_BUILD_PVMFW_IMAGE := false
+ # The stock PAL backend requires A2DP offload for LE Audio as well.
+ PRODUCT_VENDOR_PROPERTIES += persist.bluetooth.a2dp_offload.disabled=false
+ 
++# Expose the stock spatializer and leave spatial processing off by default.
++PRODUCT_VENDOR_PROPERTIES += \
++    ro.audio.spatializer_enabled=true \
++    ro.audio.spatializer_binaural_enabled_default=false \
++    ro.audio.spatializer_transaural_enabled_default=false
++
++# Restore super-wideband calling for compatible Bluetooth headsets.
++PRODUCT_SYSTEM_EXT_PROPERTIES += bluetooth.hfp.codec_aptx_voice.enabled=true
++
++# Restore the Athens HyperOS 4 aptX Adaptive R2.2 capability.
++PRODUCT_VENDOR_PROPERTIES += persist.vendor.qcom.bluetooth.aptxadaptiver2_2_support=true
++
+ # Match the radio region of the stock HyperOS 4 China build.
+ PRODUCT_VENDOR_PROPERTIES += ro.vendor.radio.build_region=cn
+ 
+@@ -46,13 +58,18 @@ PRODUCT_PACKAGES += \
+ PRODUCT_COPY_FILES += \
+     $(LOCAL_PATH)/configs/display/display_id_4630946928389601939.xml:$(TARGET_COPY_OUT_VENDOR)/etc/displayconfig/display_id_4630946928389601939.xml
+ 
++# Sensor capabilities exposed by the Athens HAL.
++PRODUCT_COPY_FILES += \
++    $(LOCAL_PATH)/configs/sensors/athens-sensor-features.xml:$(TARGET_COPY_OUT_ODM)/etc/permissions/athens-sensor-features.xml
++
+ # Composer interface required by the stock service.
+ PRODUCT_PACKAGES += \
+     vendor.qti.hardware.display.composer3-V4-ndk.vendor
+ 
+ # Init
+ PRODUCT_COPY_FILES += \
+-    $(LOCAL_PATH)/configs/init/init.athens.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/init.athens.rc
++    $(LOCAL_PATH)/configs/init/init.athens.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/init.athens.rc \
++    $(LOCAL_PATH)/configs/init/vendor.novatek.hardware.visdisplaysrv-service.rc:$(TARGET_COPY_OUT_ODM)/etc/init/vendor.novatek.hardware.visdisplaysrv-service.rc
+ 
+ # Soong namespaces
+ PRODUCT_SOONG_NAMESPACES += \
+diff --git a/extract-files.py b/extract-files.py
+index 38da5a36336289754e79f30e5acb89c9b856643d..f004d032cccdc6f8b55395717378cd995cde6788 100755
+--- a/extract-files.py
++++ b/extract-files.py
+@@ -2,7 +2,10 @@
+ # SPDX-FileCopyrightText: 2026 The LineageOS Project
+ # SPDX-License-Identifier: Apache-2.0
+ 
++import hashlib
+ import re
++import subprocess
++import sys
+ import xml.etree.ElementTree as ET
+ from pathlib import Path
+ 
+@@ -90,14 +93,73 @@ def fixup_aosp_audio_volumes(ctx, file, file_path, *args, **kwargs):
+     path.write_text(content)
+ 
+ 
++def fixup_novatek_touch_scan_log(ctx, file, file_path, *args, **kwargs):
++    """Drop the missing second string argument from the 406 touch-scan error log."""
++    path = Path(file_path)
++    data = path.read_bytes()
++    stock_hash = "9c172c695a2884ffa91ce0ddef3ef6ec46c56a3578e1f9f320cf7655eda7b099"
++    fixed_hash = "fca9d061beab72c7e38f572e8b0c126464c109f7f39078fc00d30579b694151e"
++    source_hash = hashlib.sha256(data).hexdigest()
++    if source_hash == fixed_hash:
++        return
++    if source_hash != stock_hash:
++        raise ValueError(f"{path}: unexpected Novatek daemon SHA-256 {source_hash}")
++
++    original = b"Close TouchInfo Detector(Scan dir failed for %s, %s)\n\0"
++    corrected = b"Close TouchInfo Detector(Scan dir failed for %s)\n\0"
++    if data.count(original) != 1:
++        raise ValueError(f"{path}: expected one Novatek touch-scan error format")
++
++    # Keep the ELF layout intact and leave the failed scan on its normal exit path.
++    fixed = data.replace(original, corrected.ljust(len(original), b"\0"))
++    if hashlib.sha256(fixed).hexdigest() != fixed_hash:
++        raise ValueError(f"{path}: unexpected Novatek daemon SHA-256 after fixup")
++    path.write_bytes(fixed)
++
++
++def fixup_supernight_raw_protection(ctx, file, file_path, *args, **kwargs):
++    """Use RW during SuperNight decryption and R afterward."""
++    path = Path(file_path)
++    data = bytearray(path.read_bytes())
++    stock_hash = "bc99d7e100d6f3f3415e34a65eef9347a5f5560f7b769ca1ef45042134f47c6f"
++    fixed_hash = "ac81b956e569bdc4e2e6b7c03653ef90db7fb940d983a770e318235ad1b4cccc"
++    source_hash = hashlib.sha256(data).hexdigest()
++    if source_hash == fixed_hash:
++        return
++    if source_hash != stock_hash:
++        raise ValueError(f"{path}: unexpected SuperNight RAW SHA-256 {source_hash}")
++
++    # DecryptSection only changes protection on data pages before .text.
++    # The mprotect flags are passed in w2 on AArch64.
++    data[0x3EF27C:0x3EF280] = bytes.fromhex("62 00 80 52")  # mov w2, #3 (RW)
++    data[0x3EF90C:0x3EF910] = bytes.fromhex("22 00 80 52")  # mov w2, #1 (R)
++    if hashlib.sha256(data).hexdigest() != fixed_hash:
++        raise ValueError(f"{path}: unexpected SuperNight RAW SHA-256 after fixup")
++    path.write_bytes(data)
++
++
+ blob_fixups: blob_fixups_user_type = {
++    "odm/bin/hw/vendor.novatek.hardware.visdisplaysrv-service": blob_fixup().call(
++        fixup_novatek_touch_scan_log, need_tmp_dir=False
++    ),
+     # Remove private output types unsupported by the AOSP audio HAL.
+     "odm/etc/audio/audio_module_config_primary.xml": blob_fixup()
+     .regex_replace(r'(?s)<mixPort\s+name="virtual_deep_buffer"[^>]*>.*?</mixPort>', "")
+     .regex_replace(r"virtual_deep_buffer,\s*|,\s*virtual_deep_buffer", "")
+     .regex_replace(r'(?s)<devicePort\s+tagName="Multiroute"[^>]*>.*?</devicePort>', "")
+     .regex_replace(r'<route\s+[^>]*sink="Multiroute"[^>]*/>', "")
+-    .regex_replace(r"\s*audio/vnd\.mi\.mihc", ""),
++    .regex_replace(r"\s*audio/vnd\.mi\.mihc", "")
++    # The ODM policy takes precedence. The PAL bit-perfect path uses the USB headset device ID.
++    .regex_replace(
++        r'(?m)^([ \t]*)(<mixPort name="hifi_playback" role="source">\s*</mixPort>)'
++        r'(?!\s*<mixPort name="bit_perfect_playback")',
++        r'\1\2\n\1<mixPort name="bit_perfect_playback" role="source" flags="BIT_PERFECT" />',
++    )
++    .regex_replace(
++        r'(<route type="mix" sink="usb_headset" sources=")(?![^"]*\bbit_perfect_playback\b)'
++        r'([^"]+)("\s*/>)',
++        r'\1\2,bit_perfect_playback\3',
++    ),
+     "odm/etc/audio_policy_engine_stream_volumes_mi.xml": blob_fixup().call(
+         fixup_aosp_audio_volumes, need_tmp_dir=False
+     ),
+@@ -134,6 +196,12 @@ blob_fixups: blob_fixups_user_type = {
+     .clear_symbol_version("AHardwareBuffer_unlock")
+     .clear_symbol_version("AHardwareBuffer_lock")
+     .clear_symbol_version("AHardwareBuffer_isSupported"),
++    "odm/lib64/libmi_supernight_raw.so": blob_fixup().call(
++        fixup_supernight_raw_protection, need_tmp_dir=False
++    ),
++    # AOSP libEGL exports this entry point without Xiaomi's LIBEGL symbol version.
++    "odm/lib64/camera/plugins/com.xiaomi.plugin.watermarkV2.so": blob_fixup()
++    .clear_symbol_version("eglGetNativeClientBufferANDROID"),
+     (
+         "odm/lib64/camera/components/com.qti.node.dewarp.so",
+         "odm/lib64/vendor.qti.hardware.camera.offlinecamera-service-impl.so",
+@@ -206,6 +274,28 @@ module = ExtractUtilsModule(
+     namespace_imports=namespace_imports,
+ )
+ 
++
++def extract_joyose_display_profiles(_ctx):
++    proprietary = Path(module.vendor_path) / "proprietary"
++    apk = proprietary / "product/pangu/system/app/Joyose/Joyose.apk"
++    defaults = proprietary / "odm/etc/default_cloud.json"
++    if not apk.exists() and not defaults.exists():
++        # A partial extraction can select just another blob section.
++        return
++    subprocess.run(
++        [
++            sys.executable,
++            Path(__file__).resolve().parent / "joyose/extract_profiles.py",
++            "--joyose-apk", apk,
++            "--odm-defaults", defaults,
++            "--output", proprietary / "product/etc/display/athens_joyose_game_profiles.json",
++        ],
++        check=True,
++    )
++
++
++module.add_postprocess_fn(extract_joyose_display_profiles)
++
+ if __name__ == "__main__":
+     utils = ExtractUtils.device_with_common(module, "sm8850-common", module.vendor)
+     utils.run()
+diff --git a/infinity_athens.mk b/infinity_athens.mk
+index 0eff298a6525f56bef6b16f82a8118bf23f8a90a..37ad071c8eb73f0d9a649b61b8c55a66bc10447d 100644
+--- a/infinity_athens.mk
++++ b/infinity_athens.mk
+@@ -9,6 +9,7 @@ TARGET_SCREEN_HEIGHT := 2510
+ TARGET_HAS_UDFPS := true
+ WITH_GAPPS := true
+ INFINITY_BUILD_TYPE := UNOFFICIAL
++INFINITY_MAINTAINER := YuanHuakk
+ PRODUCT_GMS_CLIENTID_BASE := android-xiaomi
+ 
+ $(call inherit-product, $(SRC_TARGET_DIR)/product/core_64_bit_only.mk)
+@@ -17,8 +18,55 @@ $(call inherit-product, vendor/infinity/config/common_full_phone.mk)
+ 
+ $(call inherit-product, device/xiaomi/athens/device.mk)
+ 
++# Use Google's phone, messaging, and gallery apps for this Infinity X product.
++PRODUCT_PACKAGES += \
++    AthensGoogleAppDefaults \
++    GoogleDialer \
++    MIUICalculator \
++    Photos \
++    PrebuiltBugle \
++    com.google.android.dialer.support
++
++PRODUCT_COPY_FILES += \
++    vendor/pixel/gms/common/proprietary/product/etc/permissions/com.google.android.dialer.support.xml:$(TARGET_COPY_OUT_PRODUCT)/etc/permissions/com.google.android.dialer.support.xml
++
++# Match the Chinese-market device's default language while keeping all supported locales.
++PRODUCT_LOCALES := zh_CN $(filter-out zh_CN,$(PRODUCT_LOCALES))
++
+ PRODUCT_PACKAGES += InfinityChargingAthens
+ 
++# Preinstall the HyperOS CN push service as a product app.
++PRODUCT_PACKAGES += XiaomiServiceFrameworkCN
++PRODUCT_PRODUCT_PROPERTIES += ro.product.locale.region=CN
++PRODUCT_COPY_FILES += \
++    device/xiaomi/athens/mipush/athens-mipush.xml:$(TARGET_COPY_OUT_PRODUCT)/etc/sysconfig/athens-mipush.xml
++
++# Original signed UnionPay TSM service and its application-private JNI libraries.
++PRODUCT_PACKAGES += UPTsmService
++
++# Supply Joyose's display policies to the Athens game service.
++PRODUCT_COPY_FILES += \
++    vendor/xiaomi/athens/proprietary/product/etc/display/athens_joyose_game_profiles.json:$(TARGET_COPY_OUT_PRODUCT)/etc/display/athens_joyose_game_profiles.json
++
++# Coordinate repainting around stock Dual DPU transitions.
++$(call soong_config_set_bool,surfaceflinger,athens_framemaster_repaint,true)
++
++ifeq ($(ATHENS_MIVK_TEST_BUILD),true)
++$(call soong_config_set_bool,athens_mivk,enabled,true)
++PRODUCT_PACKAGES += libathens_mivk_bridge
++endif
++
++# Use the Qualcomm Adaptive bridge in opt-in validation builds.
++ifeq ($(ATHENS_APTX_ADAPTIVE_TEST_BUILD),true)
++$(call soong_config_set_bool,athens_bluetooth,aptx_adaptive,true)
++PRODUCT_PACKAGES += \
++    athens_aptx_adaptive_manifest \
++    athens_btaudio_offload_if \
++    btaudio_offload_if_stock \
++    libathens_aptx_adaptive_v6
++PRODUCT_SYSTEM_EXT_PROPERTIES += ro.bluetooth.a2dp_aptx_adaptive_offload.supported=true
++endif
++
+ # Keep authenticated root ADB available in userdebug builds.
+ ifeq ($(TARGET_BUILD_VARIANT),userdebug)
+ PRODUCT_NOT_DEBUGGABLE_IN_USERDEBUG := false
+@@ -28,5 +76,5 @@ endif
+ PRODUCT_DEVICE := athens
+ PRODUCT_NAME := infinity_athens
+ PRODUCT_BRAND := Redmi
+-PRODUCT_MODEL := Redmi K100 Pro
+-PRODUCT_MANUFACTURER := xiaomi
++PRODUCT_MODEL := M511CD
++PRODUCT_MANUFACTURER := Xiaomi
+diff --git a/joyose/extract_profiles.py b/joyose/extract_profiles.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..33ddb1860d2a2e62560e44134a4731eb27d5bf2d
+--- /dev/null
++++ b/joyose/extract_profiles.py
+@@ -0,0 +1,271 @@
++#!/usr/bin/env python3
++# SPDX-License-Identifier: Apache-2.0
++
++"""Extract Novatek display profiles from the original Athens HyperOS 4.0.6 files."""
++
++import argparse
++import hashlib
++import io
++import json
++import os
++from pathlib import Path
++import re
++import struct
++import sys
++import tempfile
++import zipfile
++
++
++JOYOSE_SHA256 = "0fe1e75378b6080d7e8c7b430672a466ea6bf996546049e9fb5db35774de66ca"
++DEFAULTS_SHA256 = "25504dc938adb25cfdc20b9144957d53e727f2bd74dde03daea299ce6723818e"
++# classes.dex code of com.xiaomi.joyose.utils.a.c() in the verified APK.
++CODE_OFFSET = 0x1B4CD8
++CODE_UNITS = 0xA0
++XOR_LOOP = 0x8E
++DISPLAY_EXTENSIONS = {
++    "novatek_bypass_delay": int,
++    "novatek_cmd_control_enable": bool,
++    "novatek_cmd_control_interval": int,
++    "novatek_bypass_refreshrate": bool,
++    "novatek_non_playing_config": list,
++    "novatek_gex_fps_limit": list,
++}
++DISPLAY_POLICIES = [
++    {"feature": "PQ_FIRST", "strategy": "NT#FISR"},
++    {"feature": "FPS_FIRST", "strategy": "NT#FI"},
++]
++PACKAGE = re.compile(r"[A-Za-z0-9.]+")
++FPS_LIMIT = re.compile(r"[A-Za-z0-9.]+:[1-9][0-9]*")
++MIVK_REFERENCE_PACKAGE = "com.miHoYo.Yuanshen"
++
++
++def verified_input(path, expected_sha256):
++    data = path.read_bytes()
++    if hashlib.sha256(data).hexdigest() != expected_sha256:
++        raise ValueError(f"{path}: SHA-256 does not match the verified Athens 4.0.6 input")
++    return data
++
++
++def stock_codec_material(apk):
++    # Evaluate only the verified method's literal byte array initialization and XOR loop.
++    # Its result is used in memory by the stock asset codec.
++    with zipfile.ZipFile(io.BytesIO(apk)) as joyose:
++        dex = joyose.read("classes.dex")
++    code = struct.unpack_from(f"<{CODE_UNITS}H", dex, CODE_OFFSET)
++    if code[0x92] != 0x03DF or code[0x93] & 0xFF != 3:
++        raise ValueError("unexpected Joyose codec XOR instruction")
++
++    registers = {}
++    pc = 0
++    while pc < XOR_LOOP:
++        opcode = code[pc] & 0xFF
++        operand = code[pc] >> 8
++        if opcode == 0x12:  # const/4
++            registers[operand & 0xF] = operand >> 4
++            pc += 1
++            continue
++        if opcode == 0x13:  # const/16
++            registers[operand] = code[pc + 1]
++        elif opcode == 0x23:  # new-array
++            registers[operand & 0xF] = bytearray(registers[operand >> 4])
++        elif opcode == 0x4F:  # aput-byte
++            array = code[pc + 1] & 0xFF
++            index = code[pc + 1] >> 8
++            registers[array][registers[index]] = registers[operand] & 0xFF
++        else:
++            raise ValueError("unexpected Joyose codec initialization instruction")
++        pc += 2
++
++    material = registers[1]
++    if pc != XOR_LOOP or len(material) != 32:
++        raise ValueError("unexpected Joyose codec material layout")
++    xor_mask = code[0x93] >> 8
++    return bytes(value ^ xor_mask for value in material)
++
++
++def decrypt_defaults(defaults, apk):
++    try:
++        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
++        from cryptography.hazmat.primitives.padding import PKCS7
++    except ImportError as error:
++        raise ValueError("the Python cryptography package is required") from error
++
++    decryptor = Cipher(algorithms.AES(stock_codec_material(apk)), modes.ECB()).decryptor()
++    unpadder = PKCS7(128).unpadder()
++    return json.loads(
++        unpadder.update(decryptor.update(defaults) + decryptor.finalize())
++        + unpadder.finalize()
++    )
++
++
++def validate_profile_rows(rows, expected_count):
++    packages = set()
++    if not isinstance(rows, list) or len(rows) != expected_count:
++        raise ValueError("unexpected number of Joyose display profile rows")
++    for row in rows:
++        parts = row.split("_") if isinstance(row, str) else []
++        if len(parts) != 4 or not PACKAGE.fullmatch(parts[0]) or parts[0] in packages:
++            raise ValueError("invalid or duplicate Joyose display profile row")
++        if not all(parts[1:]):
++            raise ValueError("empty command field in Joyose display profile row")
++        packages.add(parts[0])
++
++
++def display_profiles(doc):
++    config = doc["booster_config"]
++    if (
++        config["config_name"] != "booster_config"
++        or config["version"] != 2026092851
++        or config["enable"] is not True
++        or config["with_model"] is not False
++    ):
++        raise ValueError("unexpected Athens Joyose configuration version")
++
++    game_booster = config["params"]["game_booster"]
++    profiles = game_booster["novatek_game_params"]
++    validate_profile_rows(profiles, 113)
++
++    blacklist = game_booster["novatek_black_app"]
++    if not isinstance(blacklist, list) or len(blacklist) != 15 or not all(
++        isinstance(package, str) and PACKAGE.fullmatch(package) for package in blacklist
++    ):
++        raise ValueError("invalid Joyose display blacklist")
++
++    extension = game_booster["novatek_extend_config"]
++    if set(extension) != DISPLAY_EXTENSIONS.keys() or not all(
++        type(extension[key]) is value_type for key, value_type in DISPLAY_EXTENSIONS.items()
++    ):
++        raise ValueError("invalid Joyose display extension")
++    fps_limits = extension["novatek_gex_fps_limit"]
++    if len(fps_limits) != 4 or not all(
++        isinstance(limit, str) and FPS_LIMIT.fullmatch(limit) for limit in fps_limits
++    ):
++        raise ValueError("invalid Joyose display FPS limits")
++
++    non_playing = extension["novatek_non_playing_config"]
++    if (
++        len(non_playing) != 1
++        or not isinstance(non_playing[0], str)
++        or not non_playing[0].startswith("com.tencent.tmgp.sgame_")
++        or len(non_playing[0].split("_")) != 3
++    ):
++        raise ValueError("invalid Joyose non-playing display profile")
++
++    policies = []
++    policy_config = game_booster["fisr_config"]["enhance_config"]
++    if not isinstance(policy_config, list) or len(policy_config) != 2:
++        raise ValueError("unexpected Joyose FISR policy count")
++    for policy in policy_config:
++        games = policy["game_list"]
++        if not isinstance(games, list) or not games or not all(
++            isinstance(game, str) and PACKAGE.fullmatch(game) for game in games
++        ):
++            raise ValueError("invalid Joyose FISR game list")
++        if policy["enhance_policy_config"] != DISPLAY_POLICIES:
++            raise ValueError("unexpected Joyose FISR display policy")
++        # joint_action_cmd belongs to the wider Game Booster configuration.
++        policies.append({"game_list": games, "enhance_policy_config": DISPLAY_POLICIES})
++
++    return {
++        "stock_firmware": "406",
++        "stock_asset": "odm/etc/default_cloud.json",
++        "stock_asset_sha256": DEFAULTS_SHA256,
++        "config_name": config["config_name"],
++        "version": config["version"],
++        "novatek_game_params": profiles,
++        "novatek_black_app": blacklist,
++        "novatek_extend_config": extension,
++        "fisr_config": {"enhance_config": policies},
++        "mivk_query": {MIVK_REFERENCE_PACKAGE: mivk_reference_reply(doc)},
++    }
++
++
++def read_stock_config(apk: Path, defaults: Path) -> dict:
++    joyose = verified_input(apk, JOYOSE_SHA256)
++    odm_defaults = verified_input(defaults, DEFAULTS_SHA256)
++    return decrypt_defaults(odm_defaults, joyose)
++
++
++def extract_profiles(apk: Path, defaults: Path) -> dict:
++    return display_profiles(read_stock_config(apk, defaults))
++
++
++def mivk_reference_reply(doc: dict) -> dict:
++    # Joyose queryVKSettingsByAppName flattens this row into a `configs` object.
++    booster = doc["booster_config"]["params"]["game_booster"]
++    settings = booster["mivk_settings"]
++    matches = [row for row in settings["app_params"]
++               if MIVK_REFERENCE_PACKAGE in row["app_cmdlines"]]
++    if settings["enable"] is not True or len(matches) != 1:
++        raise ValueError("406 MiVK configuration does not uniquely enable Genshin CN")
++
++    profile = matches[0]
++    xrender = profile["xrender_config"]
++    # Android 17 prefers support_module_w when present. STANDARD is the third tuner mode.
++    module_key = "support_module_w" if "support_module_w" in xrender else "support_module"
++    module_list = xrender[module_key]
++    standard_mode = 1 << 2
++    base_info = 0
++    enabled = []
++    for index, entry in enumerate(module_list):
++        name, mask = (part.strip() for part in entry.split(":", 1))
++        if int(mask) & standard_mode:
++            base_info |= 1 << index
++            enabled.append(name)
++    if "mimv" not in enabled or "drr" not in enabled:
++        raise ValueError("406 Genshin MiVK standard profile is missing its motion-vector modules")
++
++    config = {
++        "xrender_BaseInfo": base_info,
++        "xrender_ModuleList": ",".join(enabled),
++        "xrender_CheckMainInfo": xrender["checkMainInfo"],
++        # JSONObject.getString serializes the nested OEM object into a string on the wire.
++        "drr_Params": json.dumps(profile["drr"]["params"], separators=(",", ":")),
++        # A device without a saved OEM resolution preset returns -1.
++        "remode": -1,
++    }
++    for source, key in (("payloadData", "xrender_PayloadData"), ("checkEXT", "xrender_CheckEXT")):
++        if source in xrender:
++            config[key] = xrender[source]
++    return {"configs": config}
++
++
++def write_profiles(output: Path, contents: str):
++    output.parent.mkdir(parents=True, exist_ok=True)
++    with tempfile.NamedTemporaryFile(
++        mode="w", encoding="utf-8", dir=output.parent, prefix=f".{output.name}.", delete=False
++    ) as temporary:
++        path = Path(temporary.name)
++        try:
++            temporary.write(contents)
++            os.fchmod(temporary.fileno(), 0o644)
++            temporary.close()
++            path.replace(output)
++        finally:
++            path.unlink(missing_ok=True)
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--joyose-apk", type=Path, required=True)
++    parser.add_argument("--odm-defaults", type=Path, required=True)
++    parser.add_argument("--output", type=Path, help="Atomically replace this file. Defaults to stdout.")
++    parser.add_argument("--mivk-reference-reply", action="store_true",
++                        help="Emit the 406 Genshin CN MiVK reply for standard GPU tuning")
++    args = parser.parse_args()
++    try:
++        if args.mivk_reference_reply:
++            profiles = mivk_reference_reply(read_stock_config(args.joyose_apk, args.odm_defaults))
++        else:
++            profiles = extract_profiles(args.joyose_apk, args.odm_defaults)
++        contents = json.dumps(profiles, ensure_ascii=False, indent=2) + "\n"
++        if args.output is None:
++            sys.stdout.write(contents)
++        else:
++            write_profiles(args.output, contents)
++    except (OSError, ValueError, KeyError, TypeError, struct.error, zipfile.BadZipFile) as error:
++        parser.exit(1, f"{parser.prog}: {error}\n")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/mipush/Android.bp b/mipush/Android.bp
+new file mode 100644
+index 0000000000000000000000000000000000000000..e4ce62f36c2ee7dfaa953940a6eb4be100d3db26
+--- /dev/null
++++ b/mipush/Android.bp
+@@ -0,0 +1,140 @@
++// SPDX-License-Identifier: Apache-2.0
++
++// Keep the signed base, configuration splits and startup provider feature splits together.
++android_app_import {
++    name: "XiaomiServiceFrameworkCN",
++    apk: "//vendor/xiaomi/athens:athens_xmsf_base_apk",
++    filename: "split-XiaomiServiceFrameworkCN-master.apk",
++    required: [
++        "XiaomiServiceFrameworkCNAbi",
++        "XiaomiServiceFrameworkCNDensity",
++        "XiaomiServiceFrameworkCNAuth",
++        "XiaomiServiceFrameworkCNAuthDensity",
++        "XiaomiServiceFrameworkCNOAuth",
++        "XiaomiServiceFrameworkCNOAuthDensity",
++        "XiaomiServiceFrameworkCNPrefetch",
++        "XiaomiServiceFrameworkCNPrefetchDensity",
++    ],
++    relative_install_path: "split-XiaomiServiceFrameworkCN",
++    install_path_skip_module_dir: true,
++    product_specific: true,
++    presigned: true,
++    preprocessed: true,
++    // HyperOS shared libraries in the manifest are optional.
++    enforce_uses_libs: false,
++    dex_preopt: {
++        enabled: false,
++    },
++}
++
++android_app_import {
++    name: "XiaomiServiceFrameworkCNAbi",
++    apk: "//vendor/xiaomi/athens:athens_xmsf_abi_apk",
++    filename: "split-XiaomiServiceFrameworkCN-arm64_v8a.apk",
++    relative_install_path: "split-XiaomiServiceFrameworkCN",
++    install_path_skip_module_dir: true,
++    product_specific: true,
++    presigned: true,
++    preprocessed: true,
++    dex_preopt: {
++        enabled: false,
++    },
++}
++
++android_app_import {
++    name: "XiaomiServiceFrameworkCNDensity",
++    apk: "//vendor/xiaomi/athens:athens_xmsf_density_apk",
++    filename: "split-XiaomiServiceFrameworkCN-xxhdpi.apk",
++    relative_install_path: "split-XiaomiServiceFrameworkCN",
++    install_path_skip_module_dir: true,
++    product_specific: true,
++    presigned: true,
++    preprocessed: true,
++    dex_preopt: {
++        enabled: false,
++    },
++}
++
++android_app_import {
++    name: "XiaomiServiceFrameworkCNAuth",
++    apk: "//vendor/xiaomi/athens:athens_xmsf_auth_apk",
++    filename: "auth-master.apk",
++    relative_install_path: "split-XiaomiServiceFrameworkCN",
++    install_path_skip_module_dir: true,
++    product_specific: true,
++    presigned: true,
++    preprocessed: true,
++    dex_preopt: {
++        enabled: false,
++    },
++}
++
++android_app_import {
++    name: "XiaomiServiceFrameworkCNAuthDensity",
++    apk: "//vendor/xiaomi/athens:athens_xmsf_auth_density_apk",
++    filename: "auth-xxhdpi.apk",
++    relative_install_path: "split-XiaomiServiceFrameworkCN",
++    install_path_skip_module_dir: true,
++    product_specific: true,
++    presigned: true,
++    preprocessed: true,
++    dex_preopt: {
++        enabled: false,
++    },
++}
++
++android_app_import {
++    name: "XiaomiServiceFrameworkCNOAuth",
++    apk: "//vendor/xiaomi/athens:athens_xmsf_oauth_apk",
++    filename: "oauth-master.apk",
++    relative_install_path: "split-XiaomiServiceFrameworkCN",
++    install_path_skip_module_dir: true,
++    product_specific: true,
++    presigned: true,
++    preprocessed: true,
++    dex_preopt: {
++        enabled: false,
++    },
++}
++
++android_app_import {
++    name: "XiaomiServiceFrameworkCNOAuthDensity",
++    apk: "//vendor/xiaomi/athens:athens_xmsf_oauth_density_apk",
++    filename: "oauth-xxhdpi.apk",
++    relative_install_path: "split-XiaomiServiceFrameworkCN",
++    install_path_skip_module_dir: true,
++    product_specific: true,
++    presigned: true,
++    preprocessed: true,
++    dex_preopt: {
++        enabled: false,
++    },
++}
++
++android_app_import {
++    name: "XiaomiServiceFrameworkCNPrefetch",
++    apk: "//vendor/xiaomi/athens:athens_xmsf_prefetch_apk",
++    filename: "prefetch-master.apk",
++    relative_install_path: "split-XiaomiServiceFrameworkCN",
++    install_path_skip_module_dir: true,
++    product_specific: true,
++    presigned: true,
++    preprocessed: true,
++    dex_preopt: {
++        enabled: false,
++    },
++}
++
++android_app_import {
++    name: "XiaomiServiceFrameworkCNPrefetchDensity",
++    apk: "//vendor/xiaomi/athens:athens_xmsf_prefetch_density_apk",
++    filename: "prefetch-xxhdpi.apk",
++    relative_install_path: "split-XiaomiServiceFrameworkCN",
++    install_path_skip_module_dir: true,
++    product_specific: true,
++    presigned: true,
++    preprocessed: true,
++    dex_preopt: {
++        enabled: false,
++    },
++}
+diff --git a/mipush/athens-mipush.xml b/mipush/athens-mipush.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..0f9b9014df642aaa1d550ffd69f3f6113202ddca
+--- /dev/null
++++ b/mipush/athens-mipush.xml
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<config>
++    <feature name="org.infinityx.feature.MIPUSH_NOTIFICATION_FORWARDING" />
++    <allow-in-power-save-except-idle package="com.xiaomi.xmsf" />
++    <exempt-from-cached-app-freezer package="com.xiaomi.xmsf" process="com.xiaomi.xmsf" />
++    <exempt-from-cached-app-freezer package="com.xiaomi.xmsf" process="com.xiaomi.xmsf:services" />
++</config>
+diff --git a/overlays/AthensGoogleAppDefaults/Android.bp b/overlays/AthensGoogleAppDefaults/Android.bp
+new file mode 100644
+index 0000000000000000000000000000000000000000..b7e363e45d187c0b2843861cb33932f4f08eac46
+--- /dev/null
++++ b/overlays/AthensGoogleAppDefaults/Android.bp
+@@ -0,0 +1,7 @@
++// Copyright (C) 2026 The Android Open Source Project
++// SPDX-License-Identifier: Apache-2.0
++
++runtime_resource_overlay {
++    name: "AthensGoogleAppDefaults",
++    product_specific: true,
++}
+diff --git a/overlays/AthensGoogleAppDefaults/AndroidManifest.xml b/overlays/AthensGoogleAppDefaults/AndroidManifest.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..4eb8cea34f5aec58fc1ea1dfcc773e0310bc91f7
+--- /dev/null
++++ b/overlays/AthensGoogleAppDefaults/AndroidManifest.xml
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<manifest xmlns:android="http://schemas.android.com/apk/res/android"
++    package="android.overlay.athens.infinity.googleapps">
++    <overlay android:targetPackage="android"
++        android:isStatic="true" android:priority="1" />
++</manifest>
+diff --git a/overlays/AthensGoogleAppDefaults/res/values/config.xml b/overlays/AthensGoogleAppDefaults/res/values/config.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..8b0d7d88b2994214111e8362bc428c00771918bd
+--- /dev/null
++++ b/overlays/AthensGoogleAppDefaults/res/values/config.xml
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<resources>
++    <string name="config_defaultDialer" translatable="false">com.google.android.dialer</string>
++    <string name="config_defaultSms" translatable="false">com.google.android.apps.messaging</string>
++    <string name="config_systemGallery" translatable="false">com.google.android.apps.photos</string>
++</resources>
+diff --git a/overlays/FrameworksResAthens/res/xml/power_profile.xml b/overlays/FrameworksResAthens/res/xml/power_profile.xml
+index a1aee4717bb31a7d673f7efce74c22a45bcad9af..231c2dbffac373c492e0a9aa1ecc052ceda36c18 100644
+--- a/overlays/FrameworksResAthens/res/xml/power_profile.xml
++++ b/overlays/FrameworksResAthens/res/xml/power_profile.xml
+@@ -152,7 +152,7 @@
+     <item name="cpu.suspend">0</item>
+ 
+ 
+-    <item name="battery.capacity">5000</item>
++    <item name="battery.capacity">8580</item>
+ 
+ 
+     <item name="wifi.on">1.07</item>
+diff --git a/overlays/InfinityChargingAthens/res/values/brightness.xml b/overlays/InfinityChargingAthens/res/values/brightness.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..fdb528481b7fdb5acd7e3fecb2a608392b8191d7
+--- /dev/null
++++ b/overlays/InfinityChargingAthens/res/values/brightness.xml
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<resources>
++    <!-- Stock SDR-to-HBM transition: 850 nits on the Athens panel calibration. -->
++    <item name="config_appWindowBrightnessOverrideCap" format="float" type="dimen">0.411976560</item>
++</resources>
+diff --git a/payments/Android.mk b/payments/Android.mk
+new file mode 100644
+index 0000000000000000000000000000000000000000..541255ba93bd41f60d070d8e1d4ef278dc421c20
+--- /dev/null
++++ b/payments/Android.mk
+@@ -0,0 +1,31 @@
++# SPDX-License-Identifier: Apache-2.0
++
++LOCAL_PATH := $(call my-dir)
++
++include $(CLEAR_VARS)
++LOCAL_MODULE := UPTsmService
++LOCAL_MODULE_CLASS := APPS
++LOCAL_MODULE_SUFFIX := $(COMMON_ANDROID_PACKAGE_SUFFIX)
++LOCAL_PRODUCT_MODULE := true
++LOCAL_MULTILIB := 64
++LOCAL_CERTIFICATE := PRESIGNED
++LOCAL_DEX_PREOPT := false
++LOCAL_OPTIONAL_USES_LIBRARIES := org.apache.http.legacy
++
++athens_uptsm_dir := vendor/xiaomi/athens/proprietary/product/app/UPTsmService
++LOCAL_PREBUILT_MODULE_FILE := $(athens_uptsm_dir)/UPTsmService.apk
++# Preserve the APK's v2 signature and install its compressed JNI separately, as on stock.
++LOCAL_REPLACE_PREBUILT_APK_INSTALLED := $(LOCAL_PREBUILT_MODULE_FILE)
++LOCAL_PREBUILT_JNI_LIBS_arm64 := $(addprefix ../../../../$(athens_uptsm_dir)/lib/arm64/, \
++    libDeepNetV2.so \
++    libcwlive.so \
++    libenlic.so \
++    libentryexpro.so \
++    libupbio_net.so \
++    libupliveness.so \
++    libuptsmaddonmi.so \
++    libuptsmservice.so \
++    libxdjacrypto.so)
++include $(BUILD_PREBUILT)
++
++athens_uptsm_dir :=
+diff --git a/proprietary-files.txt b/proprietary-files.txt
+index e480c1e76540805d163876966e0b50e80e48bf52..acf958beda8d1f85a878f3af640867b38e1cf126 100644
+--- a/proprietary-files.txt
++++ b/proprietary-files.txt
+@@ -864,6 +864,14 @@ odm/lib64/camera/plugins/com.xiaomi.plugin.watermark.so
+ odm/lib64/camera/plugins/com.xiaomi.plugin.yuv2Heic.so
+ odm/lib64/camera/plugins/com.xiaomi.plugin.yuvresize.so
+ 
++# Camera watermark V2
++odm/etc/camera/xiaomi/watermark/MiSansVF.ttf
++odm/etc/camera/xiaomi/watermark/oxanium_bold.ttf
++odm/etc/camera/xiaomi/watermark/oxanium_medium.ttf
++odm/etc/camera/xiaomi/watermark/oxanium_regular.ttf
++odm/lib64/camera/plugins/com.xiaomi.plugin.watermarkV2.so
++odm/lib64/libpendant_wrapper.so
++
+ # Camera algorithms missing at bring-up (the video and 200MP graphs need them)
+ odm/lib64/camera/dynamicplugins/com.xiaomi.plugin.depurple.so
+ odm/lib64/camera/plugins/com.xiaomi.plugin.deflicker2.so
+@@ -1360,6 +1368,26 @@ odm/etc/display/B_Com_Gary_Gain.csv
+ odm/etc/display/G_Com_Gary_Gain.csv
+ odm/etc/display/R_Com_Gary_Gain.csv
+ 
++# Game display
++odm/bin/hw/vendor.novatek.hardware.visdisplaysrv-service
++odm/etc/vintf/manifest/vendor.novatek.hardware.visdisplaysrv.xml
++odm/etc/display/ui_service_cloud_config.xml
++odm/etc/dqe/ASICScene.xml
++odm/etc/vintf/manifest/vendor.xiaomi.hardware.framecapturemanager_aidl-service.xml
++odm/etc/vintf/manifest/vendor.xiaomi.hardware.framemaster_aidl-service.xml
++
++# Local Joyose display profile extraction inputs
++odm/etc/default_cloud.json;EXTRACT_ONLY
++product/pangu/system/app/Joyose/Joyose.apk;EXTRACT_ONLY
++
++# HyperOS 406 Vulkan motion-vector integration inputs
++system_ext/lib64/libanf.so;EXTRACT_ONLY;FILEGROUP=athens_mivk_anf|a77ae701c20ae77acd38a7b7b6bb00302153b9e8
++system_ext/lib64/libmisuperframe.so;EXTRACT_ONLY;FILEGROUP=athens_mivk_superframe|f8bd835e34cd9e269d43b1c72d5041bca6992fa6
++system_ext/lib64/libmivk.so;EXTRACT_ONLY;FILEGROUP=athens_mivk_oem|0953d6616db05860a323ce82f33ac46071fbedb2
++
++# Athens display panel calibration
++odm/etc/mdss_dsi_athens_42_0d_0a_dsc_cmd_mi.xml
++
+ # Dolby
+ odm/etc/dolby/dax-default-spatializer.xml
+ odm/etc/dolby/dax-default.xml
+@@ -1875,6 +1903,35 @@ odm/lib64/libtical.so
+ # SIA91xx speaker amp firmware required at kernel driver probe.
+ odm/firmware/sipa.bin
+ 
++# HyperOS 406 Calculator
++product/data-app/MIUICalculator/MIUICalculator.apk;EXTRACT_ONLY;FILEGROUP=athens_miui_calculator_apk|30f71f7f58747a313c89b9587b8543399e01a85e
++
++# Mi Push
++product/app/split-XiaomiServiceFrameworkCN/auth-master.apk;EXTRACT_ONLY;FILEGROUP=athens_xmsf_auth_apk
++product/app/split-XiaomiServiceFrameworkCN/auth-xxhdpi.apk;EXTRACT_ONLY;FILEGROUP=athens_xmsf_auth_density_apk
++product/app/split-XiaomiServiceFrameworkCN/oauth-master.apk;EXTRACT_ONLY;FILEGROUP=athens_xmsf_oauth_apk
++product/app/split-XiaomiServiceFrameworkCN/oauth-xxhdpi.apk;EXTRACT_ONLY;FILEGROUP=athens_xmsf_oauth_density_apk
++product/app/split-XiaomiServiceFrameworkCN/prefetch-master.apk;EXTRACT_ONLY;FILEGROUP=athens_xmsf_prefetch_apk
++product/app/split-XiaomiServiceFrameworkCN/prefetch-xxhdpi.apk;EXTRACT_ONLY;FILEGROUP=athens_xmsf_prefetch_density_apk
++product/app/split-XiaomiServiceFrameworkCN/split-XiaomiServiceFrameworkCN-arm64_v8a.apk;EXTRACT_ONLY;FILEGROUP=athens_xmsf_abi_apk
++product/app/split-XiaomiServiceFrameworkCN/split-XiaomiServiceFrameworkCN-master.apk;EXTRACT_ONLY;FILEGROUP=athens_xmsf_base_apk
++product/app/split-XiaomiServiceFrameworkCN/split-XiaomiServiceFrameworkCN-xxhdpi.apk;EXTRACT_ONLY;FILEGROUP=athens_xmsf_density_apk
++
++# UnionPay trusted service and its app-private JNI libraries.
++product/app/UPTsmService/UPTsmService.apk;EXTRACT_ONLY
++product/app/UPTsmService/lib/arm64/libDeepNetV2.so;EXTRACT_ONLY
++product/app/UPTsmService/lib/arm64/libcwlive.so;EXTRACT_ONLY
++product/app/UPTsmService/lib/arm64/libenlic.so;EXTRACT_ONLY
++product/app/UPTsmService/lib/arm64/libentryexpro.so;EXTRACT_ONLY
++product/app/UPTsmService/lib/arm64/libupbio_net.so;EXTRACT_ONLY
++product/app/UPTsmService/lib/arm64/libupliveness.so;EXTRACT_ONLY
++product/app/UPTsmService/lib/arm64/libuptsmaddonmi.so;EXTRACT_ONLY
++product/app/UPTsmService/lib/arm64/libuptsmservice.so;EXTRACT_ONLY
++product/app/UPTsmService/lib/arm64/libxdjacrypto.so;EXTRACT_ONLY
++
++# Original Bluetooth audio IPC for the opt-in Adaptive bridge.
++vendor/lib64/btaudio_offload_if.so:vendor/lib64/btaudio_offload_if_stock.so;EXTRACT_ONLY;FILEGROUP=athens_btaudio_offload_if_stock;FIX_SONAME
++
+ # MiSys - Xiaomi Camera watermark resource synchronization
+ vendor/bin/hypsys_vendor
+ vendor/bin/hw/vendor.xiaomi.hardware.misys.core-service
+diff --git a/sepolicy/private/joyose.te b/sepolicy/private/joyose.te
+new file mode 100644
+index 0000000000000000000000000000000000000000..a47cd4f7b0943fdbcbdab245b9b0121011110291
+--- /dev/null
++++ b/sepolicy/private/joyose.te
+@@ -0,0 +1,2 @@
++type athens_joyose_service, system_server_service, service_manager_type;
++allow untrusted_app_all athens_joyose_service:service_manager find;
+diff --git a/sepolicy/private/service_contexts b/sepolicy/private/service_contexts
+new file mode 100644
+index 0000000000000000000000000000000000000000..489c957b1f023684ee8632c16a351ca7652869d8
+--- /dev/null
++++ b/sepolicy/private/service_contexts
+@@ -0,0 +1 @@
++xiaomi.joyose    u:object_r:athens_joyose_service:s0
+diff --git a/sepolicy/vendor/file.te b/sepolicy/vendor/file.te
+index 1d856dacf1b509316d7c8d73ece9ac8ada82ecb6..0929c34c32532ce5d2bd89973491cd7b99f9c222 100644
+--- a/sepolicy/vendor/file.te
++++ b/sepolicy/vendor/file.te
+@@ -4,3 +4,4 @@ type vendor_sysfs_ufs_discard, fs_type, sysfs_type;
+ type vendor_sysfs_pmic_pon_log, fs_type, sysfs_type;
+ type vendor_sysfs_mi_mempool, fs_type, sysfs_type;
+ type vendor_sysfs_ufs_write_booster, fs_type, sysfs_type;
++type vendor_camera_watermark_file, file_type, data_file_type;
+diff --git a/sepolicy/vendor/file_contexts b/sepolicy/vendor/file_contexts
+index 6f8051262ea222456f301be24c02c5d032208b7b..62d55b81cc6e37e10e0546bcdde9aced0b11c28e 100644
+--- a/sepolicy/vendor/file_contexts
++++ b/sepolicy/vendor/file_contexts
+@@ -16,6 +16,7 @@
+ /(odm|vendor/odm)/bin/hw/mfp-daemon u:object_r:hal_fingerprint_default_exec:s0
+ 
+ # MiSys transfers Camera resources into the vendor data directory.
++/data/vendor/camera/watermarks(/.*)? u:object_r:vendor_camera_watermark_file:s0
+ /vendor/bin/hypsys_vendor u:object_r:hal_hypsys_vendor_exec:s0
+ /vendor/bin/hw/vendor\.xiaomi\.hardware\.misys\.core-service u:object_r:hal_misyscore_athens_exec:s0
+ 
+@@ -28,3 +29,6 @@
+ /dev/block/by-name/oops u:object_r:vendor_oops_block_device:s0
+ /dev/metis_link u:object_r:migt_dev:s0
+ /dev/ntsync u:object_r:vendor_ntsync_device:s0
++
++/(odm|vendor/odm)/bin/hw/vendor\.novatek\.hardware\.visdisplaysrv-service u:object_r:hal_visdisplaysrv_default_exec:s0
++/dev/vis_display_spidev u:object_r:nvt_device:s0
+diff --git a/sepolicy/vendor/framemaster_repaint.te b/sepolicy/vendor/framemaster_repaint.te
+new file mode 100644
+index 0000000000000000000000000000000000000000..485f2eeb446368f53d3149c2fa07a8d87c84b7cb
+--- /dev/null
++++ b/sepolicy/vendor/framemaster_repaint.te
+@@ -0,0 +1,2 @@
++# The optional SurfaceFlinger subscriber uses the existing graphics composer Binder rules.
++allow surfaceflinger vendor_hal_framemaster_xiaomi_service:service_manager find;
+diff --git a/sepolicy/vendor/game_hdr.te b/sepolicy/vendor/game_hdr.te
+new file mode 100644
+index 0000000000000000000000000000000000000000..1dac6d5f42e6708f946871981ba434ec9a62821e
+--- /dev/null
++++ b/sepolicy/vendor/game_hdr.te
+@@ -0,0 +1,6 @@
++# Only the system_server controller may look up FrameMaster from Android userspace.
++allow system_server vendor_hal_framemaster_xiaomi_service:service_manager find;
++allow system_server vendor_hal_displayfeature_xiaomi_default:binder call;
++
++# The stock composer registers a FrameMaster callback for Dual DPU transitions.
++allow hal_graphics_composer_default vendor_hal_framemaster_xiaomi_service:service_manager find;
+diff --git a/sepolicy/vendor/hal_camera_default.te b/sepolicy/vendor/hal_camera_default.te
+index 728f5b62bc4ad6a99b8f0e0a750fb501615cb0d3..e38c6d0346493851d473d93e461084c6d0d4cfb3 100644
+--- a/sepolicy/vendor/hal_camera_default.te
++++ b/sepolicy/vendor/hal_camera_default.te
+@@ -7,3 +7,7 @@ allow hal_camera_default vendor_sysfs_ufs_write_booster:file { open read };
+ allow hal_camera_default vendor_proc_mv:file r_file_perms;
+ allow hal_camera_default vendor_sysfs_kgsl:lnk_file read;
+ allow hal_camera_default vendor_sysfs_kgsl:file r_file_perms;
++
++# Read the synchronized watermark layout and resources when rendering.
++allow hal_camera_default vendor_camera_watermark_file:dir { getattr search };
++allow hal_camera_default vendor_camera_watermark_file:file { getattr map open read };
+diff --git a/sepolicy/vendor/hal_framecapturemanager_xiaomi.te b/sepolicy/vendor/hal_framecapturemanager_xiaomi.te
+new file mode 100644
+index 0000000000000000000000000000000000000000..bb92bce05c4ef654ae8ff0932472d1c242a5b3a3
+--- /dev/null
++++ b/sepolicy/vendor/hal_framecapturemanager_xiaomi.te
+@@ -0,0 +1,5 @@
++# The stock DisplayFeature HAL hosts FrameCaptureManager in its own process.
++type vendor_hal_framecapturemanager_xiaomi_service, hal_service_type, protected_service, service_manager_type;
++
++add_service(vendor_hal_displayfeature_xiaomi_server, vendor_hal_framecapturemanager_xiaomi_service)
++allow vendor_hal_displayfeature_xiaomi_client vendor_hal_framecapturemanager_xiaomi_service:service_manager find;
+diff --git a/sepolicy/vendor/hal_hypsys_vendor.te b/sepolicy/vendor/hal_hypsys_vendor.te
+index ac7a54164ed110fca29ea7a644cd08bdf0094635..7cc8503182862ceed2993cacd50e7b9349003632 100644
+--- a/sepolicy/vendor/hal_hypsys_vendor.te
++++ b/sepolicy/vendor/hal_hypsys_vendor.te
+@@ -43,6 +43,14 @@ allow hal_hypsys_vendor platform_app_36:fd use;
+ allow hal_hypsys_vendor appdomain_tmpfs:file read;
+ allow hal_hypsys_vendor vendor_camera_data_file:dir { add_name search write };
+ allow hal_hypsys_vendor vendor_camera_data_file:file { create getattr open setattr write };
++
++# MiSys copies, reads back and refreshes the resources inside the init-owned root.
++allow hal_hypsys_vendor vendor_camera_watermark_file:dir {
++    add_name create getattr open read remove_name rmdir search setattr write
++};
++allow hal_hypsys_vendor vendor_camera_watermark_file:file {
++    create getattr open read setattr unlink write
++};
+ allow hal_hypsys_vendor vendor_oops_block_device:blk_file getattr;
+ allow hal_hypsys_vendor minidump_data_file:file getattr;
+ get_prop(hal_hypsys_vendor, debug_prop)
+diff --git a/sepolicy/vendor/hal_visdisplaysrv_default.te b/sepolicy/vendor/hal_visdisplaysrv_default.te
+new file mode 100644
+index 0000000000000000000000000000000000000000..33695eb8967e17fe7fc19bd3aa0777a9ac4ef5bd
+--- /dev/null
++++ b/sepolicy/vendor/hal_visdisplaysrv_default.te
+@@ -0,0 +1,27 @@
++type hal_visdisplaysrv_default, domain;
++type hal_visdisplaysrv_default_exec, exec_type, file_type, vendor_file_type;
++type hal_visdisplaysrv_service, hal_service_type, protected_service, service_manager_type;
++type nvt_device, dev_type;
++
++init_daemon_domain(hal_visdisplaysrv_default)
++binder_use(hal_visdisplaysrv_default)
++add_service(hal_visdisplaysrv_default, hal_visdisplaysrv_service)
++
++# Only the Novatek HAL opens the 0600 SPI node.
++allow hal_visdisplaysrv_default nvt_device:chr_file { getattr ioctl open read write };
++
++# DisplayFeature hosts FrameMaster and FrameCaptureManager.
++allow vendor_hal_displayfeature_xiaomi_default hal_visdisplaysrv_service:service_manager find;
++allow hal_visdisplaysrv_default { vendor_hal_framemaster_xiaomi_service vendor_hal_framecapturemanager_xiaomi_service }:service_manager find;
++binder_call(vendor_hal_displayfeature_xiaomi_default, hal_visdisplaysrv_default)
++binder_call(hal_visdisplaysrv_default, vendor_hal_displayfeature_xiaomi_default)
++
++# The composer HAL is the other stock vendor-side Binder peer.
++allow hal_graphics_composer_default hal_visdisplaysrv_service:service_manager find;
++binder_call(hal_graphics_composer_default, hal_visdisplaysrv_default)
++binder_call(hal_visdisplaysrv_default, hal_graphics_composer_default)
++
++# FrameCapture callbacks pass buffers to GraphicBufferMapper.
++hal_client_domain(hal_visdisplaysrv_default, hal_graphics_allocator)
++allow hal_visdisplaysrv_default hal_graphics_mapper_hwservice:hwservice_manager find;
++allow hal_visdisplaysrv_default hal_graphics_allocator_default_tmpfs:file rw_file_perms;
+diff --git a/sepolicy/vendor/service_contexts b/sepolicy/vendor/service_contexts
+index ea7c87d19b51e16b40777667e03ed46599c2a7f9..0baa574386d8b4bd2b602d1d647d32e455943a5b 100644
+--- a/sepolicy/vendor/service_contexts
++++ b/sepolicy/vendor/service_contexts
+@@ -5,3 +5,7 @@ vendor.xiaomi.hardware.misys.core.IMiSysCore/default u:object_r:hal_misyscore_at
+ vendor.xiaomi.hardware.misys.common.IMiSysImpl/default u:object_r:hal_hypsys_vendor_service:s0
+ vendor.xiaomi.hardware.blackbox.IBlackboxImpl/default u:object_r:hal_hypsys_vendor_service:s0
+ vendor.xiaomi.hardware.misys.common.IHypSysIntl/default u:object_r:hal_hypsys_vendor_service:s0
++
++# FrameCaptureManager is published by the Xiaomi DisplayFeature HAL.
++vendor.xiaomi.hardware.framecapturemanager.IFrameCaptureManager/default u:object_r:vendor_hal_framecapturemanager_xiaomi_service:s0
++vendor.novatek.hardware.visdisplaysrv.IVisdisplaysrv/default u:object_r:hal_visdisplaysrv_service:s0

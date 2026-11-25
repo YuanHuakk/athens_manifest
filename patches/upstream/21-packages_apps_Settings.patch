@@ -1,0 +1,314 @@
+diff --git a/res/values-zh-rCN/infinity_strings.xml b/res/values-zh-rCN/infinity_strings.xml
+index 94c10f5199fd2db8113c3c402353a7008dac8442..dcb3da14c4df4b33e1326b78fffa023b3c047c97 100644
+--- a/res/values-zh-rCN/infinity_strings.xml
++++ b/res/values-zh-rCN/infinity_strings.xml
+@@ -185,6 +185,9 @@
+ <string name="per_app_refresh_rate_summary">为每个应用单独配置刷新率</string>
+ <string name="per_app_refresh_rate_default">跟随系统</string>
+ 
++    <string name="athens_video_enhancement_title">视频插帧和超分辨率</string>
++    <string name="athens_video_enhancement_summary">在受支持的视频播放器横屏全屏时使用原厂显示配置。</string>
++
+ <!-- 屏幕刷新率 -->
+ <string name="screen_refresh_rate_title">屏幕刷新率</string>
+ <string name="min_refresh_rate_title">最低刷新率</string>
+@@ -223,4 +226,10 @@
+     <!-- Aggressive standby sleep -->
+     <string name="aggressive_standby_sleep_title">激进待机休眠</string>
+     <string name="aggressive_standby_sleep_summary">当设备处于空闲状态时激进地终止后台/运行中的进程，以防止电量消耗</string>
++
++    <!-- System settings pages -->
++    <string name="window_blurs">允许窗口模糊效果</string>
++    <string name="personal_context_title">个人情境管理器</string>
++    <string name="platform_compat_target_sdk_title">目标 SDK 版本为 <xliff:g id="number" example="29">%d</xliff:g> 或更高时启用</string>
++    <string name="security_settings_face_enroll_finish_description_with_bp">现在，您可以使用人脸解锁手机，也可以在登录应用或确认购买时验证身份。</string>
+ </resources>
+\ No newline at end of file
+diff --git a/res/xml/bluetooth_development_settings.xml b/res/xml/bluetooth_development_settings.xml
+index 7e700f2946db27abaf5a768def9f16e5fcb23e9c..3fc356418d6d508bed96357963bf17ffd60ef564 100644
+--- a/res/xml/bluetooth_development_settings.xml
++++ b/res/xml/bluetooth_development_settings.xml
+@@ -69,7 +69,7 @@
+
+     <PreferenceCategory
+         android:key="bluetooth_general_category"
+-        android:title="General"
++        android:title="@string/general_category_title"
+         android:order="200">
+
+         <SwitchPreferenceCompat
+@@ -99,7 +99,7 @@
+
+     <PreferenceCategory
+         android:key="bluetooth_audio_category"
+-        android:title="Audio"
++        android:title="@string/audio_category_title"
+         android:order="300">
+
+         <ListPreference
+diff --git a/res/xml/ethernet_interface_details.xml b/res/xml/ethernet_interface_details.xml
+index 1bf2e2a96d330bf104d13d713871a9cd9c18a778..74c016c77ba11cafd81a893fee4de4fdfdfa1d71 100644
+--- a/res/xml/ethernet_interface_details.xml
++++ b/res/xml/ethernet_interface_details.xml
+@@ -42,12 +42,12 @@
+                settings:enableCopying="true"/>
+         <Preference
+                android:key="ethernet_gateway"
+-               android:title="Gateway"
++               android:title="@string/ethernet_gateway"
+                android:selectable="false"
+                settings:enableCopying="true"/>
+        <Preference
+                android:key="ethernet_dns"
+-               android:title="DNS"
++               android:title="@string/wifi_details_dns"
+                android:selectable="false"
+                settings:enableCopying="true"/>
+        <Preference
+diff --git a/src/com/android/settings/fuelgauge/BatteryInfo.java b/src/com/android/settings/fuelgauge/BatteryInfo.java
+index 06228d451bd141ae9f04e15a644b22d63d3237f6..75c7f51a723f5219dd027b363583b00c334e35ec 100644
+--- a/src/com/android/settings/fuelgauge/BatteryInfo.java
++++ b/src/com/android/settings/fuelgauge/BatteryInfo.java
+@@ -318,9 +318,11 @@ public class BatteryInfo {
+         info.batteryStatus =
+                 batteryBroadcast.getIntExtra(
+                         BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN);
+-        info.isFastCharging =
+-                BatteryStatus.getChargingSpeed(context, batteryBroadcast)
+-                        == BatteryStatus.CHARGING_FAST;
++        final BatteryStatus chargingStatus = new BatteryStatus(batteryBroadcast);
++        final int chargingSpeed = chargingStatus.getChargingSpeed(context);
++        info.isFastCharging = chargingSpeed == BatteryStatus.CHARGING_FAST
++                || (chargingStatus.isPluggedInWired()
++                        && chargingSpeed == BatteryStatus.CHARGING_OEM);
+         if (info.isLongLife) {
+             info.isBatteryDefender =
+                     FeatureFactory.getFeatureFactory()
+diff --git a/tests/robotests/src/com/android/settings/fuelgauge/BatteryInfoTest.java b/tests/robotests/src/com/android/settings/fuelgauge/BatteryInfoTest.java
+index 209c1333e0180f9740e923d586919739f850d93c..925d27bae63ae12324810d65b53a53b825af016d 100644
+--- a/tests/robotests/src/com/android/settings/fuelgauge/BatteryInfoTest.java
++++ b/tests/robotests/src/com/android/settings/fuelgauge/BatteryInfoTest.java
+@@ -461,6 +461,30 @@ public class BatteryInfoTest {
+                 expectedChargeLabel);
+     }
+
++    @Test
++    public void getBatteryInfo_oemWiredChargingWithoutCurrent_reportsFastCharging() {
++        prepareTestGetBatteryInfoEnvironment(
++                /* remainingTimeMs= */ Duration.ofMinutes(90).toMillis(),
++                /* chargingStringV2Enabled= */ false);
++        Intent batteryIntent =
++                createIntentForGetBatteryInfoTest(
++                        ChargingType.WIRED, ChargingSpeed.FAST, /* batteryLevel= */ 61)
++                        .putExtra(BatteryManager.EXTRA_MAX_CHARGING_CURRENT, 0)
++                        .putExtra(BatteryManager.EXTRA_OEM_CHARGER, true);
++        BatteryInfo info = BatteryInfo.getBatteryInfo(
++                mContext,
++                batteryIntent,
++                mBatteryUsageStats,
++                MOCK_ESTIMATE,
++                /* elapsedRealtimeUs= */ UNUSED_TIME_MS,
++                /* shortString= */ false,
++                /* currentTimeMs= */ UNUSED_TIME_MS);
++
++        assertThat(info.isFastCharging).isTrue();
++        assertThat(info.statusLabel).isEqualTo(mContext.getString(
++                com.android.settingslib.R.string.battery_info_status_charging_fast));
++    }
++
+     @Test
+     public void getBatteryInfo_regularCharging_updateRemainingLabelAndStatusLabel() {
+         prepareTestGetBatteryInfoEnvironment(
+diff --git a/res/xml/sound_settings.xml b/res/xml/sound_settings.xml
+index 5e950024f596b77e6ae8bbcc2ec7704f4d57ed5c..612a6f5f887926300dba90fcfc46467d8b41e7bf 100644
+--- a/res/xml/sound_settings.xml
++++ b/res/xml/sound_settings.xml
+@@ -206,6 +206,14 @@
+             android:defaultValue="false"
+             android:order="-112"/>
+
++        <SwitchPreferenceCompat
++            android:key="dolby_atmos_enabled"
++            android:title="@string/dolby_atmos_title"
++            android:summary="@string/dolby_atmos_summary"
++            android:persistent="false"
++            android:order="-108"
++            settings:controller="com.android.settings.notification.DolbyAtmosPreferenceController"/>
++
+         <!-- Spatial audio -->
+         <Preference
+             android:key="spatial_audio_summary"
+diff --git a/res/values/dolby_atmos_strings.xml b/res/values/dolby_atmos_strings.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..c615f23103a26ac681c806b5217fd876e4f2a400
+--- /dev/null
++++ b/res/values/dolby_atmos_strings.xml
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<resources>
++    <string name="dolby_atmos_title">Dolby Atmos</string>
++    <string name="dolby_atmos_summary">Enhance media playback on supported speakers and headphones. Pauses on USB audio.</string>
++</resources>
+diff --git a/res/values-zh-rCN/dolby_atmos_strings.xml b/res/values-zh-rCN/dolby_atmos_strings.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..703494865ed9adc24198563fa6daebfb968eec58
+--- /dev/null
++++ b/res/values-zh-rCN/dolby_atmos_strings.xml
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<resources>
++    <string name="dolby_atmos_title">杜比全景声</string>
++    <string name="dolby_atmos_summary">增强受支持的扬声器和耳机的媒体音效。切换至 USB 音频时暂停。</string>
++</resources>
+diff --git a/src/com/android/settings/notification/DolbyAtmosPreferenceController.java b/src/com/android/settings/notification/DolbyAtmosPreferenceController.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..cdcb09afb96ed3c01f2219ee0185b35ff7b60695
+--- /dev/null
++++ b/src/com/android/settings/notification/DolbyAtmosPreferenceController.java
+@@ -0,0 +1,67 @@
++/*
++ * Copyright (C) 2026 The Android Open Source Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.notification;
++
++import android.content.Context;
++import android.media.audiofx.AudioEffect;
++import android.provider.Settings;
++
++import com.android.settings.R;
++import com.android.settings.core.TogglePreferenceController;
++
++import java.util.UUID;
++
++/** Preference for the Dolby DAP effect managed by AudioService. */
++public class DolbyAtmosPreferenceController extends TogglePreferenceController {
++    // Keep this key in sync with DolbyAtmosController in AudioService.
++    private static final String ENABLED_SETTING = "dolby_atmos_enabled";
++    private static final UUID DAP_UUID =
++            UUID.fromString("9d4921da-8225-4f29-aefa-39537a04bcaa");
++
++    public DolbyAtmosPreferenceController(Context context, String preferenceKey) {
++        super(context, preferenceKey);
++    }
++
++    @Override
++    public int getAvailabilityStatus() {
++        final AudioEffect.Descriptor[] effects = AudioEffect.queryEffects();
++        if (effects != null) {
++            for (AudioEffect.Descriptor effect : effects) {
++                if (DAP_UUID.equals(effect.uuid)) {
++                    return AVAILABLE;
++                }
++            }
++        }
++        return UNSUPPORTED_ON_DEVICE;
++    }
++
++    @Override
++    public boolean isChecked() {
++        return Settings.Secure.getInt(mContext.getContentResolver(), ENABLED_SETTING, 0) != 0;
++    }
++
++    @Override
++    public boolean setChecked(boolean checked) {
++        return Settings.Secure.putInt(mContext.getContentResolver(), ENABLED_SETTING,
++                checked ? 1 : 0);
++    }
++
++    @Override
++    public int getSliceHighlightMenuRes() {
++        return R.string.menu_key_sound;
++    }
++}
+diff --git a/res/xml/display_settings.xml b/res/xml/display_settings.xml
+index e950910d558b01252633f243e3b8263b4371fb34..58c6ca3f95a3840c505edffb0adb52a3c5b43776 100644
+--- a/res/xml/display_settings.xml
++++ b/res/xml/display_settings.xml
+@@ -214,6 +214,13 @@
+             android:fragment="com.infinity.settings.display.refreshrate.ScreenRefreshRateFragment"
+             settings:controller="com.infinity.settings.display.refreshrate.ScreenRefreshRateController"/>
+ 
++        <SwitchPreferenceCompat
++            android:key="gamespace_athens_video_enhancement"
++            android:title="@string/athens_video_enhancement_title"
++            android:summary="@string/athens_video_enhancement_summary"
++            android:persistent="false"
++            settings:controller="com.android.settings.display.AthensVideoEnhancementPreferenceController" />
++
+         <SwitchPreferenceCompat
+             android:key="display_white_balance"
+             android:title="@string/display_white_balance_title"
+diff --git a/res/values/infinity_strings.xml b/res/values/infinity_strings.xml
+index 8bf130a6d67bfbd19e845c1487647f3ffb528952..f3330601641aa61ed6a1668d5793043c35cdd070 100644
+--- a/res/values/infinity_strings.xml
++++ b/res/values/infinity_strings.xml
+@@ -98,6 +98,9 @@
+     <string name="per_app_refresh_rate_summary">Configure refresh rate individually for each apps</string>
+     <string name="per_app_refresh_rate_default">Follow system</string>
+ 
++    <string name="athens_video_enhancement_title">Video frame interpolation and super resolution</string>
++    <string name="athens_video_enhancement_summary">Apply the original display profile in supported full-screen landscape video players.</string>
++
+     <!-- Screen refresh rate -->
+     <string name="screen_refresh_rate_title">Screen refresh rate</string>
+     <string name="min_refresh_rate_title">Minimum refresh rate</string>
+diff --git a/src/com/android/settings/display/AthensVideoEnhancementPreferenceController.java b/src/com/android/settings/display/AthensVideoEnhancementPreferenceController.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..a2498baf39f1c42a005ca186c0ae3efb5b5c7ab0
+--- /dev/null
++++ b/src/com/android/settings/display/AthensVideoEnhancementPreferenceController.java
+@@ -0,0 +1,39 @@
++/*
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.settings.display;
++
++import android.content.Context;
++import android.os.Build;
++import android.provider.Settings;
++
++import com.android.settings.R;
++import com.android.settings.core.TogglePreferenceController;
++
++public final class AthensVideoEnhancementPreferenceController extends TogglePreferenceController {
++    public AthensVideoEnhancementPreferenceController(Context context, String preferenceKey) {
++        super(context, preferenceKey);
++    }
++
++    @Override
++    public int getAvailabilityStatus() {
++        return "athens".equals(Build.DEVICE) ? AVAILABLE : UNSUPPORTED_ON_DEVICE;
++    }
++
++    @Override
++    public boolean isChecked() {
++        return Settings.Secure.getInt(mContext.getContentResolver(), getPreferenceKey(), 0) == 1;
++    }
++
++    @Override
++    public boolean setChecked(boolean checked) {
++        return Settings.Secure.putInt(mContext.getContentResolver(), getPreferenceKey(),
++                checked ? 1 : 0);
++    }
++
++    @Override
++    public int getSliceHighlightMenuRes() {
++        return R.string.menu_key_display;
++    }
++}

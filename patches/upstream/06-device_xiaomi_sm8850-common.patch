@@ -32,7 +32,7 @@ index 75d249626ecbf8630ce4c0dfe7c81818d51d960e..27697edf9055b1c7f5fdae78a7cdcf21
 --- a/BoardConfigCommon.mk
 +++ b/BoardConfigCommon.mk
 @@ -146,7 +146,11 @@ VENDOR_SECURITY_PATCH := $(BOOT_SECURITY_PATCH)
-
+ 
  # Verified Boot
  BOARD_AVB_ENABLE := true
 -BOARD_AVB_MAKE_VBMETA_IMAGE_ARGS += --flags 3
@@ -42,25 +42,54 @@ index 75d249626ecbf8630ce4c0dfe7c81818d51d960e..27697edf9055b1c7f5fdae78a7cdcf21
 +# descriptors and makes athens ABL reject the image before entering the kernel.
 +BOARD_AVB_MAKE_VBMETA_IMAGE_ARGS += --flags 1
  BOARD_MOVE_GSI_AVB_KEYS_TO_VENDOR_BOOT := true
-
+ 
  BOARD_AVB_BOOT_KEY_PATH := external/avb/test/data/testkey_rsa4096.pem
 diff --git a/common.mk b/common.mk
-index 7a2612507a7bde40ec7a28a284291c7e87ea8f29..8a083d52b3a19761688010ff178b8de944c0ea63 100644
+index 7a2612507a7bde40ec7a28a284291c7e87ea8f29..640ea9d80652dcb03dcc4110ca5830beed8df358 100644
 --- a/common.mk
 +++ b/common.mk
 @@ -20,7 +20,9 @@ $(call inherit-product, $(SRC_TARGET_DIR)/product/generic_ramdisk.mk)
  $(call inherit-product, hardware/qcom-caf/common/common.mk)
-
+ 
  # Virtualization service
 +ifneq ($(TARGET_DISABLE_AVF),true)
  $(call inherit-product, packages/modules/Virtualization/apex/product_packages.mk)
 +endif
-
+ 
  # Call the proprietary setup.
  $(call inherit-product, vendor/xiaomi/sm8850-common/sm8850-common-vendor.mk)
-@@ -165,10 +167,12 @@ PRODUCT_PACKAGES += \
+@@ -96,10 +98,16 @@ PRODUCT_PACKAGES += \
+ 
+ AUDIO_HAL_DIR := hardware/qcom-caf/sm8850/audio/primary-hal/configs/canoe
+ 
++ifeq ($(TARGET_PRODUCT):$(ATHENS_APTX_ADAPTIVE_TEST_BUILD),infinity_athens:true)
++QTI_AUDIO_INTERFACES_XML := device/xiaomi/athens/compat/aptx_adaptive_stock/vendor_audio_interfaces.xml
++else
++QTI_AUDIO_INTERFACES_XML := $(AUDIO_HAL_DIR)/vendor_audio_interfaces.xml
++endif
++
+ PRODUCT_COPY_FILES += \
+     $(AUDIO_HAL_DIR)/mem_logger_config.xml:$(TARGET_COPY_OUT_VENDOR)/etc/mem_logger_config.xml \
+     $(AUDIO_HAL_DIR)/microphone_characteristics.xml:$(TARGET_COPY_OUT_VENDOR)/etc/microphone_characteristics.xml \
+-    $(AUDIO_HAL_DIR)/vendor_audio_interfaces.xml:$(TARGET_COPY_OUT_VENDOR)/etc/vendor_audio_interfaces.xml \
++    $(QTI_AUDIO_INTERFACES_XML):$(TARGET_COPY_OUT_VENDOR)/etc/vendor_audio_interfaces.xml \
+     $(LOCAL_PATH)/configs/audio/audio_module_config_primary.xml:$(TARGET_COPY_OUT_VENDOR)/etc/audio/audio_module_config_primary.xml \
+     $(LOCAL_PATH)/configs/audio/audio_policy_configuration.xml:$(TARGET_COPY_OUT_VENDOR)/etc/audio/sku_canoe/audio_policy_configuration.xml
+ 
+@@ -121,6 +129,10 @@ PRODUCT_PACKAGES += \
+     lib_bt_ble \
+     lib_bt_bundle
+ 
++ifneq ($(TARGET_PRODUCT):$(ATHENS_APTX_ADAPTIVE_TEST_BUILD),infinity_athens:true)
++PRODUCT_PACKAGES += btaudio_offload_if
++endif
++
+ PRODUCT_COPY_FILES += \
+     frameworks/native/data/etc/android.hardware.bluetooth.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.bluetooth.xml \
+     frameworks/native/data/etc/android.hardware.bluetooth_le.channel_sounding.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.bluetooth_le.channel_sounding.xml \
+@@ -165,10 +177,12 @@ PRODUCT_PACKAGES += \
      fastbootd
-
+ 
  # Fingerprint
 +ifneq ($(TARGET_USES_STOCK_FINGERPRINT),true)
  $(call soong_config_set,XIAOMI_BIOMETRICS_FINGERPRINT,IMPL_VER,V2)
@@ -68,9 +97,61 @@ index 7a2612507a7bde40ec7a28a284291c7e87ea8f29..8a083d52b3a19761688010ff178b8de9
      android.hardware.biometrics.fingerprint-service.xiaomi \
      libudfpshandler
 +endif
-
+ 
  PRODUCT_COPY_FILES += \
      frameworks/native/data/etc/android.hardware.fingerprint.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.fingerprint.xml
+diff --git a/compat/btaudio_offload/Android.bp b/compat/btaudio_offload/Android.bp
+new file mode 100644
+index 0000000000000000000000000000000000000000..f81b64e387e9f73fcafdb4c3ba92a3b2e836cdc0
+--- /dev/null
++++ b/compat/btaudio_offload/Android.bp
+@@ -0,0 +1,46 @@
++// SPDX-License-Identifier: Apache-2.0
++
++cc_defaults {
++    name: "xiaomi_btaudio_offload_blob_defaults",
++    soc_specific: true,
++    compile_multilib: "64",
++    strip: {
++        none: true,
++    },
++    shared_libs: [
++        "android.hardware.bluetooth.audio-V5-ndk",
++        "libbase",
++        "libbinder_ndk",
++        "libc",
++        "libc++",
++        "libcutils",
++        "libdl",
++        "libfmq",
++        "libhidlbase",
++        "liblog",
++        "libm",
++        "libutils",
++        "vendor.qti.hardware.bluetooth.audio-V1-ndk",
++        "//vendor/xiaomi/sm8850-common:android.hardware.bluetooth.audio-impl-qti",
++        "//vendor/xiaomi/sm8850-common:libbluetooth_audio_session_aidl_qti",
++        "//vendor/xiaomi/sm8850-common:libbluetooth_audio_session_qti",
++        "//vendor/xiaomi/sm8850-common:libbluetooth_audio_session_qti_2_1",
++        "//vendor/xiaomi/sm8850-common:libmisight",
++        "//vendor/xiaomi/sm8850-common:vendor.qti.hardware.bluetooth.btavsprovider-V1-ndk",
++        "//vendor/xiaomi/sm8850-common:vendor.qti.hardware.bluetooth.btavsprovider-impl-qti",
++    ],
++}
++
++cc_prebuilt_library_shared {
++    name: "btaudio_offload_if",
++    defaults: ["xiaomi_btaudio_offload_blob_defaults"],
++    enabled: select(soong_config_variable("athens_bluetooth", "aptx_adaptive"), {
++        true: false,
++        default: true,
++    }),
++    target: {
++        android_arm64: {
++            srcs: ["//vendor/xiaomi/sm8850-common:xiaomi_btaudio_offload_if_blob"],
++        },
++    },
++}
 diff --git a/compat/vpp_dsp.c b/compat/vpp_dsp.c
 new file mode 100644
 index 0000000000000000000000000000000000000000..e3abbc294e3ef35cb7afc77d59f9a567a7911a49
@@ -118,10 +199,10 @@ index 0000000000000000000000000000000000000000..e385fdb44e0845ed452c689c86f14f77
 +                     pointerCount, pointerProperties, pointerCoords);
 +}
 diff --git a/configs/properties/odm.prop b/configs/properties/odm.prop
-index 4e07ab6cb3a201008d51ac0d1dcfe79c1da2f16d..440a5bb93c2d82e55c0c52dbd0428bf67ec0e167 100644
+index 4e07ab6cb3a201008d51ac0d1dcfe79c1da2f16d..0826a26ce2f329e42f2c5766627486e11258b89f 100644
 --- a/configs/properties/odm.prop
 +++ b/configs/properties/odm.prop
-@@ -68,7 +68,7 @@
+@@ -68,7 +68,7 @@ ro.vendor.display.uiservice_vhigh.enable=true
  ro.vendor.display.uiservice.enable=true
  ro.vendor.display.update_dbi_by_temperature=true
  ro.vendor.display.video_or_camera_fps.support=true
@@ -130,6 +211,15 @@ index 4e07ab6cb3a201008d51ac0d1dcfe79c1da2f16d..440a5bb93c2d82e55c0c52dbd0428bf6
  vendor.display.boost_cpu_layer_number_threshold=10
  vendor.display.disable_3d_adaptive_tm=1
  vendor.display.disable_cwb_call=0
+@@ -115,7 +115,7 @@ ro.telephony.default_network=33,33
+ persist.vendor.ssr.restart_level=ALL_ENABLE
+ 
+ # Sensors
+-persist.vendor.aes_whitebox.encrypt=true
++persist.vendor.aes_whitebox.encrypt?=true
+ persist.vendor.debug.collision.dfx=true
+ persist.vendor.sensor.mischeck=true
+ 
 diff --git a/configs/properties/vendor.prop b/configs/properties/vendor.prop
 index 618f7d6b831ac7336bca45d5466b592f0e31c9ad..0a435663d0a654ed59390a335124a0b7b4836dd8 100644
 --- a/configs/properties/vendor.prop
@@ -149,17 +239,51 @@ index 618f7d6b831ac7336bca45d5466b592f0e31c9ad..0a435663d0a654ed59390a335124a0b7
  ro.vendor.radio.build_profile=miui
 -ro.vendor.radio.build_region=global
 +ro.vendor.radio.build_region?=global
-
+ 
  # Secureprocessor
  vendor.secureprocessor.service_start=1
 diff --git a/extract-files.py b/extract-files.py
-index f7eb2078112af6a4d89d9940dff68b5092ce8d28..cb5698e1afbdebc5d69889b546cf04d6511f9d20 100755
+index f7eb2078112af6a4d89d9940dff68b5092ce8d28..c79beace2c939fc6851c627dbaa1bcd8a4b53546 100755
 --- a/extract-files.py
 +++ b/extract-files.py
-@@ -47,7 +47,43 @@ lib_fixups: lib_fixups_user_type = {
+@@ -47,7 +47,79 @@ lib_fixups: lib_fixups_user_type = {
      ): lib_fixup_remove,
  }
-
+ 
++
++def fixup_qti_le_audio_paths(ctx, file, file_path, *args, **kwargs):
++    # The QTI loader and the AOSP provider have incompatible FlatBuffers layouts.
++    # Redirect the QTI loader's exact paths without moving any ELF data.
++    stock_dir = b'/vendor/etc/aidl/le_audio/'
++    qti_dir = b'/vendor/etc/aidl/bt_audio/'
++    filenames = (
++        b'aidl_audio_set_configurations.bfbs',
++        b'aidl_audio_set_configurations.json',
++        b'aidl_audio_set_scenarios.bfbs',
++        b'aidl_audio_set_scenarios.json',
++        b'aidl_default_audio_set_configurations_qti.json',
++        b'aidl_default_audio_set_scenarios_qti.json',
++        b'aidl_default_vendor_audio_set_scenarios_qti.json',
++    )
++    with open(file_path, 'rb') as stream:
++        data = stream.read()
++
++    if stock_dir not in data and data.count(qti_dir) == len(filenames) and all(
++        data.count(qti_dir + name + b'\0') == 1 for name in filenames
++    ):
++        return
++    if (
++        len(stock_dir) != len(qti_dir)
++        or qti_dir in data
++        or data.count(stock_dir) != len(filenames)
++        or any(data.count(stock_dir + name + b'\0') != 1 for name in filenames)
++    ):
++        raise ValueError('Unexpected QTI LE Audio configuration paths')
++
++    with open(file_path, 'wb') as stream:
++        stream.write(data.replace(stock_dir, qti_dir))
++
++
 +def fixup_wfd_hdcp_destructors(ctx, file, file_path, *args, **kwargs):
 +    # Register sMutex before sHDCPFactory and sDeathNotifier so it outlives
 +    # their destructors. The stock order locks an already destroyed mutex
@@ -185,6 +309,8 @@ index f7eb2078112af6a4d89d9940dff68b5092ce8d28..cb5698e1afbdebc5d69889b546cf04d6
 +
 +
  blob_fixups: blob_fixups_user_type = {
++    'vendor/lib64/libbluetooth_audio_session_aidl_qti.so': blob_fixup()
++        .call(fixup_qti_le_audio_paths),
 +    'vendor/lib64/libwfdhdcpservice_proprietary.so': blob_fixup()
 +        .call(fixup_wfd_hdcp_destructors),
 +    # init uses no-follow operations; change enable_source, not its parent symlink.
@@ -200,7 +326,7 @@ index f7eb2078112af6a4d89d9940dff68b5092ce8d28..cb5698e1afbdebc5d69889b546cf04d6
      'system_ext/etc/init/qspa_system.rc': blob_fixup()
          .regex_replace(r'\$\{ro\.boot\.vendor\.qspa:-default\}', 'default'),
      'vendor/etc/audio/sku_canoe/audio_effects_config.xml': blob_fixup()
-@@ -71,9 +107,11 @@ blob_fixups: blob_fixups_user_type = {
+@@ -71,9 +143,11 @@ blob_fixups: blob_fixups_user_type = {
          'odm/lib64/libmiXmlParser.so',
          'vendor/bin/hw/audiohalservice.qti',
          'vendor/bin/hw/vendor.qti.hardware.display.composer-service',
@@ -212,7 +338,7 @@ index f7eb2078112af6a4d89d9940dff68b5092ce8d28..cb5698e1afbdebc5d69889b546cf04d6
          'vendor/lib64/libxlog.so',
          'vendor/lib64/soundfx/libquasar.so',
      ): blob_fixup()
-@@ -124,10 +162,14 @@ blob_fixups: blob_fixups_user_type = {
+@@ -124,10 +198,14 @@ blob_fixups: blob_fixups_user_type = {
          'vendor/etc/seccomp_policy/syshealthmon.policy'
      ): blob_fixup()
          .add_line_if_missing('lseek: 1'),
@@ -229,15 +355,29 @@ index f7eb2078112af6a4d89d9940dff68b5092ce8d28..cb5698e1afbdebc5d69889b546cf04d6
          .replace_needed('android.media.audio.common.types-V4-cpp.so', 'android.media.audio.common.types-V5-cpp.so'),
      'vendor/etc/hal_uuid_map_config.xml': blob_fixup()
          .regex_replace(
-@@ -146,4 +188,4 @@ module = ExtractUtilsModule(
-
+@@ -146,4 +224,4 @@ module = ExtractUtilsModule(
+ 
  if __name__ == '__main__':
      utils = ExtractUtils.device(module)
 -    utils.run()
 \ No newline at end of file
 +    utils.run()
+diff --git a/parts/res/values-zh-rCN/strings.xml b/parts/res/values-zh-rCN/strings.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..33358fafc6808bf4868e4dfed41ee7d7c9fa3db4
+--- /dev/null
++++ b/parts/res/values-zh-rCN/strings.xml
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<resources>
++    <string name="app_name">小米设备设置</string>
++    <string name="touch_title">触控采样率</string>
++    <string name="touch_high_sampling_rate_title">高触控采样率</string>
++    <string name="touch_high_sampling_rate_footer">提高触摸屏的采样率</string>
++</resources>
 diff --git a/proprietary-files.txt b/proprietary-files.txt
-index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..bc2290c30100251f4c5a6ba1976c831cd5184e7d 100644
+index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..0f29ebd95cc103595360ba92be13fd3c0ed5690f 100644
 --- a/proprietary-files.txt
 +++ b/proprietary-files.txt
 @@ -132,7 +132,7 @@ vendor/lib64/libaudioserviceexampleimpl.so;DISABLE_DEPS
@@ -259,16 +399,43 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..bc2290c30100251f4c5a6ba1976c831c
  vendor/lib64/libxlog.so
  vendor/lib64/sva_plugin.so
 @@ -208,7 +208,7 @@ vendor/lib64/vendor.qti.hardware.qasr-V3-ndk.so
-
+ 
  # Audio manifest - from CPH2767_16.0.9.401
  vendor/etc/vintf/manifest/Manifest_IListenSoundModel.xml|6d18b45696122cc62a750a139001b6bb05dfdb02
 -vendor/etc/vintf/manifest/Manifest_IPALEventNotifier.xml|34a41ecbee2eb27dd588fa5f5638d0ff6cc53ab2
 +vendor/etc/vintf/manifest/Manifest_IPALEventNotifier.xml|1c6b531465253c1c7f430afc26e9febe198ff2a6
  vendor/etc/vintf/manifest/qasr_vintf.xml|c7c183d5deadec39de1f20a64bef630bbbbfe458
-
+ 
  # Audio Config
-@@ -287,16 +287,16 @@ vendor/lib64/vendor.qti.hardware.bttpi-V3-ndk.so
-
+@@ -258,7 +258,7 @@ vendor/etc/vintf/manifest/bttpi-saidl.xml
+ vendor/etc/vintf/manifest/manifest_btaudiocoreservices_qti.xml
+ vendor/etc/vintf/manifest/vendor.qti.hardware.bluetooth.btavsprovider.xml
+ vendor/etc/vintf/manifest/vendor.qti.hardware.bluetooth.xpanprovider.xml
+-vendor/lib64/btaudio_offload_if.so
++vendor/lib64/btaudio_offload_if.so;EXTRACT_ONLY;FILEGROUP=xiaomi_btaudio_offload_if_blob
+ vendor/lib64/hw/android.hardware.bluetooth.audio_sw.so;DISABLE_DEPS
+ vendor/lib64/hw/android.hardware.bluetooth.audio-impl-qti.so
+ vendor/lib64/hw/android.hardware.bluetooth.lmp_event-impl-qti.so
+@@ -273,7 +273,6 @@ vendor/lib64/hw/vendor.qti.hardware.bluetooth.xpanprovider-impl-qti.so
+ vendor/lib64/hw/vendor.qti.hardware.bttpi-impl.so
+ vendor/lib64/lib_bt_lhdc.so
+ vendor/lib64/lib_bt_mihc.so
+-vendor/lib64/libbluetooth_audio_session_aidl_qti.so
+ vendor/lib64/libbluetooth_audio_session_qti_2_1.so
+ vendor/lib64/libbluetooth_audio_session_qti.so
+ vendor/lib64/libbt-hidlclient.so
+@@ -285,18 +284,26 @@ vendor/lib64/vendor.qti.hardware.bluetooth.btavsprovider-V1-ndk.so
+ vendor/lib64/vendor.qti.hardware.bluetooth.xpanprovider-V1-ndk.so
+ vendor/lib64/vendor.qti.hardware.bttpi-V3-ndk.so
+ 
++# Bluetooth LE Audio QTI configuration - from Athens OS4.0.6.0.XPICNXM
++vendor/etc/aidl/le_audio/aidl_audio_set_configurations.bfbs:vendor/etc/aidl/bt_audio/aidl_audio_set_configurations.bfbs
++vendor/etc/aidl/le_audio/aidl_audio_set_scenarios.bfbs:vendor/etc/aidl/bt_audio/aidl_audio_set_scenarios.bfbs
++vendor/etc/aidl/le_audio/aidl_default_audio_set_configurations_qti.json:vendor/etc/aidl/bt_audio/aidl_default_audio_set_configurations_qti.json
++vendor/etc/aidl/le_audio/aidl_default_audio_set_scenarios_qti.json:vendor/etc/aidl/bt_audio/aidl_default_audio_set_scenarios_qti.json
++vendor/etc/aidl/le_audio/aidl_default_vendor_audio_set_scenarios_qti.json:vendor/etc/aidl/bt_audio/aidl_default_vendor_audio_set_scenarios_qti.json
++vendor/lib64/libbluetooth_audio_session_aidl_qti.so
++
  # Camera
  odm/etc/vintf/manifest/misensor_camera.xml
 -vendor/etc/init/vendor.qti.camera.provider-service_64.rc
@@ -291,8 +458,8 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..bc2290c30100251f4c5a6ba1976c831c
 +odm/etc/vintf/manifest/vendor.xiaomi.hardware.postprocservice-service.xml
  vendor/etc/vintf/manifest/vendor.xiaomi.hardware.quickcamera.xml
  vendor/framework/androidx.camera.extensions.impl.jar
-
-@@ -347,9 +347,9 @@ odm/firmware/CAMERA_ICP.b19
+ 
+@@ -347,9 +354,9 @@ odm/firmware/CAMERA_ICP.b19
  odm/firmware/CAMERA_ICP.b20
  odm/firmware/CAMERA_ICP.mbn
  odm/firmware/CAMERA_ICP.mdt
@@ -302,11 +469,11 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..bc2290c30100251f4c5a6ba1976c831c
 +odm/firmware/CAMERA_ICP_1.elf
 +odm/firmware/CAMERA_ICP_170.elf
 +odm/firmware/CAMERA_ICP.elf
-
+ 
  # CDSP
  vendor/bin/cdsprpcd
-@@ -558,7 +558,7 @@ vendor/etc/displayconfig/display_id_4630947075271898515.xml
-
+@@ -558,7 +565,7 @@ vendor/etc/displayconfig/display_id_4630947075271898515.xml
+ 
  # Display (HDR)
  vendor/lib64/libhdr_tm.so
 -vendor/lib64/libhdr10plus.so;DISABLE_CHECKELF
@@ -314,8 +481,8 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..bc2290c30100251f4c5a6ba1976c831c
  vendor/lib64/libhdrdynamic.so
  vendor/lib64/libhdrdynamicootf.so
  vendor/lib64/libhdrvivid.so
-@@ -696,15 +696,21 @@ vendor/lib64/vendor.xiaomi.hardware.displayfeature_aidl-V2-ndk.so
-
+@@ -696,15 +703,21 @@ vendor/lib64/vendor.xiaomi.hardware.displayfeature_aidl-V2-ndk.so
+ 
  # Dolby
  vendor/bin/hw/vendor.dolby.dms.service
 -vendor/bin/hw/vendor.dolby.media.c2-default-service-dax
@@ -341,7 +508,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..bc2290c30100251f4c5a6ba1976c831c
  vendor/lib64/libdapparamstorage.so
  vendor/lib64/libdeccfg.so
  vendor/lib64/libdlbdsservice.so
-@@ -724,7 +730,6 @@ system_ext/framework/dpmapi.jar
+@@ -724,7 +737,6 @@ system_ext/framework/dpmapi.jar
  vendor/bin/vendor.dpmd
  vendor/etc/dpm_vndr/vendor.dpm.conf
  vendor/etc/init/vendor.dpmd.rc
@@ -349,16 +516,16 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..bc2290c30100251f4c5a6ba1976c831c
  vendor/lib64/com.qualcomm.qti.dpm.api@1.0.so
  vendor/lib64/vendor.libdpmctmgr.so
  vendor/lib64/vendor.libdpmfdmgr.so
-@@ -762,7 +767,7 @@ vendor/lib64/libfastcrc.so
+@@ -762,7 +774,7 @@ vendor/lib64/libfastcrc.so
  vendor/etc/init/vendor.qti.fastrpc.pd-default-config.rc
-
+ 
  # Fingerprint
 -odm/etc/vintf/manifest/fod-aidl.xml
 +# Source fingerprint HAL does not serve the MIUI private FOD extensions.
  vendor/etc/permissions/qti_fingerprint_interface.xml
  vendor/lib64/vendor.xiaomi.hardware.fx.tunnel-V1-ndk.so
  vendor/lib64/vendor.qti.hardware.fingerprint-V1-ndk.so
-@@ -922,7 +927,7 @@ system_ext/lib64/lib-imsvideocodec.so
+@@ -922,7 +934,7 @@ system_ext/lib64/lib-imsvideocodec.so
  system_ext/lib64/lib-imsvt.so
  system_ext/lib64/lib-imsvtextutils.so
  system_ext/lib64/lib-imsvtutils.so
@@ -367,17 +534,37 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..bc2290c30100251f4c5a6ba1976c831c
  system_ext/lib64/libimsmedia_jni.so;SYMLINK=system_ext/priv-app/ims/lib/arm64/libimsmedia_jni.so
  system_ext/lib64/vendor.qti.ims.datachannelservice-V1-ndk.so
  system_ext/lib64/vendor.qti.ims.datachannelservice-V2-ndk.so
-@@ -1016,7 +1021,6 @@ vendor/lib64/vendor.qti.hardware.ListenSoundModelAidl-V2-ndk.so
-
+@@ -1016,7 +1028,6 @@ vendor/lib64/vendor.qti.hardware.ListenSoundModelAidl-V2-ndk.so
+ 
  # Media
  system_ext/lib64/libmmosal.so
 -system_ext/lib64/libmmparser_lite.so
  vendor/bin/hw/qconfigservice
  vendor/bin/hw/vendor.qti.media.c2@1.0-service
  vendor/bin/init.qti.media.sh
-@@ -1118,33 +1122,33 @@ vendor/lib64/vendor.xiaomi.hardware.mlipay-V1-ndk.so
+@@ -1041,6 +1052,11 @@ vendor/etc/media_codecs_canoe_v1_vendor.xml
+ vendor/etc/media_codecs_canoe_v1.xml
+ vendor/etc/media_codecs_canoe_v2_vendor.xml
+ vendor/etc/media_codecs_canoe_v2.xml
++vendor/etc/media_codecs_google_audio.xml
++vendor/etc/media_codecs_google_c2.xml
++vendor/etc/media_codecs_google_c2_audio.xml
++vendor/etc/media_codecs_google_c2_video.xml
++vendor/etc/media_codecs_google_telephony.xml
+ vendor/etc/media_codecs_performance_canoe_sku1_vendor.xml
+ vendor/etc/media_codecs_performance_canoe_sku1.xml
+ vendor/etc/media_codecs_performance_canoe_sku2_vendor.xml
+@@ -1051,6 +1067,7 @@ vendor/etc/media_codecs_performance_canoe_v1_vendor.xml
+ vendor/etc/media_codecs_performance_canoe_v1.xml
+ vendor/etc/media_codecs_performance_canoe_v2_vendor.xml
+ vendor/etc/media_codecs_performance_canoe_v2.xml
++vendor/etc/media_codecs_vendor_audio.xml
+ vendor/etc/media_codecs.xml
+ vendor/etc/media_profiles_canoe_sku1.xml
+ vendor/etc/media_profiles_canoe_sku2.xml
+@@ -1118,33 +1135,33 @@ vendor/lib64/vendor.xiaomi.hardware.mlipay-V1-ndk.so
  vendor/etc/public.libraries.txt
-
+ 
  # Neural networks
 -vendor/lib64/libQnnChrometraceProfilingReader.so
 -vendor/lib64/libQnnCpu.so
@@ -433,10 +620,10 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..bc2290c30100251f4c5a6ba1976c831c
 +odm/lib64/libQnnModelDlc.so
 +odm/lib64/libQnnSaver.so
 +odm/lib64/libQnnSystem.so
-
+ 
  # NFC
  odm/etc/libnfc-nci.conf:vendor/etc/libnfc-nci.conf
-@@ -1243,7 +1247,6 @@ system_ext/lib64/vendor.qti.qccsyshal_aidl-V1-ndk.so
+@@ -1243,7 +1260,6 @@ system_ext/lib64/vendor.qti.qccsyshal_aidl-V1-ndk.so
  system_ext/lib64/vendor.qti.qccvndhal_aidl-V1-ndk.so
  vendor/bin/qcc-vendor
  vendor/etc/init/init.qccvendor.rc
@@ -444,9 +631,9 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..bc2290c30100251f4c5a6ba1976c831c
  vendor/lib64/libqcc_file_agent.so
  vendor/lib64/libqcc_sdk.so
  vendor/lib64/vendor.qti.qccsyshal_aidl-V1-ndk.so;MODULE_SUFFIX=_vendor
-@@ -1313,15 +1316,15 @@ vendor/lib64/libspl.so
+@@ -1313,15 +1329,15 @@ vendor/lib64/libspl.so
  vendor/lib64/vendor.qti.hardware.qseecom-V1-ndk.so
-
+ 
  # QSN
 -vendor/lib64/qsn1nrt430.bin
 -vendor/lib64/qsn1nrt43270.bin
@@ -466,10 +653,10 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..bc2290c30100251f4c5a6ba1976c831c
 +odm/lib64/qsn2all.bin;SYMLINK=vendor/lib64/qsn2all.bin
 +odm/lib64/qsn3_video.bin
 +odm/lib64/qsn3all.bin;SYMLINK=vendor/lib64/qsn3all.bin
-
+ 
  # QSPA
  system_ext/etc/init/qspa_system.rc
-@@ -1361,8 +1364,7 @@ product/framework/uimremoteclientlibrary.jar
+@@ -1361,8 +1377,7 @@ product/framework/uimremoteclientlibrary.jar
  product/framework/uimremoteserverlibrary.jar
  product/framework/uimservicelibrary.jar
  product/lib64/vendor.qti.hardware.radio.internal.deviceinfo@1.0.so
@@ -479,18 +666,18 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..bc2290c30100251f4c5a6ba1976c831c
  system_ext/etc/permissions/qcrilhook.xml
  system_ext/etc/permissions/qti_libpermissions.xml
  system_ext/etc/permissions/qti_permissions.xml
-@@ -1638,7 +1640,7 @@ vendor/lib64/vendor.qti.snapdragonServices-V2-ndk.so
+@@ -1638,7 +1653,7 @@ vendor/lib64/vendor.qti.snapdragonServices-V2-ndk.so
  vendor/lib64/vendor.qti.snapdragonServices.qape-V1-ndk.so
-
+ 
  # Soter
 -mi_ext/product/app/SoterService/SoterService.apk:product/app/SoterService/SoterService.apk
 +product/app/SoterService/SoterService.apk
  vendor/bin/hw/vendor.qti.hardware.soter-service
  vendor/bin/vendor.qti.hardware.soter-provision
  vendor/etc/init/vendor.qti.hardware.soter-service.rc
-@@ -1761,34 +1763,36 @@ vendor/etc/wifi/wpa_supplicant_overlay.conf
+@@ -1761,34 +1776,36 @@ vendor/etc/wifi/wpa_supplicant_overlay.conf
  vendor/lib64/libWlanServiceJni.so
-
+ 
  # WiFi Display (system) - from CPH2745_11_C_OTA_1020_all_Qyq7GC_00011011
 -system/framework/WfdCommon.jar;BOOT_JAR|b9fd0baae787d8bc4041e7d79411c3a452e094a8
 -system_ext/bin/wfdservice64|d67839393c709f8c4d7bd536f0e5cf2a9c18a7e8
@@ -547,7 +734,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..bc2290c30100251f4c5a6ba1976c831c
 +system_ext/lib64/vendor.qti.hardware.wifidisplaysession@1.0.so|f195cfd660ea47c211ccb5890072f7217649c23b
 +system_ext/lib64/vendor.qti.hardware.wifidisplaysession_aidl-V2-ndk.so|8fbb064b3ab56bf4bfe74de11006c10b06c39b23
 +system_ext/priv-app/WfdService/WfdService.apk|3837139f985d835cd1148d44bf6985b801f6c1ed
-
+ 
  # WiFi Display (vendor)
  vendor/bin/wfdhdcphalservice
 diff --git a/rootdir/etc/init.qcom.rc b/rootdir/etc/init.qcom.rc
@@ -557,27 +744,27 @@ index f75702dcbaec07bb1df63ced0643e67d723c104e..16643f88e9e6a225aaef02b7d8307b02
 @@ -78,12 +78,8 @@ on early-init
    # Change ownership of sysfs power control node
      chown system graphics /sys/class/drm/card0/device/power/control
-
+ 
 -    #Disable UFS clock scaling
 -    write /sys/bus/platform/devices/1d84000.ufshc/clkscale_enable 0
      #Disable UFS auto_hibern8
      write /sys/bus/platform/devices/1d84000.ufshc/auto_hibern8 0
 -    #Disable UFS clock gating
 -    write /sys/bus/platform/devices/1d84000.ufshc/clkgate_enable 0
-
+ 
      chown root system /dev/kmsg
      chmod 0620 /dev/kmsg
 @@ -525,7 +521,7 @@ on property:persist.sys.pil_proxy_timeout=*
  on property:persist.vendor.ssr.restart_level=*
      start vendor.ssr_setup
-
+ 
 -on property:persist.vendor.ssr.enable_ramdumps=1
 +on property:persist.vendor.ssr.enable_ramdumps=1 && property:ro.debuggable=1
      chown system system /sys/module/qcom_ramdump/parameters/enable_dump_collection
      chmod 0660 /sys/module/qcom_ramdump/parameters/enable_dump_collection
      mkdir /data/vendor/ramdump_ssr 770 system system
 @@ -539,12 +535,8 @@ on property:persist.vendor.sys.rawdump_copy=0
-
+ 
  on property:sys.boot_completed=1
      write /dev/kmsg "Boot completed "
 -    #Enable UFS clock scaling back
@@ -592,7 +779,7 @@ index f75702dcbaec07bb1df63ced0643e67d723c104e..16643f88e9e6a225aaef02b7d8307b02
 @@ -916,15 +908,7 @@ service qrtr-lookup /vendor/bin/qrtr-lookup
      disabled
      oneshot
-
+ 
 -# Request MTE asymm mode if properties are supported
 +# Wait for the bootloader memtag configuration before setting allocator options
  on property:arm64.memtag.bootctl=* && property:ro.arm64.memtag.bootctl_supported=1
@@ -617,7 +804,7 @@ index 964f606cb10d6ab57c07d0ee040ebd537a2175a1..5496024c82bd60bfa31a29f86ca29fc1
 -    write /sys/bus/platform/devices/1d84000.ufshc/clkscale_enable 1
      write /sys/bus/platform/devices/1d84000.ufshc/auto_hibern8 5000
 -    write /sys/bus/platform/devices/1d84000.ufshc/clkgate_enable 1
-
+ 
  #service vendor.lowi /vendor/bin/sscrpcd
  #   class core
 diff --git a/sepolicy/private/compat/202604/202604.ignore.cil b/sepolicy/private/compat/202604/202604.ignore.cil
@@ -641,12 +828,12 @@ index 8ba7a04bc70ad3f7094c9868f335cbccce1eba4f..d3c11647b4715c28528b60160d913242
 --- a/sepolicy/vendor/file_contexts
 +++ b/sepolicy/vendor/file_contexts
 @@ -69,7 +69,7 @@
-
+ 
  # Dolby
  /vendor/bin/hw/vendor\.dolby\.dms\.service u:object_r:hal_aidl_dms_default_exec:s0
 -/vendor/bin/hw/vendor\.dolby\.media\.c2-default-service-dax u:object_r:mediacodec_exec:s0
 +/vendor/bin/hw/vendor\.hardware\.media\.c2\.custom u:object_r:mediacodec_exec:s0
-
+ 
  # Fingerprint
  /dev/xiaomi-fp    u:object_r:vendor_fingerprint_device:s0
 diff --git a/sepolicy/vendor/service_contexts b/sepolicy/vendor/service_contexts
@@ -654,24 +841,24 @@ index f5a666156b03e6a27097f6d9f7573318cd7b68fb..a3b13ffdc0ebd31a598d73b0db029a02
 --- a/sepolicy/vendor/service_contexts
 +++ b/sepolicy/vendor/service_contexts
 @@ -18,6 +18,7 @@ vendor.xiaomi.hardware.displayfeature_aidl.IDisplayFeature/default       u:objec
-
+ 
  # Dolby
  android.hardware.media.c2.IComponentStore/default9                   u:object_r:hal_codec2_service:s0
 +android.hardware.media.c2.IComponentStore/vendor0_software           u:object_r:hal_codec2_service:s0
  vendor.dolby.dms.IDms/default    u:object_r:hal_aidl_dms_service:s0
  vendor.dolby.dvs.IDvs/default u:object_r:dvs_aidl_service:s0
-
+ 
 diff --git a/udfps/UdfpsHandler.cpp b/udfps/UdfpsHandler.cpp
 index 3869b74e836228a0eebb55e305fee744322b38f1..20c0633dfc47653a23bef44cc49fa74007867c46 100644
 --- a/udfps/UdfpsHandler.cpp
 +++ b/udfps/UdfpsHandler.cpp
 @@ -107,7 +107,8 @@ class XiaomiSM8850UdfpsHander : public UdfpsHandler {
-
+ 
      void onFingerUp() {
          LOG(INFO) << __func__;
 -        setFingerDown(false);
 +        // Forward the physical lift so Goodix can end the current enrollment capture.
 +        mDevice->extCmd(mDevice, COMMAND_FOD_PRESS_STATUS, PARAM_FOD_RELEASED);
      }
-
+ 
      void onAcquired(int32_t result, int32_t vendorCode) {

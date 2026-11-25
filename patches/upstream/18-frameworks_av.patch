@@ -66,3 +66,16 @@ index 69b8531c6c..edcf857370 100644
      if (isPriviledgedClient == true && bestWidth == -1 &&
              (format == HAL_PIXEL_FORMAT_RAW10 || format == HAL_PIXEL_FORMAT_RAW12 ||
              format == HAL_PIXEL_FORMAT_RAW16 || format == HAL_PIXEL_FORMAT_RAW_OPAQUE)) {
+diff --git a/services/audioflinger/Effects.cpp b/services/audioflinger/Effects.cpp
+index 28d4d090e2c6f14ae991877396e901767d3b4499..26f58425ea9252a7c9652ac269d599b6159b244a 100644
+--- a/services/audioflinger/Effects.cpp
++++ b/services/audioflinger/Effects.cpp
+@@ -3002,6 +3002,8 @@ bool EffectChain::isEffectEligibleForSuspend(const effect_descriptor_t& desc)
+           (memcmp(&desc.type, SL_IID_VOLUME, sizeof(effect_uuid_t)) == 0) ||
+           (memcmp(&desc.type, SL_IID_DAP, sizeof(effect_uuid_t)) == 0) ||
+           (memcmp(&desc.type, SL_IID_DAP_SW, sizeof(effect_uuid_t)) == 0) ||
++          // DAP_offload reports a shared vendor extension type and its own implementation UUID.
++          (memcmp(&desc.uuid, SL_IID_DAP_SW, sizeof(effect_uuid_t)) == 0) ||
+           (memcmp(&desc.type, SL_V4A_RE, sizeof(effect_uuid_t)) == 0) ||
+           (memcmp(&desc.type, SL_IID_DYNAMICSPROCESSING, sizeof(effect_uuid_t)) == 0)))) {
+         return false;

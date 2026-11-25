@@ -1,0 +1,400 @@
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index ba85c5fc21e263b02b04a5b4397cc819267de748..f5226982f7269251ec45e9f83c99a7d099050089 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -26,6 +26,7 @@
+     <uses-permission android:name="android.permission.READ_DEVICE_CONFIG" />
+     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+     <uses-permission android:name="com.android.systemui.permission.SCREEN_RECORDING" />
++    <uses-permission android:name="com.libremobileos.permission.START_FREEFORM" />
+     <uses-permission android:name="android.permission.WAKE_LOCK" />
+     <uses-permission android:name="android.permission.ACCESS_FPS_COUNTER" />
+     <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
+diff --git a/app/src/main/java/io/chaldeaprjkt/gamespace/gamebar/GamePanelCard.kt b/app/src/main/java/io/chaldeaprjkt/gamespace/gamebar/GamePanelCard.kt
+index f2caa5aeca2fd6b6bae997fb87cbd1b7f31a35b6..6acbb91f5aee0d92d280c37a8aea2eb34869d84a 100644
+--- a/app/src/main/java/io/chaldeaprjkt/gamespace/gamebar/GamePanelCard.kt
++++ b/app/src/main/java/io/chaldeaprjkt/gamespace/gamebar/GamePanelCard.kt
+@@ -25,9 +25,7 @@ import android.graphics.Rect
+ import android.graphics.drawable.*
+ import android.net.Uri
+ import android.os.BatteryManager
+-import android.os.UserHandle
+ import android.provider.Settings
+-import android.util.Log
+ import android.view.WindowManager
+ import android.widget.Toast
+ import com.android.settingslib.display.BrightnessUtils.*
+@@ -87,8 +85,6 @@ import java.util.Locale
+ 
+ private val RoundedTileShape = RoundedCornerShape(100f)
+ 
+-private val TAG = "GamePanelCard"
+-
+ @Composable
+ fun GamePanelCard(
+     interactor: BrightnessInteractor,
+@@ -97,6 +93,7 @@ fun GamePanelCard(
+     gameModeUtils: GameModeUtils,
+     systemSettings: SystemSettings,
+     tileRepository: TileRepository,
++    onQuickStartApp: (String) -> Unit,
+     maxHeight: Dp = Dp.Unspecified,
+ ) {
+ 
+@@ -136,6 +133,7 @@ fun GamePanelCard(
+             fpsInteractor = fpsInteractor,
+             time = time,
+             tileRepository = tileRepository,
++            onQuickStartApp = onQuickStartApp,
+             maxHeight = maxHeight,
+         )
+     }
+@@ -152,6 +150,7 @@ fun GamePanelContent(
+     fpsInteractor: FpsInteractor,
+     time: String,
+     tileRepository: TileRepository,
++    onQuickStartApp: (String) -> Unit,
+     maxHeight: Dp = Dp.Unspecified,
+ ) {
+     var isEditing by remember { mutableStateOf(false) }
+@@ -184,7 +183,7 @@ fun GamePanelContent(
+             )
+ 
+             if (apps.isEmpty() == false) {
+-                QuickStartAppSidebar(apps = apps)
++                QuickStartAppSidebar(apps = apps, onQuickStartApp = onQuickStartApp)
+             }
+ 
+             PanelContent(
+@@ -1155,9 +1154,8 @@ fun GameModeSelector(
+ }
+ 
+ @Composable
+-fun QuickStartAppSidebar(apps: List<AppInfo>) {
++fun QuickStartAppSidebar(apps: List<AppInfo>, onQuickStartApp: (String) -> Unit) {
+     val scrollState = rememberScrollState()
+-    val context = LocalContext.current
+ 
+     Box(
+         modifier = Modifier.padding(end = 0.dp)
+@@ -1180,7 +1178,7 @@ fun QuickStartAppSidebar(apps: List<AppInfo>) {
+                 verticalAlignment = Alignment.CenterVertically
+             ) {
+                 apps.forEach { app ->
+-                    QuickStartAppIcon(appInfo = app)
++                    QuickStartAppIcon(appInfo = app, onClick = { onQuickStartApp(app.packageName) })
+                 }
+             }
+         }
+@@ -1239,17 +1237,15 @@ fun Drawable.toPainter(): Painter {
+ @Composable
+ fun QuickStartAppIcon(
+     appInfo: AppInfo,
++    onClick: () -> Unit,
+     modifier: Modifier = Modifier
+ ) {
+-    val context = LocalContext.current
+     val painter = rememberDrawablePainter(appInfo.icon)
+     Box(
+         modifier = modifier
+             .size(40.dp)
+             .clip(CircleShape)
+-            .clickable {
+-                launchAppInFreeformMode(context, appInfo.packageName)
+-            },
++            .clickable(onClick = onClick),
+         contentAlignment = Alignment.Center
+     ) {
+         Image(
+@@ -1260,28 +1256,6 @@ fun QuickStartAppIcon(
+     }
+ }
+ 
+-fun launchAppInFreeformMode(context: Context, packageName: String) {
+-    try {
+-        val packageManager = context.packageManager
+-        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+-
+-        if (launchIntent != null) {
+-            val activityName = launchIntent.component?.className
+-
+-            val freeformIntent = Intent("com.libremobileos.freeform.START_FREEFORM").apply {
+-                setPackage("com.libremobileos.freeform")
+-                putExtra("packageName", packageName)
+-                putExtra("activityName", activityName)
+-                putExtra("userId", UserHandle.myUserId())
+-            }
+-
+-            context.sendBroadcast(freeformIntent)
+-        }
+-    } catch (e: Exception) {
+-        Log.e(TAG, "Failed to launch in freeform", e)
+-    }
+-}
+-
+ @Composable
+ fun rememberBatteryInfo(): BatteryInfo {
+     val context = LocalContext.current
+diff --git a/app/src/main/java/io/chaldeaprjkt/gamespace/gamebar/GameSideBar.kt b/app/src/main/java/io/chaldeaprjkt/gamespace/gamebar/GameSideBar.kt
+index 8442288ebd2c10f104f1db971bd26ce88491c822..439ff2c0a790bf9e8b1f593b7f2866fe0c2fe70e 100644
+--- a/app/src/main/java/io/chaldeaprjkt/gamespace/gamebar/GameSideBar.kt
++++ b/app/src/main/java/io/chaldeaprjkt/gamespace/gamebar/GameSideBar.kt
+@@ -29,6 +29,7 @@ import android.os.Handler
+ import android.os.Process
+ import android.os.UserHandle
+ import android.provider.Settings
++import android.util.Log
+ import android.view.*
+ import android.window.TaskFpsCallback
+ import androidx.activity.OnBackPressedDispatcher
+@@ -89,6 +90,7 @@ class GameSidebar(
+     private var safeArea = 0
+     private var shouldClose = false
+     private var panelShowing = false
++    private var pendingFreeformLaunch: Intent? = null
+ 
+     private lateinit var gameBarView: ComposeView
+     private var panelView: View? = null
+@@ -297,9 +299,25 @@ class GameSidebar(
+         panelDismissing.value = true
+     }
+ 
+-    private fun removePanelAndRestoreCircle() {
+-        if (!panelShowing) return
++    private fun queueFreeformLaunch(packageName: String) {
++        if (!panelShowing || panelDismissing.value || shouldClose) return
++        val component = runCatching {
++            context.packageManager.getLaunchIntentForPackage(packageName)?.component
++        }.getOrNull() ?: return
++        pendingFreeformLaunch = Intent("com.libremobileos.freeform.START_FREEFORM").apply {
++            setPackage("com.libremobileos.freeform")
++            putExtra("packageName", component.packageName)
++            putExtra("activityName", component.className)
++            putExtra("userId", UserHandle.myUserId())
++        }
++        requestDismissPanel()
++    }
++
++    private fun removePanelAndRestoreCircle(dismissedPanel: View) {
++        if (!panelShowing || panelView !== dismissedPanel) return
+         panelShowing = false
++        val freeformLaunch = pendingFreeformLaunch
++        pendingFreeformLaunch = null
+ 
+         brightnessInteractor.dispose()
+         fpsInteractor.dispose()
+@@ -317,10 +335,16 @@ class GameSidebar(
+         if (!shouldClose) {
+             gameBarView.visibility = View.VISIBLE
+             scheduleIdle()
++            freeformLaunch?.let { intent ->
++                runCatching { context.sendBroadcast(intent) }.onFailure {
++                    Log.e("GameSideBar", "Failed to open small window", it)
++                }
++            }
+         }
+     }
+ 
+     private fun forceRemovePanel() {
++        pendingFreeformLaunch = null
+         if (!panelShowing) return
+         panelShowing = false
+         panelDismissing.value = true
+@@ -345,7 +369,9 @@ class GameSidebar(
+                             colorScheme = dynamicDarkColorScheme(context),
+                             motionScheme = MotionScheme.expressive(),
+                         ) {
+-                            PanelContent()
++                            PanelContent(onDismissed = {
++                                handler.post { removePanelAndRestoreCircle(this@apply) }
++                            })
+                         }
+                     }
+                 }
+@@ -354,7 +380,7 @@ class GameSidebar(
+     }
+ 
+     @Composable
+-    private fun PanelContent() {
++    private fun PanelContent(onDismissed: () -> Unit) {
+         val apps = remember { getQuickStartApps(context) }
+         val dismissing by panelDismissing
+ 
+@@ -372,7 +398,7 @@ class GameSidebar(
+             ),
+             label = "panel_slide",
+             finishedListener = {
+-                if (dismissing) handler.post { removePanelAndRestoreCircle() }
++                if (dismissing) onDismissed()
+             },
+         )
+ 
+@@ -450,6 +476,7 @@ class GameSidebar(
+                     gameModeUtils = gameModeUtils,
+                     systemSettings = settings,
+                     tileRepository = tileRepository,
++                    onQuickStartApp = ::queueFreeformLaunch,
+                     maxHeight = panelMaxHeight,
+                 )
+             }
+diff --git a/app/src/main/java/io/chaldeaprjkt/gamespace/settings/SettingsFragment.kt b/app/src/main/java/io/chaldeaprjkt/gamespace/settings/SettingsFragment.kt
+index 2d52d1406bd92cc132b1065f1a85c529376ab5f6..09221c2c3898b732e5546b90d6a4f74a1911d3ac 100644
+--- a/app/src/main/java/io/chaldeaprjkt/gamespace/settings/SettingsFragment.kt
++++ b/app/src/main/java/io/chaldeaprjkt/gamespace/settings/SettingsFragment.kt
+@@ -20,6 +20,7 @@ import android.os.Build
+ import android.os.Bundle
+ import android.os.SystemProperties
+ import android.os.Vibrator
++import android.provider.Settings
+ import android.view.View
+ import androidx.activity.result.contract.ActivityResultContracts
+ import androidx.preference.Preference
+@@ -75,6 +76,34 @@ class SettingsFragment : Hilt_SettingsFragment(),
+     }
+ 
+     private fun updatePreferences() {
++        for (setting in listOf(GAME_HDR_SETTING, CLOUD_GAME_SR_SETTING)) {
++            findPreference<SwitchPreferenceCompat>(setting)?.apply {
++                isVisible = Build.DEVICE == "athens"
++                if (isVisible) {
++                    val resolver = requireContext().contentResolver
++                    isChecked = Settings.Secure.getInt(resolver, setting, 0) == 1
++                    setOnPreferenceChangeListener { _, value ->
++                        Settings.Secure.putInt(resolver, setting, if (value == true) 1 else 0)
++                    }
++                }
++            }
++        }
++
++        findPreference<ListPreference>(LOCAL_GAME_ENHANCEMENT_SETTING)?.apply {
++            isVisible = Build.DEVICE == "athens"
++            if (isVisible) {
++                val resolver = requireContext().contentResolver
++                val saved = Settings.Secure.getInt(resolver, LOCAL_GAME_ENHANCEMENT_SETTING, 0)
++                value = saved.toString().takeIf { findIndexOfValue(it) >= 0 } ?: "0"
++                summaryProvider = ListPreference.SimpleSummaryProvider.getInstance()
++                setOnPreferenceChangeListener { _, selection ->
++                    val mode = selection as? String
++                    mode != null && findIndexOfValue(mode) >= 0 &&
++                        Settings.Secure.putInt(resolver, LOCAL_GAME_ENHANCEMENT_SETTING, mode.toInt())
++                }
++            }
++        }
++
+         val isBypassSupported =
+             Build.MANUFACTURER.equals("Google", ignoreCase = true) ||
+             SystemProperties.getBoolean("persist.sys.battery_bypass_supported", false)
+@@ -157,4 +186,10 @@ class SettingsFragment : Hilt_SettingsFragment(),
+         }
+         return false
+     }
++
++    private companion object {
++        const val GAME_HDR_SETTING = "gamespace_athens_game_hdr"
++        const val LOCAL_GAME_ENHANCEMENT_SETTING = "gamespace_athens_game_enhancement"
++        const val CLOUD_GAME_SR_SETTING = "gamespace_athens_cloud_game_sr"
++    }
+ }
+diff --git a/app/src/main/privapp_whitelist_io.chaldeaprjkt.gamespace.xml b/app/src/main/privapp_whitelist_io.chaldeaprjkt.gamespace.xml
+index 6ad65932813a53a2468c33d2c8475507af660f35..4ca71ee2ef4763abae686130217b3917d1d5265e 100644
+--- a/app/src/main/privapp_whitelist_io.chaldeaprjkt.gamespace.xml
++++ b/app/src/main/privapp_whitelist_io.chaldeaprjkt.gamespace.xml
+@@ -22,6 +22,7 @@
+         <permission name="android.permission.QUERY_ALL_PACKAGES" />
+         <permission name="android.permission.READ_DEVICE_CONFIG" />
+         <permission name="android.permission.SYSTEM_ALERT_WINDOW" />
++        <permission name="com.libremobileos.permission.START_FREEFORM" />
+         <permission name="android.permission.WAKE_LOCK" />
+         <permission name="android.permission.ACCESS_FPS_COUNTER" />
+         <permission name="android.permission.ANSWER_PHONE_CALLS" />
+diff --git a/app/src/main/res/values-zh-rCN/strings.xml b/app/src/main/res/values-zh-rCN/strings.xml
+index 9e10d3046606c1e7c5e88b2a47084f9e6710e6aa..31191ccdcd8f4dc14092faff64658d5f5fe417e2 100644
+--- a/app/src/main/res/values-zh-rCN/strings.xml
++++ b/app/src/main/res/values-zh-rCN/strings.xml
+@@ -151,4 +151,13 @@
+     <!-- Pulse bass haptics -->
+     <string name="pulse_bass_haptics_disabled_title">禁用脉冲低音触觉</string>
+     <string name="pulse_bass_haptics_disabled_summary">如果启用，则自动禁用脉冲低音触觉反馈</string>
++    <string name="game_hdr_title">游戏 HDR</string>
++    <string name="athens_local_game_enhancement">本地游戏独显增强</string>
++    <string name="athens_local_game_off">关闭</string>
++    <string name="athens_local_game_fi">插帧</string>
++    <string name="athens_local_game_sr">超分辨率</string>
++    <string name="athens_local_game_fisr">插帧和超分辨率</string>
++    <string name="cloud_game_sr_title">云游戏超分辨率</string>
++    <string name="cloud_game_sr_summary">提升受支持的全屏云游戏应用的画面细节。</string>
++    <string name="game_hdr_summary">仅在支持的游戏中，且屏幕刷新率为 60 Hz 或 120 Hz 时生效。</string>
+ </resources>
+diff --git a/app/src/main/res/values/arrays.xml b/app/src/main/res/values/arrays.xml
+index d290b6fd07233e2cbb3b421fc76f650d06c35ad2..1f5f5d5c148631aeefc0d91c5bb631a9c7c797a4 100644
+--- a/app/src/main/res/values/arrays.xml
++++ b/app/src/main/res/values/arrays.xml
+@@ -5,6 +5,19 @@
+      SPDX-License-Identifier: Apache-2.0
+ -->
+ <resources>
++    <string-array name="athens_local_game_modes" translatable="false">
++        <item>@string/athens_local_game_off</item>
++        <item>@string/athens_local_game_fi</item>
++        <item>@string/athens_local_game_sr</item>
++        <item>@string/athens_local_game_fisr</item>
++    </string-array>
++    <string-array name="athens_local_game_mode_values" translatable="false">
++        <item>0</item>
++        <item>1</item>
++        <item>2</item>
++        <item>4</item>
++    </string-array>
++
+     <string-array name="ringer_mode_values" translatable="false">
+         <item>0</item> <!-- SILENT  -->
+         <item>1</item> <!-- VIBRATE -->
+diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
+index 7f1c84f97d02f0024636c9c240bc85ce8cfab00a..548d068db886991c2027eac78ca9384d09d4c970 100644
+--- a/app/src/main/res/values/strings.xml
++++ b/app/src/main/res/values/strings.xml
+@@ -176,4 +176,13 @@
+     <!-- Pulse bass haptics -->
+     <string name="pulse_bass_haptics_disabled_title">Disable pulse bass haptics</string>
+     <string name="pulse_bass_haptics_disabled_summary">Automatically disable pulse bass haptics if enabled</string>
+- </resources>
++    <string name="game_hdr_title">Game HDR</string>
++    <string name="athens_local_game_enhancement">Local game display enhancement</string>
++    <string name="athens_local_game_off">Off</string>
++    <string name="athens_local_game_fi">Frame interpolation</string>
++    <string name="athens_local_game_sr">Super resolution</string>
++    <string name="athens_local_game_fisr">Frame interpolation and super resolution</string>
++    <string name="cloud_game_sr_title">Cloud game super resolution</string>
++    <string name="cloud_game_sr_summary">Improve image detail in supported full-screen cloud game apps.</string>
++    <string name="game_hdr_summary">Works in supported games when the display is running at 60 Hz or 120 Hz.</string>
++</resources>
+diff --git a/app/src/main/res/xml/root_preferences.xml b/app/src/main/res/xml/root_preferences.xml
+index c0e671d71c78aa6235f26fc27ae8867d4e1eba6e..6e74b2ee65c950ea057b45380e91d44e7e06a15a 100644
+--- a/app/src/main/res/xml/root_preferences.xml
++++ b/app/src/main/res/xml/root_preferences.xml
+@@ -46,6 +46,25 @@
+         android:key="in_game_preferences"
+         android:title="@string/in_game_preferences_title">
+ 
++        <SwitchPreferenceCompat
++            android:key="gamespace_athens_game_hdr"
++            android:title="@string/game_hdr_title"
++            android:summary="@string/game_hdr_summary"
++            android:persistent="false" />
++
++        <SwitchPreferenceCompat
++            android:key="gamespace_athens_cloud_game_sr"
++            android:title="@string/cloud_game_sr_title"
++            android:summary="@string/cloud_game_sr_summary"
++            android:persistent="false" />
++
++        <ListPreference
++            android:key="gamespace_athens_game_enhancement"
++            android:title="@string/athens_local_game_enhancement"
++            android:entries="@array/athens_local_game_modes"
++            android:entryValues="@array/athens_local_game_mode_values"
++            android:persistent="false" />
++
+         <SwitchPreferenceCompat
+             android:key="gamespace_auto_brightness_disabled"
+             android:title="@string/auto_brightness_disabled_title"

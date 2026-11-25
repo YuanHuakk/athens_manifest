@@ -30,3 +30,98 @@ index b670fb07fe36d08edf645583ea15332e2a626dff..5a4fd52a75a1c428eda5f74dc896d1a2
 
  neverallow {
      domain
+diff --git a/common/private/adbroot.te b/common/private/adbroot.te
+index f5e8ef7ae1c78b9dbc2854cf722c4ea14ca5fc04..91ac58480132642ec00c134bcab0a5b5fa3baded 100644
+--- a/common/private/adbroot.te
++++ b/common/private/adbroot.te
+@@ -1,7 +1,9 @@
+-type adbroot, domain, coredomain;
+-type adbroot_exec, exec_type, file_type, system_file_type;
+-
+ userdebug_or_eng(`
++  type adbroot, domain, coredomain;
++  type adbroot_exec, exec_type, file_type, system_file_type;
++  type adbroot_data_file, file_type, data_file_type, core_data_file_type;
++  type adbroot_service, service_manager_type;
++
+   init_daemon_domain(adbroot)
+
+   binder_use(adbroot)
+diff --git a/common/private/debug/file_contexts b/common/private/debug/file_contexts
+new file mode 100644
+index 0000000000000000000000000000000000000000..3b1fa6fb16269c6b8904ddb69dbba4ff70d52619
+--- /dev/null
++++ b/common/private/debug/file_contexts
+@@ -0,0 +1,2 @@
++/(system_ext|system/system_ext)/bin/adb_root      u:object_r:adbroot_exec:s0
++/data/adbroot(/.*)?                              u:object_r:adbroot_data_file:s0
+diff --git a/common/private/debug/service_contexts b/common/private/debug/service_contexts
+new file mode 100644
+index 0000000000000000000000000000000000000000..8dcdccfbd74028a1303e1b2039904f64b28658e8
+--- /dev/null
++++ b/common/private/debug/service_contexts
+@@ -0,0 +1 @@
++adbroot_service                           u:object_r:adbroot_service:s0
+diff --git a/common/private/file.te b/common/private/file.te
+index 833ab6cb43c207e587067da2b9eb9c06479ef75a..ea268b36d9d684450df0ce41994a46f8c57792f8 100644
+--- a/common/private/file.te
++++ b/common/private/file.te
+@@ -1,5 +1,4 @@
+ type sdcard_posix, sdcard_type, sdcard_posix_contextmount_type, fs_type, mlstrustedobject;
+-type adbroot_data_file, file_type, data_file_type, core_data_file_type;
+ type sysfs_perdev_minors, fs_type, sysfs_type;
+
+ # Pocket judge
+diff --git a/common/private/file_contexts b/common/private/file_contexts
+index be8864f6dfd80b33528795befd55ffe32b8ca69c..97a05241b87377b40519b8ac42a06e77310bf9da 100644
+--- a/common/private/file_contexts
++++ b/common/private/file_contexts
+@@ -12,10 +12,6 @@
+ /system/bin/backuptool_ab\.sh                     u:object_r:postinstall_exec:s0
+ /system/bin/backuptool_postinstall\.sh            u:object_r:postinstall_exec:s0
+
+-# ADB Root
+-/(system_ext|system/system_ext)/bin/adb_root      u:object_r:adbroot_exec:s0
+-/data/adbroot(/.*)?        u:object_r:adbroot_data_file:s0
+-
+ # Bash
+ /(system_ext|system/system_ext)/bin/bash          u:object_r:shell_exec:s0
+
+diff --git a/common/private/service.te b/common/private/service.te
+index ca2990dec174c895ce8a27731d7aaa45962909d4..8324051d72652f752aaa5270b0f8c8dcc5553c59 100644
+--- a/common/private/service.te
++++ b/common/private/service.te
+@@ -1,4 +1,3 @@
+-type adbroot_service,                   service_manager_type;
+ type ax_sandbox_service, system_api_service, system_server_service, service_manager_type;
+ type lineage_hardware_service, system_api_service, system_server_service, service_manager_type;
+ type lineage_health_interface_service, system_api_service, system_server_service, service_manager_type;
+diff --git a/common/private/service_contexts b/common/private/service_contexts
+index 5e4b02aa8f68542b13256634e825618c757eabcc..9ed90ce35fcad891519f09f977b09d008acef876 100644
+--- a/common/private/service_contexts
++++ b/common/private/service_contexts
+@@ -6,7 +6,6 @@ lineagesensitivephone                     u:object_r:lineage_sensitive_phone_num
+ lineagetrust                              u:object_r:lineage_trust_service:s0
+ profile                                   u:object_r:lineage_profile_service:s0
+
+-adbroot_service                           u:object_r:adbroot_service:s0
+ ax_sandbox                                u:object_r:ax_sandbox_service:s0
+ pocket                                    u:object_r:pocket_service:s0
+
+diff --git a/common/sepolicy.mk b/common/sepolicy.mk
+index 9a1620d03e9d21e9939ff407707ebab6257af7bb..7b61fb7237b2b68510d23c7c26422f6dace392c0 100644
+--- a/common/sepolicy.mk
++++ b/common/sepolicy.mk
+@@ -15,6 +15,12 @@ SYSTEM_EXT_PUBLIC_SEPOLICY_DIRS += \
+ SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS += \
+     device/lineage/sepolicy/common/private
+
++# File and service contexts are built without te_macros.
++ifneq ($(filter userdebug eng,$(TARGET_BUILD_VARIANT)),)
++SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS += \
++    device/lineage/sepolicy/common/private/debug
++endif
++
+ ifeq ($(TARGET_USES_PREBUILT_VENDOR_SEPOLICY), true)
+ SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS += \
+     device/lineage/sepolicy/common/dynamic \

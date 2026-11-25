@@ -70,5 +70,45 @@
   {
     "project": "vendor/infinity",
     "patch": "upstream/20-vendor_infinity.patch"
+  },
+  {
+    "project": "packages/apps/Settings",
+    "patch": "upstream/21-packages_apps_Settings.patch"
+  },
+  {
+    "project": "device/xiaomi/athens",
+    "patch": "upstream/22-device_xiaomi_athens.patch"
+  },
+  {
+    "project": "packages/apps/InfinitySuite",
+    "patch": "upstream/23-packages_apps_InfinitySuite.patch"
+  },
+  {
+    "project": "packages/apps/GameSpace",
+    "patch": "upstream/24-packages_apps_GameSpace.patch"
+  },
+  {
+    "project": "packages/apps/Launcher3",
+    "patch": "upstream/25-packages_apps_Launcher3.patch"
+  },
+  {
+    "project": "packages/modules/Bluetooth",
+    "patch": "upstream/26-packages_modules_Bluetooth.patch"
+  },
+  {
+    "project": "hardware/interfaces",
+    "patch": "upstream/27-hardware_interfaces.patch"
+  },
+  {
+    "project": "packages/apps/LMOFreeform",
+    "patch": "upstream/28-packages_apps_LMOFreeform.patch"
+  },
+  {
+    "project": "frameworks/native",
+    "patch": "upstream/29-frameworks_native.patch"
+  },
+  {
+    "project": "hardware/qcom-caf/thermal",
+    "patch": "upstream/30-hardware_qcom-caf_thermal.patch"
   }
 ]

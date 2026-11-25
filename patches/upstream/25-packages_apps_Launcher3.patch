@@ -1,0 +1,58 @@
+diff --git a/res/values-zh-rCN/infinity_strings.xml b/res/values-zh-rCN/infinity_strings.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..28419fdcdf22bd002ba19e6f24104ffe36ebd158
+--- /dev/null
++++ b/res/values-zh-rCN/infinity_strings.xml
+@@ -0,0 +1,52 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
++    <!-- Home screen -->
++    <string name="auto_add_shortcuts_forced_ios_summary">使用 iOS 风格的应用抽屉时无法关闭此选项</string>
++    <string name="google_app_not_system_summary">此功能要求 Google 应用预装为系统应用。仅从 Play 商店安装无法启用此功能。</string>
++    <string name="hotseat_qsb_space_title">搜索栏顶部间距</string>
++    <string name="qsb_outer_opacity_summary">调整搜索栏外框的不透明度</string>
++    <string name="quickspace_clock_title">显示快捷空间时钟</string>
++    <string name="quickspace_clock_summary">在快捷空间显示时间</string>
++    <string name="quickspace_clock_color_title">快捷空间时钟颜色</string>
++    <string name="quickspace_clock_color_summary">更改时钟首个字符的颜色</string>
++    <string name="weather_settings_title">天气设置</string>
++    <string name="weather_settings_summary">配置天气图标包和天气服务</string>
++
++    <!-- Icons -->
++    <string name="pref_grayscale_icon_map_lawn_title">使用 LawnIcons 作为主题图标</string>
++    <string name="pref_grayscale_icon_map_lawn_summary">使用 LawnIcons 替换默认的 Pixel 主题图标\n⚠️ 要应用更改，请重启设备，然后在“壁纸和样式”中关闭并重新开启“主题图标”。</string>
++
++    <!-- App drawer -->
++    <string name="drawer_style_ios">iOS 风格（仅主屏幕）</string>
++    <string name="drawer_list_title">默认列表视图</string>
++    <string name="drawer_list_summary">以默认列表显示应用，不按文件夹分类</string>
++
++    <!-- Recents -->
++    <string name="recents_style_title">最近应用布局样式</string>
++    <string name="recents_style_default">默认</string>
++    <string name="recents_style_stock">缩放效果</string>
++    <string name="recents_style_staple">Kami 风格</string>
++    <string name="recents_style_ios">iOS 风格</string>
++    <string name="recents_style_oxygen">OxygenOS 风格</string>
++    <string name="overview_gesture_title">最近应用上滑手势</string>
++    <string name="overview_gesture_summary">在最近应用中向上滑动应用卡片以触发所选操作</string>
++    <string name="overview_gesture_action_title">上滑操作</string>
++    <string name="overview_gesture_action_freeform">在浮窗中打开</string>
++    <string name="overview_gesture_action_split_screen">启动分屏</string>
++    <string name="overview_gesture_threshold_title">滑动距离</string>
++    <string name="overview_gesture_threshold_summary">数值越小越容易触发，数值越大需要滑动更远</string>
++    <string name="swipe_down_to_lock_title">下滑以锁定或解锁任务</string>
++    <string name="swipe_down_to_lock_summary">向下滑动最近应用卡片，以锁定或解除清理保护</string>
++    <string name="recents_clear_all_preserve_active_title">全部清除时保留当前应用</string>
++    <string name="recents_clear_all_preserve_active_summary">点击“全部清除”时保留正在使用的应用</string>
++
++    <!-- Miscellaneous -->
++    <string name="navbar_burn_in_protection_title">导航栏防烧屏</string>
++    <string name="navbar_burn_in_protection_summary">定期移动底部导航栏的位置，防止 OLED 屏幕烧屏</string>
++    <string name="navbar_burn_in_interval_title">移动间隔</string>
++
++    <!-- Custom seek bar -->
++    <string name="custom_seekbar_value">当前值：<xliff:g id="v">%s</xliff:g></string>
++    <string name="custom_seekbar_default_value">默认</string>
++    <string name="custom_seekbar_default_value_to_set">默认值：<xliff:g id="v">%s</xliff:g>\n长按恢复默认值</string>
++</resources>
