@@ -1,0 +1,51 @@
+diff --git a/custom_athens.mk b/custom_athens.mk
+index c3a6036329fb93f518de1a4069f095f83830750a..4ee6422ce4c79edf0156ce39184470d722c24903 100644
+--- a/custom_athens.mk
++++ b/custom_athens.mk
+@@ -16,6 +16,9 @@ $(call inherit-product, vendor/custom/config/common_full_phone.mk)
+ 
+ $(call inherit-product, device/xiaomi/athens/device.mk)
+ 
++# Athens panel cap for app window brightness requests.
++PRODUCT_PACKAGES += AthensAppWindowBrightness
++
+ # Keep authenticated root ADB available in userdebug builds.
+ ifeq ($(TARGET_BUILD_VARIANT),userdebug)
+ PRODUCT_NOT_DEBUGGABLE_IN_USERDEBUG := false
+diff --git a/overlays/AthensAppWindowBrightness/Android.bp b/overlays/AthensAppWindowBrightness/Android.bp
+new file mode 100644
+index 0000000000000000000000000000000000000000..7996b369e487810df747dcfd07b58b1e24b0c369
+--- /dev/null
++++ b/overlays/AthensAppWindowBrightness/Android.bp
+@@ -0,0 +1,6 @@
++// SPDX-License-Identifier: Apache-2.0
++
++runtime_resource_overlay {
++    name: "AthensAppWindowBrightness",
++    device_specific: true,
++}
+diff --git a/overlays/AthensAppWindowBrightness/AndroidManifest.xml b/overlays/AthensAppWindowBrightness/AndroidManifest.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..866682ce91224be4a4f25b531f0d97811b175fa0
+--- /dev/null
++++ b/overlays/AthensAppWindowBrightness/AndroidManifest.xml
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<manifest xmlns:android="http://schemas.android.com/apk/res/android"
++    package="android.overlay.athens.appwindowbrightness">
++    <overlay android:targetPackage="android"
++        android:isStatic="true" android:priority="802" />
++</manifest>
+diff --git a/overlays/AthensAppWindowBrightness/res/values/brightness.xml b/overlays/AthensAppWindowBrightness/res/values/brightness.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..fdb528481b7fdb5acd7e3fecb2a608392b8191d7
+--- /dev/null
++++ b/overlays/AthensAppWindowBrightness/res/values/brightness.xml
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<resources>
++    <!-- Stock SDR-to-HBM transition: 850 nits on the Athens panel calibration. -->
++    <item name="config_appWindowBrightnessOverrideCap" format="float" type="dimen">0.411976560</item>
++</resources>

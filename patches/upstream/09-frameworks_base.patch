@@ -522,3 +522,179 @@ index 784b43a47ef318ebbd15c55ab9a1de214a4afdb3..9b25011f854e13f624ac59dddbe626df
          scope = testScope.backgroundScope,
          sceneInteractor = { sceneInteractor },
      )
+diff --git a/core/java/android/hardware/display/DisplayManagerInternal.java b/core/java/android/hardware/display/DisplayManagerInternal.java
+index 8ae295dd72274919bb2f86f1c2ba6cbd4ace8318..a57b3ae60211847ac19adc04781beecca8b8bf62 100644
+--- a/core/java/android/hardware/display/DisplayManagerInternal.java
++++ b/core/java/android/hardware/display/DisplayManagerInternal.java
+@@ -592,6 +592,9 @@ public abstract class DisplayManagerInternal {
+         // Set to PowerManager.BRIGHTNESS_INVALID if there's no override.
+         public float brightness = PowerManager.BRIGHTNESS_INVALID_FLOAT;
+ 
++        // Optional cap on the window's boost, while allowing the current display setting.
++        public float brightnessCap = PowerManager.BRIGHTNESS_INVALID_FLOAT;
++
+         // Tag used to identify the app window requesting the brightness override.
+         public CharSequence tag;
+     }
+diff --git a/core/res/res/values/config.xml b/core/res/res/values/config.xml
+index 10613692a90839a3cdf422f8ca8c1290ab3eddfc..38a894d3b3951a8761e565f9a3dd8ef30e7b28f5 100644
+--- a/core/res/res/values/config.xml
++++ b/core/res/res/values/config.xml
+@@ -1622,6 +1622,9 @@
+          The user is forbidden from setting the brightness above this level. -->
+     <item name="config_screenBrightnessSettingMaximumFloat" format="float" type="dimen">-2</item>
+ 
++    <!-- Main-display cap on app window brightness requests. A negative value disables it. -->
++    <item name="config_appWindowBrightnessOverrideCap" format="float" type="dimen">-1</item>
++
+     <!-- Default screen brightness setting set.
+          -2 is invalid so setting will resort to int value specified above.
+          Must be in the range specified by minimum and maximum. -->
+diff --git a/core/res/res/values/symbols.xml b/core/res/res/values/symbols.xml
+index 118be776b31b99f55148780eee530d5fb3eccefa..b2992257bfb4e061b47ddaf0339c6e657baa3906 100644
+--- a/core/res/res/values/symbols.xml
++++ b/core/res/res/values/symbols.xml
+@@ -2273,6 +2273,7 @@
+   <java-symbol type="integer" name="config_screenBrightnessCapForWearBedtimeMode" />
+   <java-symbol type="dimen" name="config_screenBrightnessSettingMinimumFloat" />
+   <java-symbol type="dimen" name="config_screenBrightnessSettingMaximumFloat" />
++  <java-symbol type="dimen" name="config_appWindowBrightnessOverrideCap" />
+   <java-symbol type="dimen" name="config_screenBrightnessSettingDefaultFloat" />
+   <java-symbol type="dimen" name="config_screenBrightnessDozeFloat" />
+   <java-symbol type="dimen" name="config_screenBrightnessDimFloat" />
+diff --git a/services/core/java/com/android/server/display/brightness/strategy/OverrideBrightnessStrategy.java b/services/core/java/com/android/server/display/brightness/strategy/OverrideBrightnessStrategy.java
+index 649f9dacf8abc00228b0f8b872a08a8d3a3df8d0..f814dbf4312b8dfa4dcfa61a0f6f7faddbd369d3 100644
+--- a/services/core/java/com/android/server/display/brightness/strategy/OverrideBrightnessStrategy.java
++++ b/services/core/java/com/android/server/display/brightness/strategy/OverrideBrightnessStrategy.java
+@@ -34,6 +34,7 @@ import java.io.PrintWriter;
+ public class OverrideBrightnessStrategy implements DisplayBrightnessStrategy {
+ 
+     private float mWindowManagerBrightnessOverride = PowerManager.BRIGHTNESS_INVALID_FLOAT;
++    private float mWindowManagerBrightnessOverrideCap = PowerManager.BRIGHTNESS_INVALID_FLOAT;
+     private CharSequence mWindowManagerBrightnessOverrideTag = null;
+ 
+     @Override
+@@ -51,6 +52,14 @@ public class OverrideBrightnessStrategy implements DisplayBrightnessStrategy {
+         } else if (BrightnessUtils.isValidBrightnessValue(mWindowManagerBrightnessOverride)) {
+             brightness = mWindowManagerBrightnessOverride;
+             reason.setTag(mWindowManagerBrightnessOverrideTag);
++            if (BrightnessUtils.isValidBrightnessValue(mWindowManagerBrightnessOverrideCap)) {
++                float cap = mWindowManagerBrightnessOverrideCap;
++                float currentBrightness = strategyExecutionRequest.getCurrentScreenBrightness();
++                if (BrightnessUtils.isValidBrightnessValue(currentBrightness)) {
++                    cap = Math.max(cap, currentBrightness);
++                }
++                brightness = Math.min(brightness, cap);
++            }
+         }
+ 
+         return new DisplayBrightnessState.Builder()
+@@ -69,6 +78,8 @@ public class OverrideBrightnessStrategy implements DisplayBrightnessStrategy {
+     public void dump(PrintWriter writer) {
+         writer.println("OverrideBrightnessStrategy:");
+         writer.println("  mWindowManagerBrightnessOverride=" + mWindowManagerBrightnessOverride);
++        writer.println("  mWindowManagerBrightnessOverrideCap="
++                + mWindowManagerBrightnessOverrideCap);
+         writer.println("  mWindowManagerBrightnessOverrideTag="
+                 + mWindowManagerBrightnessOverrideTag);
+     }
+@@ -89,13 +100,17 @@ public class OverrideBrightnessStrategy implements DisplayBrightnessStrategy {
+             DisplayManagerInternal.DisplayBrightnessOverrideRequest request) {
+         float newBrightness = request == null
+                 ? PowerManager.BRIGHTNESS_INVALID_FLOAT : request.brightness;
++        float newCap = request == null
++                ? PowerManager.BRIGHTNESS_INVALID_FLOAT : request.brightnessCap;
+         mWindowManagerBrightnessOverrideTag = request == null ? null : request.tag;
+ 
+-        if (floatEquals(newBrightness, mWindowManagerBrightnessOverride)) {
++        if (floatEquals(newBrightness, mWindowManagerBrightnessOverride)
++                && floatEquals(newCap, mWindowManagerBrightnessOverrideCap)) {
+             return false;
+         }
+ 
+         mWindowManagerBrightnessOverride = newBrightness;
++        mWindowManagerBrightnessOverrideCap = newCap;
+         return true;
+     }
+ 
+diff --git a/services/core/java/com/android/server/wm/RootWindowContainer.java b/services/core/java/com/android/server/wm/RootWindowContainer.java
+index d4d14a9ae37123821801dfc17e51159eb1611f34..c9455112bc3da5641a923545a20a282356f58baf 100644
+--- a/services/core/java/com/android/server/wm/RootWindowContainer.java
++++ b/services/core/java/com/android/server/wm/RootWindowContainer.java
+@@ -31,6 +31,8 @@ import static android.internal.perfetto.protos.Windowmanagerservice.RootWindowCo
+ import static android.os.Trace.TRACE_TAG_WINDOW_MANAGER;
+ import static android.view.Display.DEFAULT_DISPLAY;
+ import static android.view.Display.INVALID_DISPLAY;
++import static android.view.WindowManager.LayoutParams.FIRST_APPLICATION_WINDOW;
++import static android.view.WindowManager.LayoutParams.LAST_APPLICATION_WINDOW;
+ import static android.view.WindowManager.LayoutParams.RENDERING_HINT_SUSTAINED_PERFORMANCE_MODE;
+ import static android.view.WindowManager.LayoutParams.TYPE_KEYGUARD_DIALOG;
+ import static android.view.WindowManager.LayoutParams.TYPE_NOTIFICATION_SHADE;
+@@ -179,6 +181,7 @@ class RootWindowContainer extends WindowContainer<DisplayContent>
+ 
+     private static final long SLEEP_TRANSITION_WAIT_MILLIS = 1000L;
+ 
++    private final float mAppWindowBrightnessOverrideCap;
+     // Per-display WindowManager overrides that are passed on.
+     private final SparseArray<DisplayBrightnessOverrideRequest> mDisplayBrightnessOverrides =
+             new SparseArray<>();
+@@ -433,6 +436,8 @@ class RootWindowContainer extends WindowContainer<DisplayContent>
+ 
+     RootWindowContainer(WindowManagerService service) {
+         super(service);
++        mAppWindowBrightnessOverrideCap = service.mContext.getResources().getFloat(
++                com.android.internal.R.dimen.config_appWindowBrightnessOverrideCap);
+         mHandler = new MyHandler(service.mH.getLooper());
+         mService = service.mAtmService;
+         mTaskSupervisor = mService.mTaskSupervisor;
+@@ -946,6 +951,15 @@ class RootWindowContainer extends WindowContainer<DisplayContent>
+                 var brightnessOverride = new DisplayBrightnessOverrideRequest();
+                 brightnessOverride.brightness = w.mAttrs.screenBrightness;
+                 brightnessOverride.tag = w.getWindowTag();
++                final int windowType = w.getBaseType();
++                if (mAppWindowBrightnessOverrideCap > PowerManager.BRIGHTNESS_MIN
++                        && mAppWindowBrightnessOverrideCap < brightnessOverride.brightness
++                        && w.getDisplayId() == DEFAULT_DISPLAY
++                        && w.mActivityRecord != null
++                        && windowType >= FIRST_APPLICATION_WINDOW
++                        && windowType <= LAST_APPLICATION_WINDOW) {
++                    brightnessOverride.brightnessCap = mAppWindowBrightnessOverrideCap;
++                }
+                 mDisplayBrightnessOverrides.put(w.getDisplayId(), brightnessOverride);
+             }
+ 
+diff --git a/services/tests/displayservicetests/src/com/android/server/display/brightness/strategy/OverrideBrightnessStrategyTest.java b/services/tests/displayservicetests/src/com/android/server/display/brightness/strategy/OverrideBrightnessStrategyTest.java
+index f30aa4875709161831d2b7685e08af8fb3f6a768..51ae3f6243a43643af2000ba0481c7f39a0fae00 100644
+--- a/services/tests/displayservicetests/src/com/android/server/display/brightness/strategy/OverrideBrightnessStrategyTest.java
++++ b/services/tests/displayservicetests/src/com/android/server/display/brightness/strategy/OverrideBrightnessStrategyTest.java
+@@ -114,4 +114,30 @@ public class OverrideBrightnessStrategyTest {
+         assertThat(mOverrideBrightnessStrategy.getWindowManagerBrightnessOverride())
+                 .isEqualTo(BRIGHTNESS_INVALID_FLOAT);
+     }
++
++    @Test
++    public void windowBrightnessCapLimitsBoostAndRespectsCurrentBrightness() {
++        var overrideRequest = new DisplayManagerInternal.DisplayBrightnessOverrideRequest();
++        overrideRequest.brightness = 0.85f;
++        overrideRequest.brightnessCap = 0.41197656f;
++        assertThat(mOverrideBrightnessStrategy.updateWindowManagerBrightnessOverride(overrideRequest))
++                .isTrue();
++
++        var displayPowerRequest = new DisplayManagerInternal.DisplayPowerRequest();
++        var lowSetting = new StrategyExecutionRequest(displayPowerRequest, 0.089f,
++                false, false, null);
++        var highSetting = new StrategyExecutionRequest(displayPowerRequest, 0.5f,
++                false, false, null);
++        assertThat(mOverrideBrightnessStrategy.updateBrightness(lowSetting).getBrightness())
++                .isEqualTo(overrideRequest.brightnessCap);
++        assertThat(mOverrideBrightnessStrategy.updateBrightness(highSetting).getBrightness())
++                .isEqualTo(0.5f);
++
++        // A different window can request the same brightness without having a cap.
++        overrideRequest.brightnessCap = BRIGHTNESS_INVALID_FLOAT;
++        assertThat(mOverrideBrightnessStrategy.updateWindowManagerBrightnessOverride(overrideRequest))
++                .isTrue();
++        assertThat(mOverrideBrightnessStrategy.updateBrightness(lowSetting).getBrightness())
++                .isEqualTo(overrideRequest.brightness);
++    }
+ }

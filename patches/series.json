@@ -66,5 +66,9 @@
   {
     "project": "vendor/lineage",
     "patch": "upstream/20-vendor_lineage.patch"
+  },
+  {
+    "project": "device/xiaomi/athens",
+    "patch": "upstream/22-device_xiaomi_athens.patch"
   }
 ]
