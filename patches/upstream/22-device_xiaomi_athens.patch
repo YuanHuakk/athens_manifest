@@ -658,6 +658,19 @@ index 0000000000000000000000000000000000000000..3e2d8478b5a42edbc528089b2b150215
 +    <library name = "asr" libraryName="libqasr.so"
 +            method="registerService" mandatory="false" />
 +</libraries>
+diff --git a/configs/init/init.athens.rc b/configs/init/init.athens.rc
+index c647be91e8f3c212f085662d8d28e4749c5a96ac..fbe721f68333845856f173454192507dc3f5d171 100644
+--- a/configs/init/init.athens.rc
++++ b/configs/init/init.athens.rc
+@@ -4,4 +4,7 @@
+ # SPDX-License-Identifier: Apache-2.0
+ #
+ 
+-# Reserved for device-specific init actions.
++on post-fs-data
++    # init.qcom.rc creates the camera parent first.
++    mkdir /data/vendor/camera/watermarks 0750 system system
++    restorecon_recursive /data/vendor/camera/watermarks
 diff --git a/custom_athens.mk b/custom_athens.mk
 index 9c8a230b57b36fcfd49167557cffd18c8954a12e..3a0d9f96b216c5df6c6a933b76a1da7ee7751cf4 100644
 --- a/custom_athens.mk
@@ -694,7 +707,7 @@ index 9c8a230b57b36fcfd49167557cffd18c8954a12e..3a0d9f96b216c5df6c6a933b76a1da7e
  ifeq ($(TARGET_BUILD_VARIANT),userdebug)
  PRODUCT_NOT_DEBUGGABLE_IN_USERDEBUG := false
 diff --git a/extract-files.py b/extract-files.py
-index 38da5a36336289754e79f30e5acb89c9b856643d..a7996669807f6422a6f16586f171b80f7569401e 100755
+index 38da5a36336289754e79f30e5acb89c9b856643d..3876ca5c118c93c7ee7fb7cef4cbc51b5b6dd9ef 100755
 --- a/extract-files.py
 +++ b/extract-files.py
 @@ -2,6 +2,7 @@
@@ -753,13 +766,16 @@ index 38da5a36336289754e79f30e5acb89c9b856643d..a7996669807f6422a6f16586f171b80f
      "odm/etc/audio_policy_engine_stream_volumes_mi.xml": blob_fixup().call(
          fixup_aosp_audio_volumes, need_tmp_dir=False
      ),
-@@ -134,6 +167,9 @@ blob_fixups: blob_fixups_user_type = {
+@@ -134,6 +167,12 @@ blob_fixups: blob_fixups_user_type = {
      .clear_symbol_version("AHardwareBuffer_unlock")
      .clear_symbol_version("AHardwareBuffer_lock")
      .clear_symbol_version("AHardwareBuffer_isSupported"),
 +    "odm/lib64/libmi_supernight_raw.so": blob_fixup().call(
 +        fixup_supernight_raw_protection, need_tmp_dir=False
 +    ),
++    # AOSP libEGL exports this entry point without Xiaomi's LIBEGL symbol version.
++    "odm/lib64/camera/plugins/com.xiaomi.plugin.watermarkV2.so": blob_fixup()
++    .clear_symbol_version("eglGetNativeClientBufferANDROID"),
      (
          "odm/lib64/camera/components/com.qti.node.dewarp.so",
          "odm/lib64/vendor.qti.hardware.camera.offlinecamera-service-impl.so",
@@ -801,10 +817,25 @@ index 0000000000000000000000000000000000000000..fdb528481b7fdb5acd7e3fecb2a60839
 +    <item name="config_appWindowBrightnessOverrideCap" format="float" type="dimen">0.411976560</item>
 +</resources>
 diff --git a/proprietary-files.txt b/proprietary-files.txt
-index 27bc631e0d3bd7afca925fc78c1d4e64f01cfac9..e3b04f2b4e18bd0239ac748149cb0cae79b63bc6 100644
+index 27bc631e0d3bd7afca925fc78c1d4e64f01cfac9..98a18ef5406ced7fdb11a98abdf2e768f6db6c63 100644
 --- a/proprietary-files.txt
 +++ b/proprietary-files.txt
-@@ -1878,6 +1878,9 @@ odm/lib64/libtical.so
+@@ -864,6 +864,14 @@ odm/lib64/camera/plugins/com.xiaomi.plugin.watermark.so
+ odm/lib64/camera/plugins/com.xiaomi.plugin.yuv2Heic.so
+ odm/lib64/camera/plugins/com.xiaomi.plugin.yuvresize.so
+ 
++# Camera watermark V2
++odm/etc/camera/xiaomi/watermark/MiSansVF.ttf
++odm/etc/camera/xiaomi/watermark/oxanium_bold.ttf
++odm/etc/camera/xiaomi/watermark/oxanium_medium.ttf
++odm/etc/camera/xiaomi/watermark/oxanium_regular.ttf
++odm/lib64/camera/plugins/com.xiaomi.plugin.watermarkV2.so
++odm/lib64/libpendant_wrapper.so
++
+ # Camera algorithms missing at bring-up (the video and 200MP graphs need them)
+ odm/lib64/camera/dynamicplugins/com.xiaomi.plugin.depurple.so
+ odm/lib64/camera/plugins/com.xiaomi.plugin.deflicker2.so
+@@ -1878,6 +1886,9 @@ odm/lib64/libtical.so
  # SIA91xx speaker amp firmware required at kernel driver probe.
  odm/firmware/sipa.bin
  
@@ -814,3 +845,55 @@ index 27bc631e0d3bd7afca925fc78c1d4e64f01cfac9..e3b04f2b4e18bd0239ac748149cb0cae
  # MiSys - Xiaomi Camera watermark resource synchronization
  vendor/bin/hypsys_vendor
  vendor/bin/hw/vendor.xiaomi.hardware.misys.core-service
+diff --git a/sepolicy/vendor/file.te b/sepolicy/vendor/file.te
+index 1d856dacf1b509316d7c8d73ece9ac8ada82ecb6..0929c34c32532ce5d2bd89973491cd7b99f9c222 100644
+--- a/sepolicy/vendor/file.te
++++ b/sepolicy/vendor/file.te
+@@ -4,3 +4,4 @@ type vendor_sysfs_ufs_discard, fs_type, sysfs_type;
+ type vendor_sysfs_pmic_pon_log, fs_type, sysfs_type;
+ type vendor_sysfs_mi_mempool, fs_type, sysfs_type;
+ type vendor_sysfs_ufs_write_booster, fs_type, sysfs_type;
++type vendor_camera_watermark_file, file_type, data_file_type;
+diff --git a/sepolicy/vendor/file_contexts b/sepolicy/vendor/file_contexts
+index 6f8051262ea222456f301be24c02c5d032208b7b..44f5fe92a46be0adda1354e6f64297859d3afb39 100644
+--- a/sepolicy/vendor/file_contexts
++++ b/sepolicy/vendor/file_contexts
+@@ -16,6 +16,7 @@
+ /(odm|vendor/odm)/bin/hw/mfp-daemon u:object_r:hal_fingerprint_default_exec:s0
+ 
+ # MiSys transfers Camera resources into the vendor data directory.
++/data/vendor/camera/watermarks(/.*)? u:object_r:vendor_camera_watermark_file:s0
+ /vendor/bin/hypsys_vendor u:object_r:hal_hypsys_vendor_exec:s0
+ /vendor/bin/hw/vendor\.xiaomi\.hardware\.misys\.core-service u:object_r:hal_misyscore_athens_exec:s0
+ 
+diff --git a/sepolicy/vendor/hal_camera_default.te b/sepolicy/vendor/hal_camera_default.te
+index 728f5b62bc4ad6a99b8f0e0a750fb501615cb0d3..e38c6d0346493851d473d93e461084c6d0d4cfb3 100644
+--- a/sepolicy/vendor/hal_camera_default.te
++++ b/sepolicy/vendor/hal_camera_default.te
+@@ -7,3 +7,7 @@ allow hal_camera_default vendor_sysfs_ufs_write_booster:file { open read };
+ allow hal_camera_default vendor_proc_mv:file r_file_perms;
+ allow hal_camera_default vendor_sysfs_kgsl:lnk_file read;
+ allow hal_camera_default vendor_sysfs_kgsl:file r_file_perms;
++
++# Read the synchronized watermark layout and resources when rendering.
++allow hal_camera_default vendor_camera_watermark_file:dir { getattr search };
++allow hal_camera_default vendor_camera_watermark_file:file { getattr map open read };
+diff --git a/sepolicy/vendor/hal_hypsys_vendor.te b/sepolicy/vendor/hal_hypsys_vendor.te
+index ac7a54164ed110fca29ea7a644cd08bdf0094635..7cc8503182862ceed2993cacd50e7b9349003632 100644
+--- a/sepolicy/vendor/hal_hypsys_vendor.te
++++ b/sepolicy/vendor/hal_hypsys_vendor.te
+@@ -43,6 +43,14 @@ allow hal_hypsys_vendor platform_app_36:fd use;
+ allow hal_hypsys_vendor appdomain_tmpfs:file read;
+ allow hal_hypsys_vendor vendor_camera_data_file:dir { add_name search write };
+ allow hal_hypsys_vendor vendor_camera_data_file:file { create getattr open setattr write };
++
++# MiSys copies, reads back and refreshes the resources inside the init-owned root.
++allow hal_hypsys_vendor vendor_camera_watermark_file:dir {
++    add_name create getattr open read remove_name rmdir search setattr write
++};
++allow hal_hypsys_vendor vendor_camera_watermark_file:file {
++    create getattr open read setattr unlink write
++};
+ allow hal_hypsys_vendor vendor_oops_block_device:blk_file getattr;
+ allow hal_hypsys_vendor minidump_data_file:file getattr;
+ get_prop(hal_hypsys_vendor, debug_prop)
