@@ -102,5 +102,9 @@
   {
     "project": "hardware/qcom-caf/thermal",
     "patch": "upstream/30-hardware_qcom-caf_thermal.patch"
+  },
+  {
+    "project": "packages/apps/LineageParts",
+    "patch": "upstream/31-packages_apps_LineageParts.patch"
   }
 ]
