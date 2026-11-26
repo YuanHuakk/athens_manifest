@@ -659,7 +659,7 @@ index 0000000000000000000000000000000000000000..3e2d8478b5a42edbc528089b2b150215
 +            method="registerService" mandatory="false" />
 +</libraries>
 diff --git a/custom_athens.mk b/custom_athens.mk
-index c3a6036329fb93f518de1a4069f095f83830750a..41613f8dcf3ac40b46098d736844d1f4cd7b111a 100644
+index 9c8a230b57b36fcfd49167557cffd18c8954a12e..cb65d4be0a4214e5f9ce93298f112ae926cb1744 100644
 --- a/custom_athens.mk
 +++ b/custom_athens.mk
 @@ -16,6 +16,21 @@ $(call inherit-product, vendor/custom/config/common_full_phone.mk)
@@ -684,6 +684,30 @@ index c3a6036329fb93f518de1a4069f095f83830750a..41613f8dcf3ac40b46098d736844d1f4
  # Keep authenticated root ADB available in userdebug builds.
  ifeq ($(TARGET_BUILD_VARIANT),userdebug)
  PRODUCT_NOT_DEBUGGABLE_IN_USERDEBUG := false
+diff --git a/extract-files.py b/extract-files.py
+index 38da5a36336289754e79f30e5acb89c9b856643d..20d44ccff60fabcc81b9ddf953e441c421a8d7d2 100755
+--- a/extract-files.py
++++ b/extract-files.py
+@@ -97,7 +97,18 @@ blob_fixups: blob_fixups_user_type = {
+     .regex_replace(r"virtual_deep_buffer,\s*|,\s*virtual_deep_buffer", "")
+     .regex_replace(r'(?s)<devicePort\s+tagName="Multiroute"[^>]*>.*?</devicePort>', "")
+     .regex_replace(r'<route\s+[^>]*sink="Multiroute"[^>]*/>', "")
+-    .regex_replace(r"\s*audio/vnd\.mi\.mihc", ""),
++    .regex_replace(r"\s*audio/vnd\.mi\.mihc", "")
++    # The ODM policy takes precedence. The PAL bit-perfect path uses the USB headset device ID.
++    .regex_replace(
++        r'(?m)^([ \t]*)(<mixPort name="hifi_playback" role="source">\s*</mixPort>)'
++        r'(?!\s*<mixPort name="bit_perfect_playback")',
++        r'\1\2\n\1<mixPort name="bit_perfect_playback" role="source" flags="BIT_PERFECT" />',
++    )
++    .regex_replace(
++        r'(<route type="mix" sink="usb_headset" sources=")(?![^"]*\bbit_perfect_playback\b)'
++        r'([^"]+)("\s*/>)',
++        r'\1\2,bit_perfect_playback\3',
++    ),
+     "odm/etc/audio_policy_engine_stream_volumes_mi.xml": blob_fixup().call(
+         fixup_aosp_audio_volumes, need_tmp_dir=False
+     ),
 diff --git a/overlays/AthensAppWindowBrightness/Android.bp b/overlays/AthensAppWindowBrightness/Android.bp
 new file mode 100644
 index 0000000000000000000000000000000000000000..7996b369e487810df747dcfd07b58b1e24b0c369

@@ -327,7 +327,7 @@ index f7eb2078112af6a4d89d9940dff68b5092ce8d28..cb5698e1afbdebc5d69889b546cf04d6
 \ No newline at end of file
 +    utils.run()
 diff --git a/proprietary-files.txt b/proprietary-files.txt
-index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..1833dc6081cbf9db2d48388adbbd9e5eb11ac22a 100644
+index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..b14d3db02fa6537b82c35fba62ae8c5a71aa58fb 100644
 --- a/proprietary-files.txt
 +++ b/proprietary-files.txt
 @@ -132,7 +132,7 @@ vendor/lib64/libaudioserviceexampleimpl.so;DISABLE_DEPS
@@ -474,7 +474,27 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..1833dc6081cbf9db2d48388adbbd9e5e
  vendor/bin/hw/qconfigservice
  vendor/bin/hw/vendor.qti.media.c2@1.0-service
  vendor/bin/init.qti.media.sh
-@@ -1118,33 +1122,33 @@ vendor/lib64/vendor.xiaomi.hardware.mlipay-V1-ndk.so
+@@ -1041,6 +1045,11 @@ vendor/etc/media_codecs_canoe_v1_vendor.xml
+ vendor/etc/media_codecs_canoe_v1.xml
+ vendor/etc/media_codecs_canoe_v2_vendor.xml
+ vendor/etc/media_codecs_canoe_v2.xml
++vendor/etc/media_codecs_google_audio.xml
++vendor/etc/media_codecs_google_c2.xml
++vendor/etc/media_codecs_google_c2_audio.xml
++vendor/etc/media_codecs_google_c2_video.xml
++vendor/etc/media_codecs_google_telephony.xml
+ vendor/etc/media_codecs_performance_canoe_sku1_vendor.xml
+ vendor/etc/media_codecs_performance_canoe_sku1.xml
+ vendor/etc/media_codecs_performance_canoe_sku2_vendor.xml
+@@ -1051,6 +1060,7 @@ vendor/etc/media_codecs_performance_canoe_v1_vendor.xml
+ vendor/etc/media_codecs_performance_canoe_v1.xml
+ vendor/etc/media_codecs_performance_canoe_v2_vendor.xml
+ vendor/etc/media_codecs_performance_canoe_v2.xml
++vendor/etc/media_codecs_vendor_audio.xml
+ vendor/etc/media_codecs.xml
+ vendor/etc/media_profiles_canoe_sku1.xml
+ vendor/etc/media_profiles_canoe_sku2.xml
+@@ -1118,33 +1128,33 @@ vendor/lib64/vendor.xiaomi.hardware.mlipay-V1-ndk.so
  vendor/etc/public.libraries.txt
  
  # Neural networks
@@ -535,7 +555,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..1833dc6081cbf9db2d48388adbbd9e5e
  
  # NFC
  odm/etc/libnfc-nci.conf:vendor/etc/libnfc-nci.conf
-@@ -1243,7 +1247,6 @@ system_ext/lib64/vendor.qti.qccsyshal_aidl-V1-ndk.so
+@@ -1243,7 +1253,6 @@ system_ext/lib64/vendor.qti.qccsyshal_aidl-V1-ndk.so
  system_ext/lib64/vendor.qti.qccvndhal_aidl-V1-ndk.so
  vendor/bin/qcc-vendor
  vendor/etc/init/init.qccvendor.rc
@@ -543,7 +563,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..1833dc6081cbf9db2d48388adbbd9e5e
  vendor/lib64/libqcc_file_agent.so
  vendor/lib64/libqcc_sdk.so
  vendor/lib64/vendor.qti.qccsyshal_aidl-V1-ndk.so;MODULE_SUFFIX=_vendor
-@@ -1313,15 +1316,15 @@ vendor/lib64/libspl.so
+@@ -1313,15 +1322,15 @@ vendor/lib64/libspl.so
  vendor/lib64/vendor.qti.hardware.qseecom-V1-ndk.so
  
  # QSN
@@ -568,7 +588,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..1833dc6081cbf9db2d48388adbbd9e5e
  
  # QSPA
  system_ext/etc/init/qspa_system.rc
-@@ -1361,8 +1364,7 @@ product/framework/uimremoteclientlibrary.jar
+@@ -1361,8 +1370,7 @@ product/framework/uimremoteclientlibrary.jar
  product/framework/uimremoteserverlibrary.jar
  product/framework/uimservicelibrary.jar
  product/lib64/vendor.qti.hardware.radio.internal.deviceinfo@1.0.so
@@ -578,7 +598,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..1833dc6081cbf9db2d48388adbbd9e5e
  system_ext/etc/permissions/qcrilhook.xml
  system_ext/etc/permissions/qti_libpermissions.xml
  system_ext/etc/permissions/qti_permissions.xml
-@@ -1638,7 +1640,7 @@ vendor/lib64/vendor.qti.snapdragonServices-V2-ndk.so
+@@ -1638,7 +1646,7 @@ vendor/lib64/vendor.qti.snapdragonServices-V2-ndk.so
  vendor/lib64/vendor.qti.snapdragonServices.qape-V1-ndk.so
  
  # Soter
@@ -587,7 +607,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..1833dc6081cbf9db2d48388adbbd9e5e
  vendor/bin/hw/vendor.qti.hardware.soter-service
  vendor/bin/vendor.qti.hardware.soter-provision
  vendor/etc/init/vendor.qti.hardware.soter-service.rc
-@@ -1761,34 +1763,36 @@ vendor/etc/wifi/wpa_supplicant_overlay.conf
+@@ -1761,34 +1769,36 @@ vendor/etc/wifi/wpa_supplicant_overlay.conf
  vendor/lib64/libWlanServiceJni.so
  
  # WiFi Display (system) - from CPH2745_11_C_OTA_1020_all_Qyq7GC_00011011
