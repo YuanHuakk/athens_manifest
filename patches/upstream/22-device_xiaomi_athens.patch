@@ -983,18 +983,20 @@ index 38da5a36336289754e79f30e5acb89c9b856643d..f004d032cccdc6f8b55395717378cd99
      utils = ExtractUtils.device_with_common(module, "sm8850-common", module.vendor)
      utils.run()
 diff --git a/infinity_athens.mk b/infinity_athens.mk
-index 0eff298a6525f56bef6b16f82a8118bf23f8a90a..37ad071c8eb73f0d9a649b61b8c55a66bc10447d 100644
+index 0eff298a6525f56bef6b16f82a8118bf23f8a90a..6c71f5d2ad993382951e9a5958cd7cb57090563b 100644
 --- a/infinity_athens.mk
 +++ b/infinity_athens.mk
-@@ -9,6 +9,7 @@ TARGET_SCREEN_HEIGHT := 2510
+@@ -8,7 +8,9 @@ TARGET_SCREEN_WIDTH := 1156
+ TARGET_SCREEN_HEIGHT := 2510
  TARGET_HAS_UDFPS := true
  WITH_GAPPS := true
++ATHENS_APTX_ADAPTIVE_TEST_BUILD ?= true
  INFINITY_BUILD_TYPE := UNOFFICIAL
 +INFINITY_MAINTAINER := YuanHuakk
  PRODUCT_GMS_CLIENTID_BASE := android-xiaomi
  
  $(call inherit-product, $(SRC_TARGET_DIR)/product/core_64_bit_only.mk)
-@@ -17,8 +18,55 @@ $(call inherit-product, vendor/infinity/config/common_full_phone.mk)
+@@ -17,8 +19,55 @@ $(call inherit-product, vendor/infinity/config/common_full_phone.mk)
  
  $(call inherit-product, device/xiaomi/athens/device.mk)
  
@@ -1036,7 +1038,7 @@ index 0eff298a6525f56bef6b16f82a8118bf23f8a90a..37ad071c8eb73f0d9a649b61b8c55a66
 +PRODUCT_PACKAGES += libathens_mivk_bridge
 +endif
 +
-+# Use the Qualcomm Adaptive bridge in opt-in validation builds.
++# Install the 406 Qualcomm Adaptive offload stack.
 +ifeq ($(ATHENS_APTX_ADAPTIVE_TEST_BUILD),true)
 +$(call soong_config_set_bool,athens_bluetooth,aptx_adaptive,true)
 +PRODUCT_PACKAGES += \
@@ -1050,7 +1052,7 @@ index 0eff298a6525f56bef6b16f82a8118bf23f8a90a..37ad071c8eb73f0d9a649b61b8c55a66
  # Keep authenticated root ADB available in userdebug builds.
  ifeq ($(TARGET_BUILD_VARIANT),userdebug)
  PRODUCT_NOT_DEBUGGABLE_IN_USERDEBUG := false
-@@ -28,5 +76,5 @@ endif
+@@ -28,5 +77,5 @@ endif
  PRODUCT_DEVICE := athens
  PRODUCT_NAME := infinity_athens
  PRODUCT_BRAND := Redmi

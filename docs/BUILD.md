@@ -78,11 +78,10 @@ printf '%s  %s\n' fc3922743a7a526d7eab5e818d769144ce789088dd2016607866cb731dea0b
 
 ## 编译与导出
 
-默认配置为 `infinity_athens-user`，包含 GApps。以下两个开关可在编译前分别导出，未设置时按产品默认配置构建。
+默认配置为 `infinity_athens-user`，包含 GApps 和 406 QTI aptX Adaptive。诊断蓝牙时可在编译前通过 `export ATHENS_APTX_ADAPTIVE_TEST_BUILD=false` 关闭 Adaptive。
 
 | 可选构建配置 | Bash 设置 | 依赖与范围 |
 | --- | --- | --- |
-| aptX Adaptive | `export ATHENS_APTX_ADAPTIVE_TEST_BUILD=true` | 使用 406 QTI 音频服务和提取的 `btaudio_offload_if` 库。 |
 | MiVK 动矢实验 | `export ATHENS_MIVK_TEST_BUILD=true` | 保留 Vulkan 动矢接入代码，使用提取的 `libanf`、`libmisuperframe`、`libmivk` 和 Joyose 配置。原神 60 FPS 输入时，尚未确认面板每秒输出 120 个不同画面。 |
 
 ```bash
