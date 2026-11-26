@@ -766,7 +766,7 @@ index 0000000000000000000000000000000000000000..120fb78f3f60113c9560ae3643c86496
 +    user root
 +    group root
 diff --git a/configs/properties/odm.prop b/configs/properties/odm.prop
-index 5c3f5f3d6b4cc86b3f2e11876173b60a702f3ff1..9e1d7f98451adcfd70ace7e126bdc5853b04aa45 100644
+index adc15d18d307b5703f6d41b5ecb158d02ef98e6e..9e1d7f98451adcfd70ace7e126bdc5853b04aa45 100644
 --- a/configs/properties/odm.prop
 +++ b/configs/properties/odm.prop
 @@ -2,8 +2,14 @@
@@ -784,16 +784,6 @@ index 5c3f5f3d6b4cc86b3f2e11876173b60a702f3ff1..9e1d7f98451adcfd70ace7e126bdc585
  
  # Touch
  ro.vendor.touchfeature.type=247
-@@ -12,6 +18,9 @@ ro.vendor.touchfeature.type=247
- ro.vendor.sensor.maxbrightness=7800
- ro.vendor.proxcal.factor=2.82
- 
-+# The 406 mi_thermald board sensor profiles use the stock non-white-box decoder.
-+persist.vendor.aes_whitebox.encrypt=false
-+
- # Fingerprint
- ro.hardware.fp.fod=true
- ro.hardware.fp.fod.c=true
 diff --git a/configs/vintf/compatibility_matrix.athens.xml b/configs/vintf/compatibility_matrix.athens.xml
 index 5336aa7106309c13797d044c230b58f78c6bc68c..6ec91de30673a6f0128f5e17c38dd4a3efc33155 100644
 --- a/configs/vintf/compatibility_matrix.athens.xml
