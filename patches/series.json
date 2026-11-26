@@ -68,6 +68,10 @@
     "patch": "upstream/20-vendor_lineage.patch"
   },
   {
+    "project": "packages/apps/Settings",
+    "patch": "upstream/21-packages_apps_Settings.patch"
+  },
+  {
     "project": "device/xiaomi/athens",
     "patch": "upstream/22-device_xiaomi_athens.patch"
   }
