@@ -683,14 +683,23 @@ index 38da5a36336289754e79f30e5acb89c9b856643d..20d44ccff60fabcc81b9ddf953e441c4
          fixup_aosp_audio_volumes, need_tmp_dir=False
      ),
 diff --git a/lineage_athens.mk b/lineage_athens.mk
-index 2cc83c6bbc29e4aafec7d49ce030b089ea194c98..1786cd1231bc3ffff28c9622bc3e3e687d0d6465 100644
+index 2cc83c6bbc29e4aafec7d49ce030b089ea194c98..d7b5ed4007450669b8c2ad72402e4be81dda4e34 100644
 --- a/lineage_athens.mk
 +++ b/lineage_athens.mk
-@@ -11,6 +11,21 @@ $(call inherit-product, vendor/lineage/config/common_full_phone.mk)
+@@ -4,6 +4,8 @@
+ # SPDX-License-Identifier: Apache-2.0
+ #
+ 
++ATHENS_APTX_ADAPTIVE_TEST_BUILD ?= true
++
+ $(call inherit-product, $(SRC_TARGET_DIR)/product/core_64_bit_only.mk)
+ $(call inherit-product, $(SRC_TARGET_DIR)/product/full_base_telephony.mk)
+ 
+@@ -11,6 +13,21 @@ $(call inherit-product, vendor/lineage/config/common_full_phone.mk)
  
  $(call inherit-product, device/xiaomi/athens/device.mk)
  
-+# Use the 406 Qualcomm Adaptive bridge in opt-in validation builds.
++# Install the 406 Qualcomm Adaptive offload stack.
 +ifeq ($(ATHENS_APTX_ADAPTIVE_TEST_BUILD),true)
 +$(call soong_config_set_bool,athens_bluetooth,aptx_adaptive,true)
 +PRODUCT_PACKAGES += \

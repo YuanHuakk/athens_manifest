@@ -146,8 +146,8 @@ TREE="$PWD" JOBS=12 bash "$MANIFEST_REPO/tools/build.sh"
 SELinux 配置为 Enforcing。刷入后可用 `adb shell getenforce` 确认运行状态。
 调试版可设置 `BUILD_VARIANT=userdebug`。默认构建使用开发测试密钥，发布签名需单独配置。
 
-验证 aptX Adaptive 时，应用补丁后重新提取 406 原厂文件，构建前设置
-`export ATHENS_APTX_ADAPTIVE_TEST_BUILD=true`。
+Athens 默认启用基于 406 的 aptX Adaptive。应用补丁后重新提取 406 原厂文件。
+诊断蓝牙时，可在编译前通过 `export ATHENS_APTX_ADAPTIVE_TEST_BUILD=false` 关闭 Adaptive。
 
 完成后导出独立副本；把下面的文件名替换为实际输出：
 
