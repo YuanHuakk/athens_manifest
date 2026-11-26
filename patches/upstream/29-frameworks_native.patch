@@ -1,0 +1,138 @@
+diff --git a/services/surfaceflinger/FpsReporter.cpp b/services/surfaceflinger/FpsReporter.cpp
+index 13cf2d67cb8d3ec475af8c5ae8bb9c1bd18f694a..a9a7ada5def4cc5fbd4083bc37772ff7cdf818e2 100644
+--- a/services/surfaceflinger/FpsReporter.cpp
++++ b/services/surfaceflinger/FpsReporter.cpp
+@@ -16,7 +16,9 @@
+ 
+ #define ATRACE_TAG ATRACE_TAG_GRAPHICS
+ 
+-#include <algorithm>
++#include <unordered_map>
++#include <unordered_set>
++#include <vector>
+ 
+ #include "FpsReporter.h"
+ #include "Layer.h"
+@@ -35,22 +37,20 @@ void FpsReporter::dispatchLayerFps(const frontend::LayerHierarchy& layerHierarch
+         return;
+     }
+ 
+-    std::vector<TrackedListener> localListeners;
++    using Listeners = std::vector<sp<gui::IFpsListener>>;
++    std::unordered_map<int32_t, Listeners> listenersByTask;
+     {
+         std::scoped_lock lock(mMutex);
+         if (mListeners.empty()) {
+             return;
+         }
+ 
+-        std::transform(mListeners.begin(), mListeners.end(), std::back_inserter(localListeners),
+-                       [](const std::pair<wp<IBinder>, TrackedListener>& entry) {
+-                           return entry.second;
+-                       });
++        for (const auto& [_, entry] : mListeners) {
++            listenersByTask[entry.taskId].push_back(entry.listener);
++        }
+     }
+ 
+-    std::unordered_set<int32_t> seenTasks;
+-    std::vector<std::pair<TrackedListener, const frontend::LayerHierarchy*>>
+-            listenersAndLayersToReport;
++    std::vector<std::pair<Listeners, const frontend::LayerHierarchy*>> listenersAndLayersToReport;
+ 
+     layerHierarchy.traverse([&](const frontend::LayerHierarchy& hierarchy,
+                                 const frontend::LayerHierarchy::TraversalPath& traversalPath) {
+@@ -59,22 +59,17 @@ void FpsReporter::dispatchLayerFps(const frontend::LayerHierarchy& layerHierarch
+         }
+         const auto& metadata = hierarchy.getLayer()->metadata;
+         if (metadata.has(gui::METADATA_TASK_ID)) {
+-            int32_t taskId = metadata.getInt32(gui::METADATA_TASK_ID, 0);
+-            if (seenTasks.count(taskId) == 0) {
+-                // localListeners is expected to be tiny
+-                for (TrackedListener& listener : localListeners) {
+-                    if (listener.taskId == taskId) {
+-                        seenTasks.insert(taskId);
+-                        listenersAndLayersToReport.push_back({listener, &hierarchy});
+-                        break;
+-                    }
+-                }
++            const int32_t taskId = metadata.getInt32(gui::METADATA_TASK_ID, 0);
++            const auto it = listenersByTask.find(taskId);
++            if (it != listenersByTask.end()) {
++                listenersAndLayersToReport.emplace_back(std::move(it->second), &hierarchy);
++                listenersByTask.erase(it);
+             }
+         }
+         return true;
+     });
+ 
+-    for (const auto& [listener, hierarchy] : listenersAndLayersToReport) {
++    for (const auto& [listeners, hierarchy] : listenersAndLayersToReport) {
+         std::unordered_set<int32_t> layerIds;
+ 
+         hierarchy->traverse([&](const frontend::LayerHierarchy& hierarchy,
+@@ -86,7 +81,10 @@ void FpsReporter::dispatchLayerFps(const frontend::LayerHierarchy& layerHierarch
+             return true;
+         });
+ 
+-        listener.listener->onFpsReported(mFrameTimeline.computeFps(layerIds));
++        const float fps = mFrameTimeline.computeFps(layerIds);
++        for (const auto& listener : listeners) {
++            listener->onFpsReported(fps);
++        }
+     }
+ 
+     mLastDispatch = now;
+diff --git a/services/surfaceflinger/tests/unittests/FpsReporterTest.cpp b/services/surfaceflinger/tests/unittests/FpsReporterTest.cpp
+index 43535de302251330d4962b2d32fabc67bc98b4d5..3df1dcf0ee09736325c94783c58cbc5a9a18dc5c 100644
+--- a/services/surfaceflinger/tests/unittests/FpsReporterTest.cpp
++++ b/services/surfaceflinger/tests/unittests/FpsReporterTest.cpp
+@@ -30,7 +30,6 @@
+ #include "FrontEnd/LayerHierarchy.h"
+ #include "FrontEnd/LayerLifecycleManager.h"
+ #include "Layer.h"
+-#include "TestableSurfaceFlinger.h"
+ #include "fake/FakeClock.h"
+ #include "mock/DisplayHardware/MockComposer.h"
+ #include "mock/MockFrameTimeline.h"
+@@ -176,6 +175,40 @@ TEST_F(FpsReporterTest, callsListeners) {
+     mFpsReporter->dispatchLayerFps(hierarchyBuilder.getHierarchy());
+ }
+ 
++TEST_F(FpsReporterTest, reportsEachTaskToAllItsListeners) {
++    constexpr int32_t kTaskId = 12;
++    constexpr int32_t kOtherTaskId = 13;
++    LayerMetadata taskMetadata;
++    taskMetadata.setInt32(gui::METADATA_TASK_ID, kTaskId);
++    LayerMetadata otherTaskMetadata;
++    otherTaskMetadata.setInt32(gui::METADATA_TASK_ID, kOtherTaskId);
++    createRootLayer(1, taskMetadata);
++    createLayer(11, 1);
++    createRootLayer(2, otherTaskMetadata);
++    createLayer(21, 2);
++
++    frontend::LayerHierarchyBuilder hierarchyBuilder;
++    hierarchyBuilder.update(mLifecycleManager);
++
++    constexpr float kTaskFps = 44.f;
++    constexpr float kOtherTaskFps = 53.f;
++    EXPECT_CALL(mFrameTimeline, computeFps(UnorderedElementsAre(1, 11))).WillOnce(Return(kTaskFps));
++    EXPECT_CALL(mFrameTimeline, computeFps(UnorderedElementsAre(2, 21)))
++            .WillOnce(Return(kOtherTaskFps));
++
++    const auto secondListener = sp<TestableFpsListener>::make();
++    const auto otherTaskListener = sp<TestableFpsListener>::make();
++    mFpsReporter->addListener(mFpsListener, kTaskId);
++    mFpsReporter->addListener(secondListener, kTaskId);
++    mFpsReporter->addListener(otherTaskListener, kOtherTaskId);
++    mClock->advanceTime(600ms);
++    mFpsReporter->dispatchLayerFps(hierarchyBuilder.getHierarchy());
++
++    EXPECT_EQ(kTaskFps, mFpsListener->lastReportedFps);
++    EXPECT_EQ(kTaskFps, secondListener->lastReportedFps);
++    EXPECT_EQ(kOtherTaskFps, otherTaskListener->lastReportedFps);
++}
++
+ TEST_F(FpsReporterTest, rateLimits) {
+     const constexpr int32_t kTaskId = 12;
+     LayerMetadata targetMetadata;
