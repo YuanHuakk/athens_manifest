@@ -45201,10 +45201,10 @@ index 7b579c0e0c21a37c4251f5b7e59ca04c4f5ef1e9..cd7248d3a02f5dee4f50b39fc09a8562
          if (vote instanceof RefreshRateVote.PhysicalVote physicalVote) {
 diff --git a/services/core/java/com/android/server/notification/MiPushNotificationBridge.java b/services/core/java/com/android/server/notification/MiPushNotificationBridge.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..a8992268ff44f6b16f064226c57035e60e93205c
+index 0000000000000000000000000000000000000000..d408b62f95644e444c30118f18587c1d465f903a
 --- /dev/null
 +++ b/services/core/java/com/android/server/notification/MiPushNotificationBridge.java
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,127 @@
 +/*
 + * SPDX-License-Identifier: Apache-2.0
 + */
@@ -45284,8 +45284,7 @@ index 0000000000000000000000000000000000000000..a8992268ff44f6b16f064226c57035e6
 +            try {
 +                ApplicationInfo app = pm.getApplicationInfoAsUser(target, 0, userId);
 +                if (!UserHandle.isApp(app.uid) || UserHandle.getUserId(app.uid) != userId
-+                        || !app.enabled || app.isInstantApp()
-+                        || (app.flags & ApplicationInfo.FLAG_STOPPED) != 0) {
++                        || !app.enabled || app.isInstantApp()) {
 +                    return null;
 +                }
 +                String permission = target + ".permission.MIPUSH_RECEIVE";
@@ -45298,6 +45297,14 @@ index 0000000000000000000000000000000000000000..a8992268ff44f6b16f064226c57035e6
 +                return null;
 +            }
 +        });
++    }
++
++    static boolean canPostForTarget(ApplicationInfo target, Notification notification) {
++        // These intents can run without the user opening the notification.
++        return (target.flags & ApplicationInfo.FLAG_STOPPED) == 0
++                || (notification.fullScreenIntent == null
++                        && notification.getBubbleMetadata() == null
++                        && notification.deleteIntent == null);
 +    }
 +
 +    static boolean isForwarded(String pkg, String opPkg, @Nullable String tag) {
@@ -45326,7 +45333,7 @@ index 0000000000000000000000000000000000000000..a8992268ff44f6b16f064226c57035e6
 +    }
 +}
 diff --git a/services/core/java/com/android/server/notification/NotificationManagerService.java b/services/core/java/com/android/server/notification/NotificationManagerService.java
-index 2cf25471b8f6c096d95f500e1d912f6a7ddb3156..81878c2f498e20a7d4b90ab9ee2ba9103be0772d 100644
+index 2cf25471b8f6c096d95f500e1d912f6a7ddb3156..364a1d17448a8a2d4240f86fb39242387b59b3cb 100644
 --- a/services/core/java/com/android/server/notification/NotificationManagerService.java
 +++ b/services/core/java/com/android/server/notification/NotificationManagerService.java
 @@ -1169,9 +1169,11 @@ public class NotificationManagerService extends SystemService {
@@ -45532,7 +45539,7 @@ index 2cf25471b8f6c096d95f500e1d912f6a7ddb3156..81878c2f498e20a7d4b90ab9ee2ba910
      void enqueueNotificationInternal(final String pkg, final String opPkg, final int callingUid,
              final int callingPid, final String tag, final int id, final Notification notification,
              int incomingUserId, boolean byForegroundService, boolean isAppProvided) {
-@@ -9359,24 +9466,50 @@ public class NotificationManagerService extends SystemService {
+@@ -9359,24 +9466,52 @@ public class NotificationManagerService extends SystemService {
       * @return True if we successfully processed the notification and handed off the task of
       * enqueueing it to a background thread; false otherwise.
       */
@@ -45570,7 +45577,9 @@ index 2cf25471b8f6c096d95f500e1d912f6a7ddb3156..81878c2f498e20a7d4b90ab9ee2ba910
 +        if (requestedTarget != null) {
 +            forwardedTarget = MiPushNotificationBridge.getTarget(getContext(), mPackageManagerClient,
 +                    requestedTarget, userId);
-+            if (forwardedTarget == null || !mPermissionHelper.hasPermission(forwardedTarget.uid)
++            if (forwardedTarget == null
++                    || !MiPushNotificationBridge.canPostForTarget(forwardedTarget, notification)
++                    || !mPermissionHelper.hasPermission(forwardedTarget.uid)
 +                    || !ensureMiPushChannel(callingUid, forwardedTarget,
 +                            notification.getChannelId())) {
 +                return false;
@@ -45589,7 +45598,7 @@ index 2cf25471b8f6c096d95f500e1d912f6a7ddb3156..81878c2f498e20a7d4b90ab9ee2ba910
  
          final boolean isHiddenApp = AxSandboxService.get().isPackageHidden(pkg, userId);
          if (isHiddenApp) {
-@@ -9403,10 +9536,19 @@ public class NotificationManagerService extends SystemService {
+@@ -9403,10 +9538,19 @@ public class NotificationManagerService extends SystemService {
          // as "pkg"
          int notificationUid = INVALID_UID;
  
@@ -46339,10 +46348,10 @@ index 0a4891b6f458299864c103b2d09d7eae980fafc6..9c402d543af1dbb5f0f53c0cefde5c08
       */
 diff --git a/services/tests/uiservicestests/src/com/android/server/notification/MiPushNotificationBridgeTest.java b/services/tests/uiservicestests/src/com/android/server/notification/MiPushNotificationBridgeTest.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..3ea19a40eaaab2494f975be8ef2d943a3eb185da
+index 0000000000000000000000000000000000000000..17aa5f3dc2842b04c2cff5f1077e4e66185f1b9d
 --- /dev/null
 +++ b/services/tests/uiservicestests/src/com/android/server/notification/MiPushNotificationBridgeTest.java
-@@ -0,0 +1,137 @@
+@@ -0,0 +1,168 @@
 +/*
 + * SPDX-License-Identifier: Apache-2.0
 + */
@@ -46357,7 +46366,9 @@ index 0000000000000000000000000000000000000000..3ea19a40eaaab2494f975be8ef2d943a
 +import static org.mockito.Mockito.when;
 +
 +import android.app.Notification;
++import android.app.PendingIntent;
 +import android.content.Context;
++import android.content.Intent;
 +import android.content.pm.ApplicationInfo;
 +import android.content.pm.PackageManager;
 +import android.content.pm.PermissionInfo;
@@ -46470,7 +46481,36 @@ index 0000000000000000000000000000000000000000..3ea19a40eaaab2494f975be8ef2d943a
 +        assertThat(MiPushNotificationBridge.getTarget(context, pm, TARGET, 0)).isNull();
 +        info.packageName = TARGET;
 +        app.flags = ApplicationInfo.FLAG_STOPPED;
-+        assertThat(MiPushNotificationBridge.getTarget(context, pm, TARGET, 0)).isNull();
++        assertThat(MiPushNotificationBridge.getTarget(context, pm, TARGET, 0)).isSameInstanceAs(app);
++    }
++
++    @Test
++    public void stoppedTargetAllowsUserTapAndRejectsOtherIntentTriggers() {
++        Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
++        PendingIntent tap = PendingIntent.getActivity(context, 0,
++                new Intent(Intent.ACTION_MAIN).setPackage(context.getPackageName()),
++                PendingIntent.FLAG_IMMUTABLE);
++        ApplicationInfo app = new ApplicationInfo();
++        app.flags = ApplicationInfo.FLAG_STOPPED;
++        Notification notification = new Notification();
++        notification.contentIntent = tap;
++        assertThat(MiPushNotificationBridge.canPostForTarget(app, notification)).isTrue();
++
++        notification.fullScreenIntent = tap;
++        assertThat(MiPushNotificationBridge.canPostForTarget(app, notification)).isFalse();
++        notification.fullScreenIntent = null;
++
++        notification.deleteIntent = tap;
++        assertThat(MiPushNotificationBridge.canPostForTarget(app, notification)).isFalse();
++        notification.deleteIntent = null;
++
++        notification.setBubbleMetadata(new Notification.BubbleMetadata.Builder("mipush-test")
++                .setAutoExpandBubble(true).build());
++        assertThat(MiPushNotificationBridge.canPostForTarget(app, notification)).isFalse();
++
++        app.flags = 0;
++        assertThat(MiPushNotificationBridge.canPostForTarget(app, notification)).isTrue();
++        tap.cancel();
 +    }
 +
 +    private static String requestedTarget(String target, String channelId) {
