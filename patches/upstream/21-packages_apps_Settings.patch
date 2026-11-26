@@ -108,3 +108,119 @@ index 209c1333e0180f9740e923d586919739f850d93c..d5d9741a45e7f63e4968a0f5325072c8
      @Test
      public void getBatteryInfo_regularCharging_updateRemainingLabelAndStatusLabel() {
          prepareTestGetBatteryInfoEnvironment(
+diff --git a/res/values-zh-rCN/dolby_atmos_strings.xml b/res/values-zh-rCN/dolby_atmos_strings.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..703494865ed9adc24198563fa6daebfb968eec58
+--- /dev/null
++++ b/res/values-zh-rCN/dolby_atmos_strings.xml
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<resources>
++    <string name="dolby_atmos_title">杜比全景声</string>
++    <string name="dolby_atmos_summary">增强受支持的扬声器和耳机的媒体音效。切换至 USB 音频时暂停。</string>
++</resources>
+diff --git a/res/values/dolby_atmos_strings.xml b/res/values/dolby_atmos_strings.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..c615f23103a26ac681c806b5217fd876e4f2a400
+--- /dev/null
++++ b/res/values/dolby_atmos_strings.xml
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<resources>
++    <string name="dolby_atmos_title">Dolby Atmos</string>
++    <string name="dolby_atmos_summary">Enhance media playback on supported speakers and headphones. Pauses on USB audio.</string>
++</resources>
+diff --git a/res/xml/sound_settings.xml b/res/xml/sound_settings.xml
+index d65ff25ffa6682f60f1c2a859a1a4db676d3f084..01b926de2055e005e640993d05349c9ce5d6334c 100644
+--- a/res/xml/sound_settings.xml
++++ b/res/xml/sound_settings.xml
+@@ -214,6 +214,14 @@
+             android:fragment="com.android.settings.sound.VolumeSteps"
+             android:order="-113"/>
+ 
++        <SwitchPreferenceCompat
++            android:key="dolby_atmos_enabled"
++            android:title="@string/dolby_atmos_title"
++            android:summary="@string/dolby_atmos_summary"
++            android:persistent="false"
++            android:order="-108"
++            settings:controller="com.android.settings.notification.DolbyAtmosPreferenceController"/>
++
+         <!-- Spatial audio -->
+         <Preference
+             android:key="spatial_audio_summary"
+diff --git a/src/com/android/settings/notification/DolbyAtmosPreferenceController.java b/src/com/android/settings/notification/DolbyAtmosPreferenceController.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..cdcb09afb96ed3c01f2219ee0185b35ff7b60695
+--- /dev/null
++++ b/src/com/android/settings/notification/DolbyAtmosPreferenceController.java
+@@ -0,0 +1,67 @@
++/*
++ * Copyright (C) 2026 The Android Open Source Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.notification;
++
++import android.content.Context;
++import android.media.audiofx.AudioEffect;
++import android.provider.Settings;
++
++import com.android.settings.R;
++import com.android.settings.core.TogglePreferenceController;
++
++import java.util.UUID;
++
++/** Preference for the Dolby DAP effect managed by AudioService. */
++public class DolbyAtmosPreferenceController extends TogglePreferenceController {
++    // Keep this key in sync with DolbyAtmosController in AudioService.
++    private static final String ENABLED_SETTING = "dolby_atmos_enabled";
++    private static final UUID DAP_UUID =
++            UUID.fromString("9d4921da-8225-4f29-aefa-39537a04bcaa");
++
++    public DolbyAtmosPreferenceController(Context context, String preferenceKey) {
++        super(context, preferenceKey);
++    }
++
++    @Override
++    public int getAvailabilityStatus() {
++        final AudioEffect.Descriptor[] effects = AudioEffect.queryEffects();
++        if (effects != null) {
++            for (AudioEffect.Descriptor effect : effects) {
++                if (DAP_UUID.equals(effect.uuid)) {
++                    return AVAILABLE;
++                }
++            }
++        }
++        return UNSUPPORTED_ON_DEVICE;
++    }
++
++    @Override
++    public boolean isChecked() {
++        return Settings.Secure.getInt(mContext.getContentResolver(), ENABLED_SETTING, 0) != 0;
++    }
++
++    @Override
++    public boolean setChecked(boolean checked) {
++        return Settings.Secure.putInt(mContext.getContentResolver(), ENABLED_SETTING,
++                checked ? 1 : 0);
++    }
++
++    @Override
++    public int getSliceHighlightMenuRes() {
++        return R.string.menu_key_sound;
++    }
++}
