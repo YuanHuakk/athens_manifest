@@ -953,3 +953,60 @@ index 0000000000000000000000000000000000000000..a8a954b545598d06cf3b5f8b53ef9b78
 +        return mState;
 +    }
 +}
+diff --git a/media/java/android/media/AudioSystem.java b/media/java/android/media/AudioSystem.java
+index 752ade8c06356412b73aa5bab7aa1679fe98df1b..3467319946693fb4eb4345533820ce46922fc092 100644
+--- a/media/java/android/media/AudioSystem.java
++++ b/media/java/android/media/AudioSystem.java
+@@ -271,6 +271,8 @@ public class AudioSystem
+     /** @hide */
+     public static final int AUDIO_FORMAT_LDAC           = 0x23000000;
+     /** @hide */
++    public static final int AUDIO_FORMAT_APTX_ADAPTIVE  = 0x27000000;
++    /** @hide */
+     public static final int AUDIO_FORMAT_LHDC           = 0x28000000;
+     /** @hide */
+     public static final int AUDIO_FORMAT_LC3            = 0x2B000000;
+@@ -290,6 +292,7 @@ public class AudioSystem
+                 AUDIO_FORMAT_SBC,
+                 AUDIO_FORMAT_APTX,
+                 AUDIO_FORMAT_APTX_HD,
++                AUDIO_FORMAT_APTX_ADAPTIVE,
+                 AUDIO_FORMAT_LDAC,
+                 AUDIO_FORMAT_LHDC,
+                 AUDIO_FORMAT_LC3,
+@@ -325,6 +328,8 @@ public class AudioSystem
+     //TODO b/415848542: replace with BluetoothCodecType.CODEC_ID_LHDC
+     //Remove with a2dpCreateCodecTypeFromIdApi flag
+     private static final int BLUETOOTH_CODEC_CONFIG_SOURCE_CODEC_TYPE_LHDC = 7;
++
++    private static final long BLUETOOTH_A2DP_CODEC_ID_APTX_ADAPTIVE = 0x00ad00d7ffL;
+     /**
+      * @hide
+      * Convert audio format enum values to Bluetooth codec values
+@@ -358,6 +363,7 @@ public class AudioSystem
+             case AUDIO_FORMAT_SBC -> BluetoothCodecType.CODEC_ID_SBC;
+             case AUDIO_FORMAT_APTX -> BluetoothCodecType.CODEC_ID_APTX;
+             case AUDIO_FORMAT_APTX_HD -> BluetoothCodecType.CODEC_ID_APTX_HD;
++            case AUDIO_FORMAT_APTX_ADAPTIVE -> BLUETOOTH_A2DP_CODEC_ID_APTX_ADAPTIVE;
+             case AUDIO_FORMAT_LDAC -> {
+                 if (com.android.bluetooth.flags.Flags.a2dpLdacApi()) {
+                     yield BluetoothCodecType.CODEC_ID_SONY_LDAC;
+@@ -414,6 +420,9 @@ public class AudioSystem
+         if (codecId == BluetoothCodecType.CODEC_ID_APTX_HD) {
+             return AudioSystem.AUDIO_FORMAT_APTX_HD;
+         }
++        if (codecId == BLUETOOTH_A2DP_CODEC_ID_APTX_ADAPTIVE) {
++            return AudioSystem.AUDIO_FORMAT_APTX_ADAPTIVE;
++        }
+         if (com.android.bluetooth.flags.Flags.a2dpLdacApi()) {
+             if (codecId == BluetoothCodecType.CODEC_ID_SONY_LDAC) {
+                 return AudioSystem.AUDIO_FORMAT_LDAC;
+@@ -540,7 +549,7 @@ public class AudioSystem
+                 return "AUDIO_FORMAT_AAC_LATM";
+             case /* AUDIO_FORMAT_CELT            */ 0x26000000:
+                 return "AUDIO_FORMAT_CELT";
+-            case /* AUDIO_FORMAT_APTX_ADAPTIVE   */ 0x27000000:
++            case AUDIO_FORMAT_APTX_ADAPTIVE:
+                 return "AUDIO_FORMAT_APTX_ADAPTIVE";
+             case /* AUDIO_FORMAT_LHDC            */ 0x28000000:
+                 return "AUDIO_FORMAT_LHDC";
