@@ -86,5 +86,9 @@
   {
     "project": "hardware/interfaces",
     "patch": "upstream/27-hardware_interfaces.patch"
+  },
+  {
+    "project": "frameworks/native",
+    "patch": "upstream/29-frameworks_native.patch"
   }
 ]
