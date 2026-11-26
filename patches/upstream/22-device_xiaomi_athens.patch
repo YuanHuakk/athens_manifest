@@ -692,16 +692,22 @@ index c647be91e8f3c212f085662d8d28e4749c5a96ac..fbe721f68333845856f173454192507d
 +    mkdir /data/vendor/camera/watermarks 0750 system system
 +    restorecon_recursive /data/vendor/camera/watermarks
 diff --git a/custom_athens.mk b/custom_athens.mk
-index 9c8a230b57b36fcfd49167557cffd18c8954a12e..7740531487d234d7ed0608eb4d2a2e8372279a6a 100644
+index 9c8a230b57b36fcfd49167557cffd18c8954a12e..9bc2b6afbd88cfa57c523f53ac7730a8b78112f9 100644
 --- a/custom_athens.mk
 +++ b/custom_athens.mk
-@@ -16,6 +16,25 @@ $(call inherit-product, vendor/custom/config/common_full_phone.mk)
+@@ -16,6 +16,31 @@ $(call inherit-product, vendor/custom/config/common_full_phone.mk)
  
  $(call inherit-product, device/xiaomi/athens/device.mk)
  
 +PRODUCT_PACKAGES += \
 +    MIUICalculator \
 +    UPTsmService
++
++# Preinstall the 406 China push broker and enable its stock notification protocol.
++PRODUCT_PACKAGES += XiaomiServiceFrameworkCN
++PRODUCT_PRODUCT_PROPERTIES += ro.product.locale.region?=CN
++PRODUCT_COPY_FILES += \
++    device/xiaomi/athens/mipush/athens-mipush.xml:$(TARGET_COPY_OUT_PRODUCT)/etc/sysconfig/athens-mipush.xml
 +
 +# Use the 406 Qualcomm Adaptive bridge by default.
 +ifeq ($(or $(ATHENS_APTX_ADAPTIVE_TEST_BUILD),true),true)
@@ -814,6 +820,166 @@ index 38da5a36336289754e79f30e5acb89c9b856643d..3876ca5c118c93c7ee7fb7cef4cbc51b
      (
          "odm/lib64/camera/components/com.qti.node.dewarp.so",
          "odm/lib64/vendor.qti.hardware.camera.offlinecamera-service-impl.so",
+diff --git a/mipush/Android.bp b/mipush/Android.bp
+new file mode 100644
+index 0000000000000000000000000000000000000000..e4ce62f36c2ee7dfaa953940a6eb4be100d3db26
+--- /dev/null
++++ b/mipush/Android.bp
+@@ -0,0 +1,140 @@
++// SPDX-License-Identifier: Apache-2.0
++
++// Keep the signed base, configuration splits and startup provider feature splits together.
++android_app_import {
++    name: "XiaomiServiceFrameworkCN",
++    apk: "//vendor/xiaomi/athens:athens_xmsf_base_apk",
++    filename: "split-XiaomiServiceFrameworkCN-master.apk",
++    required: [
++        "XiaomiServiceFrameworkCNAbi",
++        "XiaomiServiceFrameworkCNDensity",
++        "XiaomiServiceFrameworkCNAuth",
++        "XiaomiServiceFrameworkCNAuthDensity",
++        "XiaomiServiceFrameworkCNOAuth",
++        "XiaomiServiceFrameworkCNOAuthDensity",
++        "XiaomiServiceFrameworkCNPrefetch",
++        "XiaomiServiceFrameworkCNPrefetchDensity",
++    ],
++    relative_install_path: "split-XiaomiServiceFrameworkCN",
++    install_path_skip_module_dir: true,
++    product_specific: true,
++    presigned: true,
++    preprocessed: true,
++    // HyperOS shared libraries in the manifest are optional.
++    enforce_uses_libs: false,
++    dex_preopt: {
++        enabled: false,
++    },
++}
++
++android_app_import {
++    name: "XiaomiServiceFrameworkCNAbi",
++    apk: "//vendor/xiaomi/athens:athens_xmsf_abi_apk",
++    filename: "split-XiaomiServiceFrameworkCN-arm64_v8a.apk",
++    relative_install_path: "split-XiaomiServiceFrameworkCN",
++    install_path_skip_module_dir: true,
++    product_specific: true,
++    presigned: true,
++    preprocessed: true,
++    dex_preopt: {
++        enabled: false,
++    },
++}
++
++android_app_import {
++    name: "XiaomiServiceFrameworkCNDensity",
++    apk: "//vendor/xiaomi/athens:athens_xmsf_density_apk",
++    filename: "split-XiaomiServiceFrameworkCN-xxhdpi.apk",
++    relative_install_path: "split-XiaomiServiceFrameworkCN",
++    install_path_skip_module_dir: true,
++    product_specific: true,
++    presigned: true,
++    preprocessed: true,
++    dex_preopt: {
++        enabled: false,
++    },
++}
++
++android_app_import {
++    name: "XiaomiServiceFrameworkCNAuth",
++    apk: "//vendor/xiaomi/athens:athens_xmsf_auth_apk",
++    filename: "auth-master.apk",
++    relative_install_path: "split-XiaomiServiceFrameworkCN",
++    install_path_skip_module_dir: true,
++    product_specific: true,
++    presigned: true,
++    preprocessed: true,
++    dex_preopt: {
++        enabled: false,
++    },
++}
++
++android_app_import {
++    name: "XiaomiServiceFrameworkCNAuthDensity",
++    apk: "//vendor/xiaomi/athens:athens_xmsf_auth_density_apk",
++    filename: "auth-xxhdpi.apk",
++    relative_install_path: "split-XiaomiServiceFrameworkCN",
++    install_path_skip_module_dir: true,
++    product_specific: true,
++    presigned: true,
++    preprocessed: true,
++    dex_preopt: {
++        enabled: false,
++    },
++}
++
++android_app_import {
++    name: "XiaomiServiceFrameworkCNOAuth",
++    apk: "//vendor/xiaomi/athens:athens_xmsf_oauth_apk",
++    filename: "oauth-master.apk",
++    relative_install_path: "split-XiaomiServiceFrameworkCN",
++    install_path_skip_module_dir: true,
++    product_specific: true,
++    presigned: true,
++    preprocessed: true,
++    dex_preopt: {
++        enabled: false,
++    },
++}
++
++android_app_import {
++    name: "XiaomiServiceFrameworkCNOAuthDensity",
++    apk: "//vendor/xiaomi/athens:athens_xmsf_oauth_density_apk",
++    filename: "oauth-xxhdpi.apk",
++    relative_install_path: "split-XiaomiServiceFrameworkCN",
++    install_path_skip_module_dir: true,
++    product_specific: true,
++    presigned: true,
++    preprocessed: true,
++    dex_preopt: {
++        enabled: false,
++    },
++}
++
++android_app_import {
++    name: "XiaomiServiceFrameworkCNPrefetch",
++    apk: "//vendor/xiaomi/athens:athens_xmsf_prefetch_apk",
++    filename: "prefetch-master.apk",
++    relative_install_path: "split-XiaomiServiceFrameworkCN",
++    install_path_skip_module_dir: true,
++    product_specific: true,
++    presigned: true,
++    preprocessed: true,
++    dex_preopt: {
++        enabled: false,
++    },
++}
++
++android_app_import {
++    name: "XiaomiServiceFrameworkCNPrefetchDensity",
++    apk: "//vendor/xiaomi/athens:athens_xmsf_prefetch_density_apk",
++    filename: "prefetch-xxhdpi.apk",
++    relative_install_path: "split-XiaomiServiceFrameworkCN",
++    install_path_skip_module_dir: true,
++    product_specific: true,
++    presigned: true,
++    preprocessed: true,
++    dex_preopt: {
++        enabled: false,
++    },
++}
+diff --git a/mipush/athens-mipush.xml b/mipush/athens-mipush.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..0f9b9014df642aaa1d550ffd69f3f6113202ddca
+--- /dev/null
++++ b/mipush/athens-mipush.xml
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<config>
++    <feature name="org.infinityx.feature.MIPUSH_NOTIFICATION_FORWARDING" />
++    <allow-in-power-save-except-idle package="com.xiaomi.xmsf" />
++    <exempt-from-cached-app-freezer package="com.xiaomi.xmsf" process="com.xiaomi.xmsf" />
++    <exempt-from-cached-app-freezer package="com.xiaomi.xmsf" process="com.xiaomi.xmsf:services" />
++</config>
 diff --git a/overlays/AthensAppWindowBrightness/Android.bp b/overlays/AthensAppWindowBrightness/Android.bp
 new file mode 100644
 index 0000000000000000000000000000000000000000..7996b369e487810df747dcfd07b58b1e24b0c369
@@ -889,7 +1055,7 @@ index 0000000000000000000000000000000000000000..541255ba93bd41f60d070d8e1d4ef278
 +
 +athens_uptsm_dir :=
 diff --git a/proprietary-files.txt b/proprietary-files.txt
-index 27bc631e0d3bd7afca925fc78c1d4e64f01cfac9..7d59c25207eb274f7babdc99384cac88865d5dda 100644
+index 27bc631e0d3bd7afca925fc78c1d4e64f01cfac9..eb59155bc0fbdcbfff4fca04c107dd720cf24902 100644
 --- a/proprietary-files.txt
 +++ b/proprietary-files.txt
 @@ -864,6 +864,14 @@ odm/lib64/camera/plugins/com.xiaomi.plugin.watermark.so
@@ -907,12 +1073,23 @@ index 27bc631e0d3bd7afca925fc78c1d4e64f01cfac9..7d59c25207eb274f7babdc99384cac88
  # Camera algorithms missing at bring-up (the video and 200MP graphs need them)
  odm/lib64/camera/dynamicplugins/com.xiaomi.plugin.depurple.so
  odm/lib64/camera/plugins/com.xiaomi.plugin.deflicker2.so
-@@ -1878,6 +1886,24 @@ odm/lib64/libtical.so
+@@ -1878,6 +1886,35 @@ odm/lib64/libtical.so
  # SIA91xx speaker amp firmware required at kernel driver probe.
  odm/firmware/sipa.bin
  
 +# HyperOS 406 Calculator
 +product/data-app/MIUICalculator/MIUICalculator.apk;EXTRACT_ONLY;FILEGROUP=athens_miui_calculator_apk|30f71f7f58747a313c89b9587b8543399e01a85e
++
++# Mi Push
++product/app/split-XiaomiServiceFrameworkCN/auth-master.apk;EXTRACT_ONLY;FILEGROUP=athens_xmsf_auth_apk
++product/app/split-XiaomiServiceFrameworkCN/auth-xxhdpi.apk;EXTRACT_ONLY;FILEGROUP=athens_xmsf_auth_density_apk
++product/app/split-XiaomiServiceFrameworkCN/oauth-master.apk;EXTRACT_ONLY;FILEGROUP=athens_xmsf_oauth_apk
++product/app/split-XiaomiServiceFrameworkCN/oauth-xxhdpi.apk;EXTRACT_ONLY;FILEGROUP=athens_xmsf_oauth_density_apk
++product/app/split-XiaomiServiceFrameworkCN/prefetch-master.apk;EXTRACT_ONLY;FILEGROUP=athens_xmsf_prefetch_apk
++product/app/split-XiaomiServiceFrameworkCN/prefetch-xxhdpi.apk;EXTRACT_ONLY;FILEGROUP=athens_xmsf_prefetch_density_apk
++product/app/split-XiaomiServiceFrameworkCN/split-XiaomiServiceFrameworkCN-arm64_v8a.apk;EXTRACT_ONLY;FILEGROUP=athens_xmsf_abi_apk
++product/app/split-XiaomiServiceFrameworkCN/split-XiaomiServiceFrameworkCN-master.apk;EXTRACT_ONLY;FILEGROUP=athens_xmsf_base_apk
++product/app/split-XiaomiServiceFrameworkCN/split-XiaomiServiceFrameworkCN-xxhdpi.apk;EXTRACT_ONLY;FILEGROUP=athens_xmsf_density_apk
 +
 +# UnionPay trusted service and its app-private JNI libraries.
 +product/app/UPTsmService/UPTsmService.apk;EXTRACT_ONLY

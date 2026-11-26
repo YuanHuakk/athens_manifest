@@ -41958,3 +41958,857 @@ index 0000000000000000000000000000000000000000..87a4d8e073a3aacc3431caf44d082385
 +        return Collections.unmodifiableMap(result);
 +    }
 +}
+diff --git a/services/core/java/com/android/server/SystemConfig.java b/services/core/java/com/android/server/SystemConfig.java
+index f1cb009dab32069706c6377b393b2dc68315c334..cf2f2c3b69d9c3ad49d12da6960c55ad2c6e01f9 100644
+--- a/services/core/java/com/android/server/SystemConfig.java
++++ b/services/core/java/com/android/server/SystemConfig.java
+@@ -96,7 +96,8 @@ public class SystemConfig {
+     private static final int ALLOW_ASSOCIATIONS = 0x080;
+     // ALLOW_OVERRIDE_APP_RESTRICTIONS allows to use "allow-in-power-save-except-idle",
+     // "allow-in-power-save", "allow-in-data-usage-save","allow-unthrottled-location",
+-    // "allow-ignore-location-settings" and "allow-adas-location-settings".
++    // "allow-ignore-location-settings", "allow-adas-location-settings" and
++    // "exempt-from-cached-app-freezer".
+     private static final int ALLOW_OVERRIDE_APP_RESTRICTIONS = 0x100;
+     private static final int ALLOW_IMPLICIT_BROADCASTS = 0x200;
+     private static final int ALLOW_VENDOR_APEX = 0x400;
+@@ -279,6 +280,9 @@ public class SystemConfig {
+     // as read from the configuration files.
+     final ArraySet<String> mAllowInPowerSaveExceptIdle = new ArraySet<>();
+ 
++    // Maps packages to the exact process names exempt from the cached app freezer.
++    private final ArrayMap<String, ArraySet<String>> mCachedAppFreezerExemptions = new ArrayMap<>();
++
+     // These are the packages that are white-listed to be able to run in the
+     // background while in power save mode, as read from the configuration files.
+     final ArraySet<String> mAllowInPowerSave = new ArraySet<>();
+@@ -496,6 +500,11 @@ public class SystemConfig {
+         return mAllowInPowerSaveExceptIdle;
+     }
+ 
++    public boolean isExemptFromCachedAppFreezer(String packageName, String processName) {
++        final ArraySet<String> processes = mCachedAppFreezerExemptions.get(packageName);
++        return processes != null && processes.contains(processName);
++    }
++
+     public ArraySet<String> getAllowInPowerSave() {
+         return mAllowInPowerSave;
+     }
+@@ -979,6 +988,10 @@ public class SystemConfig {
+                         readAllowInPowerSaveExceptIdle(
+                                 parser, permFile, allowOverrideAppRestrictions, name);
+                         break;
++                    case "exempt-from-cached-app-freezer":
++                        readCachedAppFreezerExemption(
++                                parser, permFile, allowOverrideAppRestrictions, name);
++                        break;
+                     case "allow-in-power-save":
+                         readAllowInPowerSave(parser, permFile, allowOverrideAppRestrictions, name);
+                         break;
+@@ -1340,6 +1353,24 @@ public class SystemConfig {
+         XmlUtils.skipCurrentTag(parser);
+     }
+ 
++    private void readCachedAppFreezerExemption(XmlPullParser parser, File permFile,
++            boolean allow, String name) throws IOException, XmlPullParserException {
++        if (allow) {
++            final String packageName = parser.getAttributeValue(null, "package");
++            final String processName = parser.getAttributeValue(null, "process");
++            if (TextUtils.isEmpty(packageName) || TextUtils.isEmpty(processName)) {
++                Slog.w(TAG, "<" + name + "> requires both package and process in "
++                        + permFile + " at " + parser.getPositionDescription());
++            } else {
++                mCachedAppFreezerExemptions.computeIfAbsent(packageName, key -> new ArraySet<>())
++                        .add(processName);
++            }
++        } else {
++            logNotAllowedInPartition(name, permFile, parser);
++        }
++        XmlUtils.skipCurrentTag(parser);
++    }
++
+     private void readAllowInPowerSave(XmlPullParser parser, File permFile, boolean allow,
+             String name) throws IOException, XmlPullParserException {
+         if (allow) {
+diff --git a/services/core/java/com/android/server/am/ProcessRecord.java b/services/core/java/com/android/server/am/ProcessRecord.java
+index da58696a735690bc9374436662a3a4f3d32762fd..4d53f776d900e6c913e117f15e03718a8d04765d 100644
+--- a/services/core/java/com/android/server/am/ProcessRecord.java
++++ b/services/core/java/com/android/server/am/ProcessRecord.java
+@@ -69,6 +69,7 @@ import com.android.internal.app.procstats.ProcessState;
+ import com.android.internal.app.procstats.ProcessStats;
+ import com.android.internal.os.Zygote;
+ import com.android.server.FgThread;
++import com.android.server.SystemConfig;
+ import com.android.server.am.psc.Constants.OomAdjust;
+ import com.android.server.am.psc.OomAdjuster;
+ import com.android.server.am.psc.OomAdjusterImpl.ProcessRecordNode;
+@@ -600,7 +601,9 @@ class ProcessRecord extends ProcessRecordInternal implements WindowProcessListen
+     ProcessRecord(ActivityManagerService _service, ApplicationInfo _info, String _processName,
+             int _uid, String _sdkSandboxClientAppPackage, int _definingUid,
+             String _definingProcessName) {
+-        super(_processName, _uid, _service, _service.mProcLock);
++        super(_processName, _uid, _service, _service.mProcLock,
++                _info.isSystemApp() && SystemConfig.getInstance().isExemptFromCachedAppFreezer(
++                        _info.packageName, _processName));
+ 
+         mService = _service;
+         mProcLock = _service.mProcLock;
+diff --git a/services/core/java/com/android/server/am/psc/OomAdjuster.java b/services/core/java/com/android/server/am/psc/OomAdjuster.java
+index f927002a8617af087288300ed8ec848ed7a416f1..438bd0d156661a2e23e201f74ec5e24c6fbadb70 100644
+--- a/services/core/java/com/android/server/am/psc/OomAdjuster.java
++++ b/services/core/java/com/android/server/am/psc/OomAdjuster.java
+@@ -2671,17 +2671,14 @@ public abstract class OomAdjuster {
+     }
+ 
+     /**
+-     * Return whether or not a process should be frozen.
+-     * A process is unfrozen only if it is important enough (see {@link #getCpuCapability} and
+-     * {@link #getImplicitCpuCapability}) or bound by something important enough (see
+-     * {@link #getCpuCapabilitiesFromClient}).
++     * Returns whether a process should be frozen by the cached app freezer.
++     * A process can stay unfrozen if explicitly exempted by system configuration, if it is
++     * important enough (see {@link #getCpuCapability} and {@link #getImplicitCpuCapability}), or
++     * if it is bound by something important enough (see {@link #getCpuCapabilitiesFromClient}).
+      */
+     public static boolean getFreezePolicy(ProcessRecordInternal proc) {
+-        if ((proc.getCurCapability() & ALL_CPU_TIME_CAPABILITIES) != 0) {
+-            return false;
+-        }
+-        // Default, freeze a process.
+-        return true;
++        return !proc.exemptFromCachedAppFreezer
++                && (proc.getCurCapability() & ALL_CPU_TIME_CAPABILITIES) == 0;
+     }
+ 
+     /**
+diff --git a/services/core/java/com/android/server/am/psc/ProcessRecordInternal.java b/services/core/java/com/android/server/am/psc/ProcessRecordInternal.java
+index 262bfbc052206baa6e5f777babb50ea0a3c2caad..c4bdc5ceb56a69f7d29f7013005f662c23f29528 100644
+--- a/services/core/java/com/android/server/am/psc/ProcessRecordInternal.java
++++ b/services/core/java/com/android/server/am/psc/ProcessRecordInternal.java
+@@ -394,6 +394,7 @@ public abstract class ProcessRecordInternal {
+     public final int userId;
+     public final boolean isolated;     // true if this is a special isolated process
+     public final boolean isSdkSandbox; // true if this is an SDK sandbox process
++    final boolean exemptFromCachedAppFreezer;
+ 
+     private Observer mObserver;
+     private StartedServiceObserver mStartedServiceObserver;
+@@ -834,11 +835,17 @@ public abstract class ProcessRecordInternal {
+     private boolean mIsZramWrittenBack = false;
+ 
+     public ProcessRecordInternal(String processName, int uid, Object serviceLock, Object procLock) {
++        this(processName, uid, serviceLock, procLock, false);
++    }
++
++    protected ProcessRecordInternal(String processName, int uid, Object serviceLock,
++            Object procLock, boolean exemptFromCachedAppFreezer) {
+         this.processName = processName;
+         this.uid = uid;
+         userId = UserHandle.getUserId(uid);
+         isSdkSandbox = Process.isSdkSandboxUid(this.uid);
+         isolated = Process.isIsolatedUid(this.uid);
++        this.exemptFromCachedAppFreezer = exemptFromCachedAppFreezer && !isolated && !isSdkSandbox;
+         mServiceLock = serviceLock;
+         mProcLock = procLock;
+ 
+diff --git a/services/core/java/com/android/server/notification/MiPushNotificationBridge.java b/services/core/java/com/android/server/notification/MiPushNotificationBridge.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..a8992268ff44f6b16f064226c57035e60e93205c
+--- /dev/null
++++ b/services/core/java/com/android/server/notification/MiPushNotificationBridge.java
+@@ -0,0 +1,120 @@
++/*
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.server.notification;
++
++import android.annotation.Nullable;
++import android.app.Notification;
++import android.content.Context;
++import android.content.pm.ApplicationInfo;
++import android.content.pm.PackageManager;
++import android.content.pm.PermissionInfo;
++import android.graphics.drawable.Icon;
++import android.os.Binder;
++import android.os.UserHandle;
++import android.service.notification.StatusBarNotification;
++
++import com.android.internal.R;
++
++import java.util.HexFormat;
++
++/** Recognizes the notification format used by the stock Xiaomi push broker on AOSP. */
++final class MiPushNotificationBridge {
++    static final String BROKER = "com.xiaomi.xmsf";
++    static final String FEATURE = "org.infinityx.feature.MIPUSH_NOTIFICATION_FORWARDING";
++    // Stock XMSF uses an untagged notification ID. Keep these IDs separate from the app's own.
++    static final String FORWARDED_TAG = "com.android.server.notification.MiPushForwarded";
++
++    private static final byte[] STOCK_CERT = HexFormat.of().parseHex(
++            "c9009d01ebf9f5d0302bc71b2fe9aa9a47a432bba17308a3111b75d7b2149025");
++
++    private MiPushNotificationBridge() {}
++
++    static boolean isBrokerCaller(PackageManager pm, int uid, int userId) {
++        if (!UserHandle.isApp(uid) || UserHandle.getUserId(uid) != userId
++                || !pm.hasSystemFeature(FEATURE)) {
++            return false;
++        }
++        return Binder.withCleanCallingIdentity(() -> {
++            try {
++                ApplicationInfo broker = pm.getApplicationInfoAsUser(BROKER, 0, userId);
++                if (broker.uid != uid || !broker.isSystemApp()) {
++                    return false;
++                }
++                String[] packages = pm.getPackagesForUid(uid);
++                return packages != null && packages.length == 1 && BROKER.equals(packages[0])
++                        && pm.hasSigningCertificate(BROKER, STOCK_CERT,
++                                PackageManager.CERT_INPUT_SHA256);
++            } catch (PackageManager.NameNotFoundException e) {
++                return false;
++            }
++        });
++    }
++
++    @Nullable
++    static String getRequestedTarget(Notification notification) {
++        if (notification.extras == null) {
++            return null;
++        }
++        String target = notification.extras.getString("target_package");
++        if (target == null || target.isEmpty() || BROKER.equals(target)) {
++            return null;
++        }
++        return isChannelForTarget(notification.getChannelId(), target) ? target : null;
++    }
++
++    private static boolean isChannelForTarget(@Nullable String channelId, String target) {
++        String channelPrefix = "mipush_" + target + "_";
++        return channelId != null && channelId.startsWith(channelPrefix)
++                && channelId.length() > channelPrefix.length();
++    }
++
++    /** The target must own and hold the same signature permission XMSF uses for delivery. */
++    @Nullable
++    static ApplicationInfo getTarget(Context context, PackageManager pm, String target, int userId) {
++        return Binder.withCleanCallingIdentity(() -> {
++            try {
++                ApplicationInfo app = pm.getApplicationInfoAsUser(target, 0, userId);
++                if (!UserHandle.isApp(app.uid) || UserHandle.getUserId(app.uid) != userId
++                        || !app.enabled || app.isInstantApp()
++                        || (app.flags & ApplicationInfo.FLAG_STOPPED) != 0) {
++                    return null;
++                }
++                String permission = target + ".permission.MIPUSH_RECEIVE";
++                PermissionInfo info = pm.getPermissionInfo(permission, 0);
++                return target.equals(info.packageName)
++                        && info.getProtection() == PermissionInfo.PROTECTION_SIGNATURE
++                        && context.checkPermission(permission, -1, app.uid)
++                                == PackageManager.PERMISSION_GRANTED ? app : null;
++            } catch (PackageManager.NameNotFoundException e) {
++                return null;
++            }
++        });
++    }
++
++    static boolean isForwarded(String pkg, String opPkg, @Nullable String tag) {
++        return FORWARDED_TAG.equals(tag) && BROKER.equals(opPkg) && !BROKER.equals(pkg);
++    }
++
++    /** Keeps the target app's icon on system-generated summaries for delegated pushes. */
++    static Icon getAutoGroupSummaryIcon(StatusBarNotification source, Icon summaryIcon) {
++        String target = source.getPackageName();
++        Notification notification = source.getNotification();
++        if (!BROKER.equals(source.getOpPkg()) || BROKER.equals(target)
++                || !isChannelForTarget(notification.getChannelId(), target)
++                || notification.extras == null
++                || summaryIcon == null || summaryIcon.getType() != Icon.TYPE_RESOURCE
++                || !"android".equals(summaryIcon.getResPackage())
++                || summaryIcon.getResId() != R.drawable.ic_notification_summary_auto) {
++            return summaryIcon;
++        }
++        ApplicationInfo app = notification.extras.getParcelable(
++                Notification.EXTRA_BUILDER_APPLICATION_INFO, ApplicationInfo.class);
++        if (app == null || !target.equals(app.packageName)) {
++            return summaryIcon;
++        }
++        int icon = app.icon != 0 ? app.icon : app.logo;
++        return icon != 0 ? Icon.createWithResource(target, icon) : summaryIcon;
++    }
++}
+diff --git a/services/core/java/com/android/server/notification/NotificationManagerService.java b/services/core/java/com/android/server/notification/NotificationManagerService.java
+index 409bc8dfc1ddecc12408e4c0fdb57b0d531fbf81..db693bc1c7d0367d78047c03b857d7bb4679f9e9 100644
+--- a/services/core/java/com/android/server/notification/NotificationManagerService.java
++++ b/services/core/java/com/android/server/notification/NotificationManagerService.java
+@@ -1166,9 +1166,11 @@ public class NotificationManagerService extends SystemService {
+ 
+         int oldFlags = summary.getSbn().getNotification().flags;
+         int newFlags = summaryAttr.flags != GroupHelper.FLAG_INVALID ? summaryAttr.flags : oldFlags;
++        final Icon summaryIcon = MiPushNotificationBridge.getAutoGroupSummaryIcon(
++                summary.getSbn(), summaryAttr.icon);
+ 
+         boolean attributesUpdated =
+-                !summaryAttr.icon.sameAs(summary.getSbn().getNotification().getSmallIcon())
++                !summaryIcon.sameAs(summary.getSbn().getNotification().getSmallIcon())
+                 || summaryAttr.iconColor != summary.getSbn().getNotification().color
+                 || summaryAttr.visibility != summary.getSbn().getNotification().visibility
+                 || summaryAttr.groupAlertBehavior !=
+@@ -1186,7 +1188,7 @@ public class NotificationManagerService extends SystemService {
+ 
+         if (oldFlags != newFlags || attributesUpdated) {
+             summary.getSbn().getNotification().flags = newFlags;
+-            summary.getSbn().getNotification().setSmallIcon(summaryAttr.icon);
++            summary.getSbn().getNotification().setSmallIcon(summaryIcon);
+             summary.getSbn().getNotification().color = summaryAttr.iconColor;
+             summary.getSbn().getNotification().visibility = summaryAttr.visibility;
+             summary.getSbn().getNotification()
+@@ -4616,6 +4618,9 @@ public class NotificationManagerService extends SystemService {
+         public void enqueueNotificationWithTag(String pkg, String opPkg, String tag, int id,
+                 Notification notification,
+                 @CanBeALL @CanBeCURRENT @UserIdInt int userId) throws RemoteException {
++            if (MiPushNotificationBridge.FORWARDED_TAG.equals(tag)) {
++                throw new IllegalArgumentException("Reserved notification tag");
++            }
+             enqueueNotificationInternal(pkg, opPkg, Binder.getCallingUid(),
+                     Binder.getCallingPid(), tag, id, notification, userId,
+                     /* byForegroundService= */ false, /* isAppProvided= */ true);
+@@ -4633,6 +4638,10 @@ public class NotificationManagerService extends SystemService {
+ 
+             cancelNotificationInternal(pkg, opPkg, Binder.getCallingUid(), Binder.getCallingPid(),
+                     tag, id, userId, mustNotHaveFlags);
++            if (tag == null && MiPushNotificationBridge.BROKER.equals(pkg) && pkg.equals(opPkg)) {
++                cancelMiPushNotifications(Binder.getCallingUid(), Binder.getCallingPid(),
++                        userId, id, mustNotHaveFlags);
++            }
+         }
+ 
+         @Override
+@@ -4648,6 +4657,12 @@ public class NotificationManagerService extends SystemService {
+                     pkg, null, 0, FLAG_FOREGROUND_SERVICE | FLAG_USER_INITIATED_JOB
+                             | FLAG_LIFETIME_EXTENDED_BY_DIRECT_REPLY | FLAG_COMPUTER_CONTROL,
+                     userId, REASON_APP_CANCEL_ALL);
++            if (MiPushNotificationBridge.BROKER.equals(pkg)) {
++                cancelMiPushNotifications(Binder.getCallingUid(), Binder.getCallingPid(),
++                        userId, null, FLAG_FOREGROUND_SERVICE | FLAG_USER_INITIATED_JOB
++                                | FLAG_AUTOGROUP_SUMMARY | FLAG_LIFETIME_EXTENDED_BY_DIRECT_REPLY
++                                | FLAG_COMPUTER_CONTROL);
++            }
+             final int packageImportance = getPackageImportanceWithIdentity(pkg);
+             // If cancellation will be prevented due to lifetime extension, we send updates
+             // to system UI.
+@@ -5945,26 +5960,33 @@ public class NotificationManagerService extends SystemService {
+             int userId = ActivityManager.handleIncomingUser(Binder.getCallingPid(),
+                     Binder.getCallingUid(), incomingUserId, true, false,
+                     "getAppActiveNotifications", pkg);
++            final boolean isMiPushBroker = MiPushNotificationBridge.BROKER.equals(pkg)
++                    && MiPushNotificationBridge.isBrokerCaller(mPackageManagerClient,
++                            Binder.getCallingUid(), userId);
+             synchronized (mNotificationLock) {
+                 final ArrayMap<String, StatusBarNotification> map
+                         = new ArrayMap<>(mNotificationList.size() + mEnqueuedNotifications.size());
+                 final int N = mNotificationList.size();
+                 for (int i = 0; i < N; i++) {
+-                    StatusBarNotification sbn = sanitizeSbn(pkg, userId,
++                    StatusBarNotification sbn = sanitizeSbn(pkg, userId, isMiPushBroker,
+                             mNotificationList.get(i).getSbn());
+                     if (sbn != null) {
+                         map.put(sbn.getKey(), sbn);
+                     }
+                 }
+-                for(NotificationRecord snoozed: mSnoozeHelper.getSnoozed(userId, pkg)) {
+-                    StatusBarNotification sbn = sanitizeSbn(pkg, userId, snoozed.getSbn());
++                final Collection<NotificationRecord> snoozedNotifications =
++                        isMiPushBroker ? mSnoozeHelper.getSnoozed()
++                                : mSnoozeHelper.getSnoozed(userId, pkg);
++                for (NotificationRecord snoozed : snoozedNotifications) {
++                    StatusBarNotification sbn = sanitizeSbn(pkg, userId, isMiPushBroker,
++                            snoozed.getSbn());
+                     if (sbn != null) {
+                         map.put(sbn.getKey(), sbn);
+                     }
+                 }
+                 final int M = mEnqueuedNotifications.size();
+                 for (int i = 0; i < M; i++) {
+-                    StatusBarNotification sbn = sanitizeSbn(pkg, userId,
++                    StatusBarNotification sbn = sanitizeSbn(pkg, userId, isMiPushBroker,
+                             mEnqueuedNotifications.get(i).getSbn());
+                     if (sbn != null) {
+                         map.put(sbn.getKey(), sbn); // pending update overwrites existing post here
+@@ -5977,10 +5999,15 @@ public class NotificationManagerService extends SystemService {
+         }
+ 
+         /** Notifications returned here will have allowlistToken stripped from them. */
+-        private StatusBarNotification sanitizeSbn(String pkg, int userId,
++        private StatusBarNotification sanitizeSbn(String pkg, int userId, boolean isMiPushBroker,
+                 StatusBarNotification sbn) {
+             if (sbn.getUserId() == userId) {
+-                if (sbn.getPackageName().equals(pkg) || sbn.getOpPkg().equals(pkg)) {
++                final boolean forwarded = MiPushNotificationBridge.isForwarded(
++                        sbn.getPackageName(), sbn.getOpPkg(), sbn.getTag());
++                final boolean ownsNotification = sbn.getPackageName().equals(pkg);
++                final boolean mayReadDelegated = sbn.getOpPkg().equals(pkg)
++                        && (!forwarded || isMiPushBroker);
++                if (ownsNotification || mayReadDelegated) {
+                     // We could pass back a cloneLight() but clients might get confused and
+                     // try to send this thing back to notify() again, which would not work
+                     // very well.
+@@ -5992,7 +6019,8 @@ public class NotificationManagerService extends SystemService {
+                     return new StatusBarNotification(
+                             sbn.getPackageName(),
+                             sbn.getOpPkg(),
+-                            sbn.getId(), sbn.getTag(), sbn.getUid(), sbn.getInitialPid(),
++                            sbn.getId(), isMiPushBroker && forwarded ? null : sbn.getTag(),
++                            sbn.getUid(), sbn.getInitialPid(),
+                             notification,
+                             sbn.getUser(), sbn.getOverrideGroupKey(), sbn.getPostTime());
+                 }
+@@ -8469,7 +8497,8 @@ public class NotificationManagerService extends SystemService {
+ 
+                 final Notification summaryNotification =
+                                 new Notification.Builder(getContext(), channelId)
+-                                .setSmallIcon(summaryAttr.icon)
++                                .setSmallIcon(MiPushNotificationBridge.getAutoGroupSummaryIcon(
++                                        adjustedSbn, summaryAttr.icon))
+                                 .setGroupSummary(true)
+                                 .setGroupAlertBehavior(summaryAttr.groupAlertBehavior)
+                                 .setGroup(groupKey)
+@@ -9214,13 +9243,14 @@ public class NotificationManagerService extends SystemService {
+         // Make Notification silent
+         r.getNotification().flags |= FLAG_ONLY_ALERT_ONCE;
+ 
+-        // Repost as the original app (even if it was posted by a delegate originally
+-        // because the delegate may now be revoked)
+-        enqueueNotificationInternal(r.getSbn().getPackageName(),
+-                r.getSbn().getPackageName(), r.getSbn().getUid(),
+-                MY_PID, r.getSbn().getTag(),
+-                r.getSbn().getId(), r.getNotification(),
+-                r.getSbn().getUserId(), /* postSilently= */ true,
++        // Repost as the owner if an ordinary delegate may have been revoked. Retain the
++        // broker on MiPush records so it can still cancel them by the original notification ID.
++        final StatusBarNotification sbn = r.getSbn();
++        final String opPkg = MiPushNotificationBridge.isForwarded(sbn.getPackageName(),
++                sbn.getOpPkg(), sbn.getTag()) ? sbn.getOpPkg() : sbn.getPackageName();
++        enqueueNotificationInternal(sbn.getPackageName(), opPkg, sbn.getUid(),
++                MY_PID, sbn.getTag(), sbn.getId(), r.getNotification(),
++                sbn.getUserId(), /* postSilently= */ true,
+                 /* byForegroundService= */ false,
+                 /* isAppProvided= */ false);
+     }
+@@ -9284,6 +9314,90 @@ public class NotificationManagerService extends SystemService {
+         }
+     }
+ 
++    private void cancelMiPushNotifications(int uid, int pid, int userId, @Nullable Integer id,
++            int mustNotHaveFlags) {
++        if (!MiPushNotificationBridge.isBrokerCaller(mPackageManagerClient, uid, userId)) {
++            return;
++        }
++        final long cancelTime = SystemClock.elapsedRealtime();
++        final int reason = id == null ? REASON_APP_CANCEL_ALL : REASON_APP_CANCEL;
++        final FlagChecker flagChecker = FlagChecker.mustNotHave(mustNotHaveFlags);
++        mHandler.post(() -> {
++            // Run in the notification worker's order, including posts that were queued just
++            // before XMSF requested cancellation.
++            final ArrayMap<String, StatusBarNotification> matching = new ArrayMap<>();
++            synchronized (mNotificationLock) {
++                collectMiPushNotifications(mNotificationList, userId, id, matching);
++                collectMiPushNotifications(mEnqueuedNotifications, userId, id, matching);
++                collectMiPushNotifications(mSnoozeHelper.getSnoozed(), userId, id, matching);
++            }
++            for (StatusBarNotification sbn : matching.values()) {
++                new CancelNotificationRunnable(uid, pid, sbn.getPackageName(), sbn.getTag(),
++                        sbn.getId(), 0, flagChecker, false, userId, reason,
++                        -1 /* rank */, -1 /* count */, null, cancelTime).run();
++            }
++        });
++    }
++
++    private static void collectMiPushNotifications(List<NotificationRecord> records, int userId,
++            @Nullable Integer id, ArrayMap<String, StatusBarNotification> matching) {
++        for (NotificationRecord record : records) {
++            final StatusBarNotification sbn = record.getSbn();
++            if (sbn.getUserId() == userId && (id == null || sbn.getId() == id)
++                    && MiPushNotificationBridge.isForwarded(sbn.getPackageName(),
++                            sbn.getOpPkg(), sbn.getTag())) {
++                matching.put(sbn.getKey(), sbn);
++            }
++        }
++    }
++
++    private boolean ensureMiPushChannel(int brokerUid, ApplicationInfo target, String channelId) {
++        final NotificationChannel source = mPreferencesHelper.getNotificationChannel(
++                MiPushNotificationBridge.BROKER, brokerUid, channelId, false /* includeDeleted */);
++        if (source == null || source.isBundleChannel()) {
++            return false;
++        }
++        final NotificationChannel existing = mPreferencesHelper.getNotificationChannel(
++                target.packageName, target.uid, channelId, true /* includeDeleted */);
++        if (existing != null) {
++            return !existing.isDeleted();
++        }
++
++        // Migrate the alert behavior once. Subsequent edits belong to the target app's channel.
++        final int importance = source.getGroup() != null && mPreferencesHelper.isGroupBlocked(
++                MiPushNotificationBridge.BROKER, brokerUid, source.getGroup())
++                ? IMPORTANCE_NONE : source.getImportance();
++        final NotificationChannel channel = new NotificationChannel(channelId, source.getName(),
++                importance);
++        channel.setDescription(source.getDescription());
++        channel.enableLights(source.shouldShowLights());
++        channel.setLightColor(source.getLightColor());
++        if (source.getVibrationEffect() != null && source.getVibrationPattern() == null) {
++            channel.setVibrationEffect(source.getVibrationEffect());
++        } else {
++            channel.setVibrationPattern(source.getVibrationPattern());
++        }
++        channel.enableVibration(source.shouldVibrate());
++        channel.setShowBadge(source.canShowBadge());
++        final Uri sound = source.getSound();
++        if (sound == null || Settings.System.DEFAULT_NOTIFICATION_URI.equals(sound)
++                || (ContentResolver.SCHEME_ANDROID_RESOURCE.equals(sound.getScheme())
++                        && (target.packageName.equals(sound.getAuthority())
++                                || "android".equals(sound.getAuthority())))) {
++            channel.setSound(sound, source.getAudioAttributes());
++        }
++        if (mPreferencesHelper.createNotificationChannelIfAbsent(
++                target.packageName, target.uid, channel, brokerUid)) {
++            mListeners.notifyNotificationChannelChanged(target.packageName,
++                    UserHandle.getUserHandleForUid(target.uid),
++                    mPreferencesHelper.getNotificationChannel(target.packageName, target.uid,
++                            channelId, false /* includeDeleted */),
++                    NOTIFICATION_CHANNEL_OR_GROUP_ADDED);
++            handleSavePolicyFile();
++        }
++        return true;
++    }
++
+     void enqueueNotificationInternal(final String pkg, final String opPkg, final int callingUid,
+             final int callingPid, final String tag, final int id, final Notification notification,
+             int incomingUserId, boolean byForegroundService, boolean isAppProvided) {
+@@ -9343,33 +9457,68 @@ public class NotificationManagerService extends SystemService {
+      * @return True if we successfully processed the notification and handed off the task of
+      * enqueueing it to a background thread; false otherwise.
+      */
+-    private boolean enqueueNotificationInternal(final String pkg, final String opPkg,  //HUI
+-            final int callingUid, final int callingPid, final String tag, final int id,
++    private boolean enqueueNotificationInternal(final String incomingPkg, final String opPkg,
++            final int callingUid, final int callingPid, final String incomingTag, final int id,
+             final Notification notification, @CanBeALL @CanBeCURRENT @UserIdInt int incomingUserId,
+             boolean postSilently, PostNotificationTracker tracker, boolean byForegroundService,
+             boolean isAppProvided) {
+         if (DBG) {
+-            Slog.v(TAG, "enqueueNotificationInternal: pkg=" + pkg + " id=" + id
++            Slog.v(TAG, "enqueueNotificationInternal: pkg=" + incomingPkg + " id=" + id
+                     + " notification=" + notification);
+         }
+ 
+-        if (pkg == null || notification == null) {
+-            throw new IllegalArgumentException("null not allowed: pkg=" + pkg
++        if (incomingPkg == null || notification == null) {
++            throw new IllegalArgumentException("null not allowed: pkg=" + incomingPkg
+                     + " id=" + id + " notification=" + notification);
+         }
+ 
+         final int userId = ActivityManager.handleIncomingUser(callingPid,
+-                callingUid, incomingUserId, true, false, "enqueueNotification", pkg);
++                callingUid, incomingUserId, true, false, "enqueueNotification", incomingPkg);
+         final UserHandle user = UserHandle.of(userId);
++        final boolean fromMiPush = isAppProvided && !byForegroundService && incomingTag == null
++                && MiPushNotificationBridge.BROKER.equals(incomingPkg) && incomingPkg.equals(opPkg)
++                && MiPushNotificationBridge.isBrokerCaller(mPackageManagerClient, callingUid,
++                        userId);
++        final String requestedTarget = fromMiPush
++                ? MiPushNotificationBridge.getRequestedTarget(notification) : null;
++        final ApplicationInfo forwardedTarget;
++        if (requestedTarget != null) {
++            forwardedTarget = MiPushNotificationBridge.getTarget(getContext(), mPackageManagerClient,
++                    requestedTarget, userId);
++            if (forwardedTarget == null || !mPermissionHelper.hasPermission(forwardedTarget.uid)
++                    || !ensureMiPushChannel(callingUid, forwardedTarget,
++                            notification.getChannelId())) {
++                return false;
++            }
++            final String group = notification.getGroup();
++            if (group != null && !group.startsWith(MiPushNotificationBridge.FORWARDED_TAG + ":")) {
++                new Notification.Builder(getContext(), notification)
++                        .setGroup(MiPushNotificationBridge.FORWARDED_TAG + ":" + group);
++            }
++        } else {
++            forwardedTarget = null;
++        }
++        final String pkg = forwardedTarget == null ? incomingPkg : forwardedTarget.packageName;
++        final String tag = forwardedTarget == null
++                ? incomingTag : MiPushNotificationBridge.FORWARDED_TAG;
+ 
+         // Can throw a SecurityException if the calling uid doesn't have permission to post
+         // as "pkg"
+         int notificationUid = INVALID_UID;
+ 
+-        try {
+-            notificationUid = resolveNotificationUid(opPkg, pkg, callingUid, userId);
+-        } catch (NameNotFoundException e) {
+-            // not great -  throw immediately below
++        if (forwardedTarget != null) {
++            notificationUid = forwardedTarget.uid;
++        } else if (!isAppProvided && MiPushNotificationBridge.isForwarded(pkg, opPkg, tag)) {
++            // System-owned reposts (snooze, bitmap cleanup) carry the original owner UID.
++            if (isCallerSameApp(pkg, callingUid, userId)) {
++                notificationUid = callingUid;
++            }
++        } else {
++            try {
++                notificationUid = resolveNotificationUid(opPkg, pkg, callingUid, userId);
++            } catch (NameNotFoundException e) {
++                // not great -  throw immediately below
++            }
+         }
+ 
+         if (notificationUid == INVALID_UID) {
+diff --git a/services/core/java/com/android/server/notification/PreferencesHelper.java b/services/core/java/com/android/server/notification/PreferencesHelper.java
+index bfd448e72671ffdb1a2f0af50056eb4843d822a3..db1c265bdfbbe3a6c0d1dc3dec95b957fa798cc3 100644
+--- a/services/core/java/com/android/server/notification/PreferencesHelper.java
++++ b/services/core/java/com/android/server/notification/PreferencesHelper.java
+@@ -1086,6 +1086,20 @@ public class PreferencesHelper implements RankingConfig {
+     public boolean createNotificationChannel(String pkg, int uid, NotificationChannel channel,
+             boolean fromTargetApp, boolean hasDndAccess, int callingUid,
+             boolean fromSystemOrSystemUi) {
++        return createNotificationChannel(pkg, uid, channel, fromTargetApp, hasDndAccess, callingUid,
++                fromSystemOrSystemUi, false /* onlyIfAbsent */);
++    }
++
++    boolean createNotificationChannelIfAbsent(String pkg, int uid, NotificationChannel channel,
++            int callingUid) {
++        return createNotificationChannel(pkg, uid, channel, true /* fromTargetApp */,
++                false /* hasDndAccess */, callingUid, false /* fromSystemOrSystemUi */,
++                true /* onlyIfAbsent */);
++    }
++
++    private boolean createNotificationChannel(String pkg, int uid, NotificationChannel channel,
++            boolean fromTargetApp, boolean hasDndAccess, int callingUid,
++            boolean fromSystemOrSystemUi, boolean onlyIfAbsent) {
+         Objects.requireNonNull(pkg);
+         Objects.requireNonNull(channel);
+         Objects.requireNonNull(channel.getId());
+@@ -1107,6 +1121,9 @@ public class PreferencesHelper implements RankingConfig {
+                 return false;
+             }
+             NotificationChannel existing = r.channels.get(channel.getId());
++            if (onlyIfAbsent && existing != null) {
++                return false;
++            }
+             if (existing != null && fromTargetApp) {
+                 // Actually modifying an existing channel - keep most of the existing settings
+                 if (existing.isDeleted()) {
+diff --git a/services/tests/servicestests/src/com/android/server/systemconfig/SystemConfigTest.java b/services/tests/servicestests/src/com/android/server/systemconfig/SystemConfigTest.java
+index 0a4891b6f458299864c103b2d09d7eae980fafc6..9c402d543af1dbb5f0f53c0cefde5c0821f30d00 100644
+--- a/services/tests/servicestests/src/com/android/server/systemconfig/SystemConfigTest.java
++++ b/services/tests/servicestests/src/com/android/server/systemconfig/SystemConfigTest.java
+@@ -120,6 +120,34 @@ public class SystemConfigTest {
+         mSysConfig.readPermissions(parser, libraryDir, permissionFlag);
+     }
+ 
++    @Test
++    public void testCachedAppFreezerExemptionRequiresTrustedExactPackageAndProcess()
++            throws Exception {
++        final File folder = mTemporaryFolder.newFolder();
++        createTempFile(folder, "freezer.xml", "<config>\n"
++                + "<exempt-from-cached-app-freezer package=\"com.example.push\""
++                + " process=\"com.example.push\"/>\n"
++                + "<exempt-from-cached-app-freezer package=\"com.example.push\""
++                + " process=\"com.example.push:services\"/>\n"
++                + "<exempt-from-cached-app-freezer package=\"com.example.incomplete\"/>\n"
++                + "</config>");
++
++        readPermissions(folder, /* All flags except ALLOW_OVERRIDE_APP_RESTRICTIONS */ ~0x100);
++        assertThat(mSysConfig.isExemptFromCachedAppFreezer("com.example.push", "com.example.push"))
++                .isFalse();
++
++        readPermissions(folder, /* Grant all permission flags */ ~0);
++        assertThat(mSysConfig.isExemptFromCachedAppFreezer("com.example.push", "com.example.push"))
++                .isTrue();
++        assertThat(mSysConfig.isExemptFromCachedAppFreezer(
++                "com.example.push", "com.example.push:services")).isTrue();
++        assertThat(mSysConfig.isExemptFromCachedAppFreezer(
++                "com.example.other", "com.example.push:services")).isFalse();
++        assertThat(mSysConfig.isExemptFromCachedAppFreezer(
++                "com.example.push", "com.example.push:services2")).isFalse();
++        assertThat(mSysConfig.isExemptFromCachedAppFreezer("com.example.incomplete", "")).isFalse();
++    }
++
+     /**
+      * Tests that readPermissions works correctly for the tag: install-in-user-type
+      */
+diff --git a/services/tests/uiservicestests/src/com/android/server/notification/MiPushNotificationBridgeTest.java b/services/tests/uiservicestests/src/com/android/server/notification/MiPushNotificationBridgeTest.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..3ea19a40eaaab2494f975be8ef2d943a3eb185da
+--- /dev/null
++++ b/services/tests/uiservicestests/src/com/android/server/notification/MiPushNotificationBridgeTest.java
+@@ -0,0 +1,137 @@
++/*
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.server.notification;
++
++import static com.google.common.truth.Truth.assertThat;
++
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.ArgumentMatchers.eq;
++import static org.mockito.Mockito.mock;
++import static org.mockito.Mockito.when;
++
++import android.app.Notification;
++import android.content.Context;
++import android.content.pm.ApplicationInfo;
++import android.content.pm.PackageManager;
++import android.content.pm.PermissionInfo;
++import android.graphics.drawable.Icon;
++import android.service.notification.StatusBarNotification;
++
++import com.android.internal.R;
++
++import androidx.test.ext.junit.runners.AndroidJUnit4;
++import androidx.test.platform.app.InstrumentationRegistry;
++
++import org.junit.Test;
++import org.junit.runner.RunWith;
++
++@RunWith(AndroidJUnit4.class)
++public class MiPushNotificationBridgeTest {
++    private static final String XMSF = MiPushNotificationBridge.BROKER;
++    private static final String TARGET = "com.example.chat_app";
++    private static final int XMSF_UID = 10420;
++    private static final int TARGET_UID = 10500;
++
++    @Test
++    public void matchesOnlyTargetNamespaceWithNonemptySuffix() {
++        assertThat(requestedTarget(TARGET, "mipush_com.example.chat_app_inbox_1"))
++                .isEqualTo(TARGET);
++        assertThat(requestedTarget(TARGET, "mipush_com.example.chat_app_")).isNull();
++        assertThat(requestedTarget(TARGET, "mipush_com.example.chat_app2_inbox")).isNull();
++        assertThat(requestedTarget(TARGET, "mipush|com.example.chat_app|inbox")).isNull();
++        assertThat(requestedTarget(null, "mipush_com.example.chat_app_inbox")).isNull();
++        assertThat(requestedTarget(XMSF, "mipush_com.xiaomi.xmsf_inbox")).isNull();
++    }
++
++    @Test
++    public void delegatedAutomaticSummaryUsesTargetIconInsteadOfSystemFallback() {
++        Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
++        Notification notification = new Notification.Builder(context,
++                "mipush_com.example.chat_app_inbox").build();
++        ApplicationInfo app = new ApplicationInfo();
++        app.packageName = TARGET;
++        app.icon = 0x7f010001;
++        notification.extras.putParcelable(Notification.EXTRA_BUILDER_APPLICATION_INFO, app);
++        StatusBarNotification source = mock(StatusBarNotification.class);
++        when(source.getPackageName()).thenReturn(TARGET);
++        when(source.getOpPkg()).thenReturn(XMSF);
++        when(source.getNotification()).thenReturn(notification);
++        Icon fallback = Icon.createWithResource("android", R.drawable.ic_notification_summary_auto);
++        Icon custom = Icon.createWithResource(TARGET, 0x7f010002);
++
++        Icon icon = MiPushNotificationBridge.getAutoGroupSummaryIcon(source, fallback);
++        assertThat(icon.getResPackage()).isEqualTo(TARGET);
++        assertThat(icon.getResId()).isEqualTo(app.icon);
++        assertThat(MiPushNotificationBridge.getAutoGroupSummaryIcon(source, custom))
++                .isSameInstanceAs(custom);
++
++        when(source.getOpPkg()).thenReturn(TARGET);
++        assertThat(MiPushNotificationBridge.getAutoGroupSummaryIcon(source, fallback))
++                .isSameInstanceAs(fallback);
++    }
++
++    @Test
++    public void checksFeatureUserUidSystemFlagAndSignature() throws Exception {
++        PackageManager pm = mock(PackageManager.class);
++        ApplicationInfo broker = new ApplicationInfo();
++        broker.flags = ApplicationInfo.FLAG_SYSTEM;
++        broker.uid = XMSF_UID;
++        when(pm.hasSystemFeature(MiPushNotificationBridge.FEATURE)).thenReturn(true);
++        when(pm.getApplicationInfoAsUser(XMSF, 0, 0)).thenReturn(broker);
++        when(pm.getPackagesForUid(XMSF_UID)).thenReturn(new String[] {XMSF});
++        when(pm.hasSigningCertificate(eq(XMSF), any(byte[].class),
++                eq(PackageManager.CERT_INPUT_SHA256))).thenReturn(true);
++
++        assertThat(MiPushNotificationBridge.isBrokerCaller(pm, XMSF_UID, 0)).isTrue();
++        assertThat(MiPushNotificationBridge.isBrokerCaller(pm, XMSF_UID, 10)).isFalse();
++        assertThat(MiPushNotificationBridge.isBrokerCaller(pm, TARGET_UID, 0)).isFalse();
++
++        when(pm.getPackagesForUid(XMSF_UID)).thenReturn(new String[] {XMSF, TARGET});
++        assertThat(MiPushNotificationBridge.isBrokerCaller(pm, XMSF_UID, 0)).isFalse();
++        when(pm.getPackagesForUid(XMSF_UID)).thenReturn(new String[] {XMSF});
++        broker.flags = 0;
++        assertThat(MiPushNotificationBridge.isBrokerCaller(pm, XMSF_UID, 0)).isFalse();
++        broker.flags = ApplicationInfo.FLAG_SYSTEM;
++        when(pm.hasSigningCertificate(eq(XMSF), any(byte[].class),
++                eq(PackageManager.CERT_INPUT_SHA256))).thenReturn(false);
++        assertThat(MiPushNotificationBridge.isBrokerCaller(pm, XMSF_UID, 0)).isFalse();
++
++        when(pm.hasSigningCertificate(eq(XMSF), any(byte[].class),
++                eq(PackageManager.CERT_INPUT_SHA256))).thenReturn(true);
++        when(pm.hasSystemFeature(MiPushNotificationBridge.FEATURE)).thenReturn(false);
++        assertThat(MiPushNotificationBridge.isBrokerCaller(pm, XMSF_UID, 0)).isFalse();
++    }
++
++    @Test
++    public void requiresEnabledTargetWithItsOwnSignatureReceiverPermission() throws Exception {
++        Context context = mock(Context.class);
++        PackageManager pm = mock(PackageManager.class);
++        ApplicationInfo app = new ApplicationInfo();
++        app.uid = TARGET_UID;
++        app.enabled = true;
++        final String permission = TARGET + ".permission.MIPUSH_RECEIVE";
++        PermissionInfo info = new PermissionInfo();
++        info.packageName = TARGET;
++        info.protectionLevel = PermissionInfo.PROTECTION_SIGNATURE;
++        when(pm.getApplicationInfoAsUser(TARGET, 0, 0)).thenReturn(app);
++        when(pm.getPermissionInfo(permission, 0)).thenReturn(info);
++        when(context.checkPermission(permission, -1, TARGET_UID))
++                .thenReturn(PackageManager.PERMISSION_GRANTED);
++
++        assertThat(MiPushNotificationBridge.getTarget(context, pm, TARGET, 0)).isSameInstanceAs(app);
++        info.packageName = XMSF;
++        assertThat(MiPushNotificationBridge.getTarget(context, pm, TARGET, 0)).isNull();
++        info.packageName = TARGET;
++        app.flags = ApplicationInfo.FLAG_STOPPED;
++        assertThat(MiPushNotificationBridge.getTarget(context, pm, TARGET, 0)).isNull();
++    }
++
++    private static String requestedTarget(String target, String channelId) {
++        Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
++        Notification.Builder builder = new Notification.Builder(context, channelId);
++        builder.getExtras().putString("target_package", target);
++        return MiPushNotificationBridge.getRequestedTarget(builder.build());
++    }
++}
+diff --git a/services/tests/uiservicestests/src/com/android/server/notification/PreferencesHelperTest.java b/services/tests/uiservicestests/src/com/android/server/notification/PreferencesHelperTest.java
+index e173619dd6fcf37c96ad07cef13377bbb56f6f1e..169905326187cc86be567622e0797b45ec5aa5dc 100644
+--- a/services/tests/uiservicestests/src/com/android/server/notification/PreferencesHelperTest.java
++++ b/services/tests/uiservicestests/src/com/android/server/notification/PreferencesHelperTest.java
+@@ -3129,6 +3129,25 @@ public class PreferencesHelperTest extends UiServiceTestCase {
+                 mHelper.getNotificationChannel(PKG_N_MR1, UID_N_MR1, newChannel.getId(), false));
+     }
+ 
++    @Test
++    public void testCreateChannelIfAbsentPreservesExistingAndDeletedChannels() {
++        final String channelId = "mipush_" + PKG_N_MR1 + "_messages";
++        assertTrue(mHelper.createNotificationChannelIfAbsent(PKG_N_MR1, UID_N_MR1,
++                new NotificationChannel(channelId, "Messages", IMPORTANCE_LOW), UID_N_MR1));
++        assertFalse(mHelper.createNotificationChannelIfAbsent(PKG_N_MR1, UID_N_MR1,
++                new NotificationChannel(channelId, "New name", IMPORTANCE_NONE), UID_N_MR1));
++        final NotificationChannel original = mHelper.getNotificationChannel(
++                PKG_N_MR1, UID_N_MR1, channelId, false);
++        assertThat(original.getName().toString()).isEqualTo("Messages");
++        assertThat(original.getImportance()).isEqualTo(IMPORTANCE_LOW);
++
++        mHelper.deleteNotificationChannel(PKG_N_MR1, UID_N_MR1, channelId, UID_N_MR1, false);
++        assertFalse(mHelper.createNotificationChannelIfAbsent(PKG_N_MR1, UID_N_MR1,
++                new NotificationChannel(channelId, "Messages", IMPORTANCE_HIGH), UID_N_MR1));
++        assertTrue(mHelper.getNotificationChannel(PKG_N_MR1, UID_N_MR1, channelId, true)
++                .isDeleted());
++    }
++
+     @Test
+     public void testCreateChannel_defaultChannelId() throws Exception {
+         try {
