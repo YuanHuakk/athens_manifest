@@ -1,0 +1,14 @@
+diff --git a/res/values-zh-rCN/strings.xml b/res/values-zh-rCN/strings.xml
+index 0e15a3fecaae906c49381fc43f35dd8b9f8dac41..8af2369908be34a6d386d68ded720d27c59e2fee 100644
+--- a/res/values-zh-rCN/strings.xml
++++ b/res/values-zh-rCN/strings.xml
+@@ -456,6 +456,9 @@
+     <string name="long_screen_settings_title">全屏应用</string>
+     <string name="long_screen_settings_summary">强制旧式应用程序使用全屏长宽比</string>
+     <string name="long_screen_settings_no_apps">无应用</string>
++    <string name="long_screen_settings_header">开启后，应用将以最大比例显示并铺满整个屏幕。如果显示异常，可以关闭该应用的开关，恢复原始比例显示。</string>
++    <string name="long_screen_settings_search">搜索应用</string>
++    <string name="long_screen_settings_no_apps_found">未找到应用</string>
+     <string name="charging_sounds_settings_title">充电提示音</string>
+     <string name="charging_sounds_enable_title">启用充电提示音</string>
+     <string name="charging_sounds_summary">连接或断开电源时发出声音</string>
