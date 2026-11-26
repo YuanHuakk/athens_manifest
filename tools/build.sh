@@ -4,6 +4,11 @@ set -eo pipefail
 : "${TREE:?Set TREE to the Evolution X source root}"
 cd "$TREE"
 source "build/envsetup.sh"
-lunch "lineage_athens-${BUILD_VARIANT:-user}"
+requested_variant="${BUILD_VARIANT:-user}"
+lunch "lineage_athens-$requested_variant"
+if [[ "${TARGET_PRODUCT:-}" != lineage_athens || "${TARGET_BUILD_VARIANT:-}" != "$requested_variant" ]]; then
+    echo "Could not select lineage_athens-$requested_variant (selected ${TARGET_PRODUCT:-unset}-${TARGET_BUILD_VARIANT:-unset})" >&2
+    exit 1
+fi
 if [ "$#" -eq 0 ]; then set -- evolution; fi
 m -j"${JOBS:-12}" "$@"
