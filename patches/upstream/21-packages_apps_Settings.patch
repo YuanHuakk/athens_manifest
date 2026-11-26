@@ -278,12 +278,23 @@ index 1bf2e2a96d330bf104d13d713871a9cd9c18a778..74c016c77ba11cafd81a893fee4de4fd
                 android:selectable="false"
                 settings:enableCopying="true"/>
         <Preference
+diff --git a/res/values/evolution_strings.xml b/res/values/evolution_strings.xml
+index c18a9aa49082bb8dd1029bf9f08dbd518cac62f5..84659391a75702fa1b011775bde3029ca3d1fc65 100644
+--- a/res/values/evolution_strings.xml
++++ b/res/values/evolution_strings.xml
+@@ -441,3 +441,6 @@
+     <string name="lockscreen_display_timeout_10m">10 minutes</string>
+     <string name="lockscreen_display_timeout_30m">30 minutes</string>
++    <string name="window_blur_strength_title">Blur Strength</string>
++    <string name="window_blur_summary_on">On (%1$d%%)</string>
++    <string name="window_blur_summary_off">Off</string>
+ </resources>
 diff --git a/res/values-zh-rCN/evolution_strings.xml b/res/values-zh-rCN/evolution_strings.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..0167313d327c875b6c43abb7c859eef14e33d08d
+index 0000000000000000000000000000000000000000..d2ad083131d1412eefe9a153740b08b13affa1e3
 --- /dev/null
 +++ b/res/values-zh-rCN/evolution_strings.xml
-@@ -0,0 +1,259 @@
+@@ -0,0 +1,262 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
 +    <string name="evolution_license_title">Evolution X 法律信息</string>
@@ -542,33 +553,37 @@ index 0000000000000000000000000000000000000000..0167313d327c875b6c43abb7c859eef1
 +    <string name="lockscreen_display_timeout_5m">5 分钟</string>
 +    <string name="lockscreen_display_timeout_10m">10 分钟</string>
 +    <string name="lockscreen_display_timeout_30m">30 分钟</string>
++    <string name="window_blur_strength_title">模糊强度</string>
++    <string name="window_blur_summary_on">开启（%1$d%%）</string>
++    <string name="window_blur_summary_off">关闭</string>
 +</resources>
 diff --git a/src/com/android/settings/display/BlurSettings.kt b/src/com/android/settings/display/BlurSettings.kt
-index 8a7593f9eae188dcf29823fc65c289f48d16af5f..50ae0c1857b0e0265e43cff206bc4b04552e3fea 100644
+index 8a7593f9eae188dcf29823fc65c289f48d16af5f..f39a2da283ac858b84c03924d22ba56b136c43df 100644
 --- a/src/com/android/settings/display/BlurSettings.kt
 +++ b/src/com/android/settings/display/BlurSettings.kt
-@@ -158,7 +158,7 @@ class BlurSettings : Fragment() {
- 
+@@ -159,5 +159,5 @@ class BlurSettings : Fragment() {
                  item {
                      SliderPreference(
 -                        title = "Blur Strength",
-+                        title = "模糊强度",
++                        title = stringResource(R.string.window_blur_strength_title),
                          summary = "",
                          value = blurRadiusPct,
-                         onValueChange = { 
 diff --git a/src/com/android/settings/display/BlurSettingsPreferenceController.kt b/src/com/android/settings/display/BlurSettingsPreferenceController.kt
-index 9507e2e288847bbba550abf8f0a6017e8ab45227..63bea99e35991cc88def4ac2f580847270e5bf9b 100644
+index 9507e2e288847bbba550abf8f0a6017e8ab45227..602f36dbfc00ed8a93f8908da9908d78c4cc9d94 100644
 --- a/src/com/android/settings/display/BlurSettingsPreferenceController.kt
 +++ b/src/com/android/settings/display/BlurSettingsPreferenceController.kt
-@@ -45,9 +45,9 @@ class BlurSettingsPreferenceController(
-             val percent = radiusPct.takeIf { it.isFinite() }
+@@ -18,4 +18,5 @@ package com.android.settings.display
+ import android.content.Context
+ import android.provider.Settings
++import com.android.settings.R
+ import com.android.settings.core.BasePreferenceController
+ import android.view.CrossWindowBlurListeners.CROSS_WINDOW_BLUR_SUPPORTED
+@@ -46,6 +47,6 @@ class BlurSettingsPreferenceController(
                  ?.coerceIn(MIN_BLUR_RADIUS_PCT, MAX_BLUR_RADIUS_PCT)
                  ?: MAX_BLUR_RADIUS_PCT
 -            return "On (${percent.roundToInt()}%)"
-+            return "开启（${percent.roundToInt()}%）"
++            return mContext.getString(R.string.window_blur_summary_on, percent.roundToInt())
          }
 -        return "Off"
-+        return "关闭"
++        return mContext.getString(R.string.window_blur_summary_off)
      }
- 
-     companion object {
