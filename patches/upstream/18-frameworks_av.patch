@@ -66,3 +66,26 @@ index 69b8531c6c..edcf857370 100644
      if (isPriviledgedClient == true && bestWidth == -1 &&
              (format == HAL_PIXEL_FORMAT_RAW10 || format == HAL_PIXEL_FORMAT_RAW12 ||
              format == HAL_PIXEL_FORMAT_RAW16 || format == HAL_PIXEL_FORMAT_RAW_OPAQUE)) {
+diff --git a/services/audioflinger/Effects.cpp b/services/audioflinger/Effects.cpp
+index 9d737dd63d2a269ec1f0207593006173a18cc537..59f06617105f41f578ee9cb480884ca9228a06b7 100644
+--- a/services/audioflinger/Effects.cpp
++++ b/services/audioflinger/Effects.cpp
+@@ -2975,6 +2975,9 @@ const effect_uuid_t * const SL_IID_VOLUME = &SL_IID_VOLUME_;
+ static const effect_uuid_t SL_IID_DAP_ = { 0x46d279d9, 0x9be7, 0x453d, 0x9d7c,
+                                          { 0xef, 0x93, 0x7f, 0x67, 0x55, 0x87 } };
+ const effect_uuid_t * const SL_IID_DAP = &SL_IID_DAP_;
++// Keep the vendor DAP offload effect active on the output mix.
++static constexpr effect_uuid_t kDapOffloadImplementationUuid = {
++        0x9d4921da, 0x8225, 0x4f29, 0xaefa, {0x39, 0x53, 0x7a, 0x04, 0xbc, 0xaa}};
+ 
+ /* static */
+ bool EffectChain::isEffectEligibleForBtNrecSuspend_l(const effect_uuid_t* type) {
+@@ -2996,6 +2999,8 @@ bool EffectChain::isEffectEligibleForSuspend(const effect_descriptor_t& desc)
+           (memcmp(&desc.type, SL_IID_VISUALIZATION, sizeof(effect_uuid_t)) == 0) ||
+           (memcmp(&desc.type, SL_IID_VOLUME, sizeof(effect_uuid_t)) == 0) ||
+           (memcmp(&desc.type, SL_IID_DAP, sizeof(effect_uuid_t)) == 0) ||
++          (memcmp(&desc.uuid, &kDapOffloadImplementationUuid,
++                  sizeof(effect_uuid_t)) == 0) ||
+           (memcmp(&desc.type, SL_IID_DYNAMICSPROCESSING, sizeof(effect_uuid_t)) == 0)))) {
+         return false;
+     }

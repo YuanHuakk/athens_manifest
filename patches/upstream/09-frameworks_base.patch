@@ -698,3 +698,258 @@ index f30aa4875709161831d2b7685e08af8fb3f6a768..51ae3f6243a43643af2000ba0481c7f3
 +                .isEqualTo(overrideRequest.brightness);
 +    }
  }
+diff --git a/services/core/java/com/android/server/audio/AudioService.java b/services/core/java/com/android/server/audio/AudioService.java
+index ad100360f20079202617f726ad1e81b437e81c1c..cadacc58343598a1446b6621543938e362441ff2 100644
+--- a/services/core/java/com/android/server/audio/AudioService.java
++++ b/services/core/java/com/android/server/audio/AudioService.java
+@@ -424,6 +424,7 @@ public class AudioService extends IAudioService.Stub
+ 
+     final Context mContext;
+     private final ContentResolver mContentResolver;
++    private final DolbyAtmosController mDolbyAtmosController;
+     private final AppOpsManager mAppOps;
+ 
+     /** do not use directly, use getMediaSessionManager() which handles lazy initialization */
+@@ -1769,6 +1770,8 @@ public class AudioService extends IAudioService.Stub
+             mAudioHandler = new AudioHandler(looper);
+         }
+ 
++        mDolbyAtmosController = new DolbyAtmosController(mContentResolver, mAudioSystem,
++                mAudioHandler);
+         mSoundDoseHelper = new SoundDoseHelper(this, mContext, mAudioHandler, mSettings,
+                 mVolumeController);
+ 
+@@ -2141,6 +2144,7 @@ public class AudioService extends IAudioService.Stub
+         synchronized (mSupportedSystemUsagesLock) {
+             AudioSystem.setSupportedSystemUsages(mSupportedSystemUsages);
+         }
++        mDolbyAtmosController.start();
+     }
+ 
+     //-----------------------------------------------------------------
+@@ -2160,6 +2164,7 @@ public class AudioService extends IAudioService.Stub
+         if (mHasSpatializerEffect) {
+             mSpatializerHelper.onRoutingUpdated();
+         }
++        mDolbyAtmosController.refresh();
+         checkMuteAwaitConnection();
+         if (DEBUG_VOL) {
+             Log.d(TAG, "Clear volume cache after routing update");
+@@ -2423,6 +2428,7 @@ public class AudioService extends IAudioService.Stub
+ 
+         // indicate the end of reconfiguration phase to audio HAL
+         AudioSystem.setParameters("restarting=false");
++        mDolbyAtmosController.onAudioServerRestarted();
+ 
+         mSoundDoseHelper.reset(/*resetISoundDose=*/true);
+ 
+@@ -12449,6 +12455,7 @@ public class AudioService extends IAudioService.Stub
+ 
+                 // load volume settings for new user
+                 readAudioSettings(true /*userSwitch*/);
++                mAudioHandler.post(mDolbyAtmosController::refresh);
+                 // preserve STREAM_MUSIC volume from one user to the next.
+                 sendMsg(mAudioHandler,
+                         MSG_SET_ALL_VOLUMES,
+@@ -14656,6 +14663,7 @@ public class AudioService extends IAudioService.Stub
+         pw.println("isSpatializerEnabled:" + isSpatializerEnabled() + " (routing dependent)");
+         mSpatializerHelper.dump(pw); pw.println();
+         sSpatialLogger.dump(pw); pw.println("");
++        pw.println("Dolby Atmos DAP: " + mDolbyAtmosController.getState());
+ 
+ 
+         pw.println("\n# Flags");
+diff --git a/services/core/java/com/android/server/audio/DolbyAtmosController.java b/services/core/java/com/android/server/audio/DolbyAtmosController.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..a8a954b545598d06cf3b5f8b53ef9b788e7f5d05
+--- /dev/null
++++ b/services/core/java/com/android/server/audio/DolbyAtmosController.java
+@@ -0,0 +1,188 @@
++/*
++ * Copyright (C) 2026 The Android Open Source Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.server.audio;
++
++import android.content.ContentResolver;
++import android.database.ContentObserver;
++import android.media.AudioAttributes;
++import android.media.AudioDeviceAttributes;
++import android.media.AudioDeviceInfo;
++import android.media.audiofx.AudioEffect;
++import android.os.Handler;
++import android.os.UserHandle;
++import android.provider.Settings;
++import android.util.Slog;
++
++import java.nio.ByteBuffer;
++import java.nio.ByteOrder;
++import java.util.List;
++import java.util.UUID;
++
++/** Owns the vendor DAP effect on the media output mix. */
++final class DolbyAtmosController {
++    private static final String TAG = "DolbyAtmosController";
++    // Keep this key in sync with DolbyAtmosPreferenceController in Settings.
++    private static final String ENABLED_SETTING = "dolby_atmos_enabled";
++    private static final UUID DAP_UUID =
++            UUID.fromString("9d4921da-8225-4f29-aefa-39537a04bcaa");
++    private static final int OUTPUT_MIX_SESSION = 0;
++    private static final int DAP_PARAM_ENABLE = 5;
++    private static final AudioAttributes MEDIA_ATTRIBUTES =
++            new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build();
++
++    private final ContentResolver mContentResolver;
++    private final AudioSystemAdapter mAudioSystem;
++    private final Handler mHandler;
++    private boolean mStarted;
++    private AudioEffect mEffect;
++    private boolean mDapConfigured;
++    private volatile String mState = "not started";
++
++    DolbyAtmosController(ContentResolver contentResolver, AudioSystemAdapter audioSystem,
++            Handler handler) {
++        mContentResolver = contentResolver;
++        mAudioSystem = audioSystem;
++        mHandler = handler;
++    }
++
++    // AudioService's handler owns the observer, effect and routing state.
++    void start() {
++        mStarted = true;
++        mContentResolver.registerContentObserver(Settings.Secure.getUriFor(ENABLED_SETTING),
++                false, new ContentObserver(mHandler) {
++                    @Override
++                    public void onChange(boolean selfChange) {
++                        refresh();
++                    }
++                }, UserHandle.USER_ALL);
++        refresh();
++    }
++
++    void onAudioServerRestarted() {
++        releaseEffect();
++        refresh();
++    }
++
++    void refresh() {
++        if (!mStarted) {
++            return;
++        }
++        if (Settings.Secure.getIntForUser(mContentResolver, ENABLED_SETTING,
++                0, UserHandle.USER_CURRENT) == 0) {
++            stopEffect("off");
++            return;
++        }
++
++        final List<AudioDeviceAttributes> mediaDevices =
++                mAudioSystem.getDevicesForAttributes(MEDIA_ATTRIBUTES, /* forVolume= */ false);
++        if (mediaDevices.isEmpty() || !mediaDevices.stream().allMatch(
++                DolbyAtmosController::supportsDap)) {
++            // The hardware-tunneled effect must stay off USB and other direct media routes.
++            stopEffect("paused for media route");
++            return;
++        }
++
++        try {
++            if (mEffect == null) {
++                mEffect = new AudioEffect(AudioEffect.EFFECT_TYPE_NULL, DAP_UUID,
++                        /* priority= */ 0, OUTPUT_MIX_SESSION);
++                mEffect.setControlStatusListener((effect, hasControl) -> {
++                    if (mEffect == effect) {
++                        mDapConfigured = false;
++                        refresh();
++                    }
++                });
++            }
++            if (!mEffect.hasControl()) {
++                mState = "waiting for effect control";
++                return;
++            }
++            if (!mDapConfigured) {
++                final int status = setDapEnabled(mEffect, true);
++                if (status != AudioEffect.SUCCESS) {
++                    stopEffect("enable failed: " + status);
++                    Slog.w(TAG, mState);
++                    return;
++                }
++                mDapConfigured = true;
++            }
++            mState = "enabled";
++        } catch (RuntimeException e) {
++            // Keep the requested setting so a routing update or audioserver restart can retry.
++            stopEffect("effect unavailable");
++            Slog.w(TAG, "Unable to enable Dolby DAP", e);
++        }
++    }
++
++    private static boolean supportsDap(AudioDeviceAttributes device) {
++        return switch (device.getType()) {
++            case AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
++                    AudioDeviceInfo.TYPE_BUILTIN_SPEAKER_SAFE,
++                    AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
++                    AudioDeviceInfo.TYPE_WIRED_HEADSET,
++                    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
++                    AudioDeviceInfo.TYPE_BLE_HEADSET,
++                    AudioDeviceInfo.TYPE_BLE_SPEAKER,
++                    AudioDeviceInfo.TYPE_BLE_BROADCAST -> true;
++            default -> false;
++        };
++    }
++
++    private static int setDapEnabled(AudioEffect effect, boolean enabled) {
++        // DAX takes a little-endian device selector, value count and enabled value.
++        // Device 0 lets DAX select the profile for the routed output.
++        final byte[] value = ByteBuffer.allocate(3 * Integer.BYTES)
++                .order(ByteOrder.LITTLE_ENDIAN).putInt(0).putInt(1)
++                .putInt(enabled ? 1 : 0).array();
++        final int parameterStatus = effect.setParameter(DAP_PARAM_ENABLE, value);
++        if (enabled && parameterStatus != AudioEffect.SUCCESS) {
++            return parameterStatus;
++        }
++        final int effectStatus = effect.setEnabled(enabled);
++        return parameterStatus != AudioEffect.SUCCESS ? parameterStatus : effectStatus;
++    }
++
++    private void stopEffect(String state) {
++        releaseEffect();
++        mState = state;
++    }
++
++    private void releaseEffect() {
++        final AudioEffect effect = mEffect;
++        mEffect = null;
++        mDapConfigured = false;
++        if (effect == null) {
++            return;
++        }
++        try {
++            if (effect.hasControl()) {
++                final int status = setDapEnabled(effect, false);
++                if (status != AudioEffect.SUCCESS) {
++                    Slog.w(TAG, "Unable to disable Dolby DAP: " + status);
++                }
++            }
++        } catch (IllegalStateException e) {
++            Slog.d(TAG, "Dolby DAP already disconnected", e);
++        } finally {
++            effect.release();
++        }
++    }
++
++    String getState() {
++        return mState;
++    }
++}
