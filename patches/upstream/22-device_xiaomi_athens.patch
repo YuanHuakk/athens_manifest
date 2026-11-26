@@ -1,0 +1,51 @@
+diff --git a/lineage_athens.mk b/lineage_athens.mk
+index 144a2a807274ed6941394df92253df9fb0c3439d..f7d5b3cfaf752fc130276ade44b093c6b8b10621 100644
+--- a/lineage_athens.mk
++++ b/lineage_athens.mk
+@@ -11,6 +11,9 @@ $(call inherit-product, vendor/lineage/config/common_full_phone.mk)
+ 
+ $(call inherit-product, device/xiaomi/athens/device.mk)
+ 
++# Athens panel cap for app window brightness requests.
++PRODUCT_PACKAGES += AthensAppWindowBrightness
++
+ # Device identity
+ PRODUCT_DEVICE := athens
+ PRODUCT_NAME := lineage_athens
+diff --git a/overlays/AthensAppWindowBrightness/Android.bp b/overlays/AthensAppWindowBrightness/Android.bp
+new file mode 100644
+index 0000000000000000000000000000000000000000..7996b369e487810df747dcfd07b58b1e24b0c369
+--- /dev/null
++++ b/overlays/AthensAppWindowBrightness/Android.bp
+@@ -0,0 +1,6 @@
++// SPDX-License-Identifier: Apache-2.0
++
++runtime_resource_overlay {
++    name: "AthensAppWindowBrightness",
++    device_specific: true,
++}
+diff --git a/overlays/AthensAppWindowBrightness/AndroidManifest.xml b/overlays/AthensAppWindowBrightness/AndroidManifest.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..866682ce91224be4a4f25b531f0d97811b175fa0
+--- /dev/null
++++ b/overlays/AthensAppWindowBrightness/AndroidManifest.xml
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<manifest xmlns:android="http://schemas.android.com/apk/res/android"
++    package="android.overlay.athens.appwindowbrightness">
++    <overlay android:targetPackage="android"
++        android:isStatic="true" android:priority="802" />
++</manifest>
+diff --git a/overlays/AthensAppWindowBrightness/res/values/brightness.xml b/overlays/AthensAppWindowBrightness/res/values/brightness.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..fdb528481b7fdb5acd7e3fecb2a608392b8191d7
+--- /dev/null
++++ b/overlays/AthensAppWindowBrightness/res/values/brightness.xml
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<resources>
++    <!-- Stock SDR-to-HBM transition: 850 nits on the Athens panel calibration. -->
++    <item name="config_appWindowBrightnessOverrideCap" format="float" type="dimen">0.411976560</item>
++</resources>
