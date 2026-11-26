@@ -794,19 +794,6 @@ index 5c3f5f3d6b4cc86b3f2e11876173b60a702f3ff1..9e1d7f98451adcfd70ace7e126bdc585
  # Fingerprint
  ro.hardware.fp.fod=true
  ro.hardware.fp.fod.c=true
-diff --git a/configs/sensors/athens-sensor-features.xml b/configs/sensors/athens-sensor-features.xml
-new file mode 100644
-index 0000000000000000000000000000000000000000..9b20c7c38da6c8e9887e56bbd6b30baa3aa152b5
---- /dev/null
-+++ b/configs/sensors/athens-sensor-features.xml
-@@ -0,0 +1,7 @@
-+<?xml version="1.0" encoding="utf-8"?>
-+<!-- SPDX-License-Identifier: Apache-2.0 -->
-+<permissions>
-+    <unavailable-feature name="android.hardware.sensor.ambient_temperature" />
-+    <unavailable-feature name="android.hardware.sensor.barometer" />
-+    <unavailable-feature name="android.hardware.sensor.relative_humidity" />
-+</permissions>
 diff --git a/configs/vintf/compatibility_matrix.athens.xml b/configs/vintf/compatibility_matrix.athens.xml
 index 5336aa7106309c13797d044c230b58f78c6bc68c..6ec91de30673a6f0128f5e17c38dd4a3efc33155 100644
 --- a/configs/vintf/compatibility_matrix.athens.xml
@@ -841,7 +828,7 @@ index 5336aa7106309c13797d044c230b58f78c6bc68c..6ec91de30673a6f0128f5e17c38dd4a3
 +    </hal>
  </compatibility-matrix>
 diff --git a/device.mk b/device.mk
-index e3be36499824cf766442c346740fe20b65225c04..ba796a5469c0588fcaedab85bb3fc92ad6eab4ab 100644
+index 46f96760535ee5adcc28a006b84d8a18f95a01d5..ba796a5469c0588fcaedab85bb3fc92ad6eab4ab 100644
 --- a/device.mk
 +++ b/device.mk
 @@ -25,6 +25,18 @@ PRODUCT_BUILD_PVMFW_IMAGE := false
@@ -863,17 +850,7 @@ index e3be36499824cf766442c346740fe20b65225c04..ba796a5469c0588fcaedab85bb3fc92a
  # Match the radio region of the stock HyperOS 4 China build.
  PRODUCT_VENDOR_PROPERTIES += ro.vendor.radio.build_region=cn
  
-@@ -46,13 +58,18 @@ PRODUCT_PACKAGES += \
- PRODUCT_COPY_FILES += \
-     $(LOCAL_PATH)/configs/display/display_id_4630946928389601939.xml:$(TARGET_COPY_OUT_VENDOR)/etc/displayconfig/display_id_4630946928389601939.xml
- 
-+# Sensor capabilities exposed by the Athens HAL.
-+PRODUCT_COPY_FILES += \
-+    $(LOCAL_PATH)/configs/sensors/athens-sensor-features.xml:$(TARGET_COPY_OUT_ODM)/etc/permissions/athens-sensor-features.xml
-+
- # Composer interface required by the stock service.
- PRODUCT_PACKAGES += \
-     vendor.qti.hardware.display.composer3-V4-ndk.vendor
+@@ -56,7 +68,8 @@ PRODUCT_PACKAGES += \
  
  # Init
  PRODUCT_COPY_FILES += \
@@ -1567,19 +1544,6 @@ index 0000000000000000000000000000000000000000..8b0d7d88b2994214111e8362bc428c00
 +    <string name="config_defaultSms" translatable="false">com.google.android.apps.messaging</string>
 +    <string name="config_systemGallery" translatable="false">com.google.android.apps.photos</string>
 +</resources>
-diff --git a/overlays/FrameworksResAthens/res/xml/power_profile.xml b/overlays/FrameworksResAthens/res/xml/power_profile.xml
-index a1aee4717bb31a7d673f7efce74c22a45bcad9af..231c2dbffac373c492e0a9aa1ecc052ceda36c18 100644
---- a/overlays/FrameworksResAthens/res/xml/power_profile.xml
-+++ b/overlays/FrameworksResAthens/res/xml/power_profile.xml
-@@ -152,7 +152,7 @@
-     <item name="cpu.suspend">0</item>
- 
- 
--    <item name="battery.capacity">5000</item>
-+    <item name="battery.capacity">8580</item>
- 
- 
-     <item name="wifi.on">1.07</item>
 diff --git a/overlays/InfinityChargingAthens/res/values/brightness.xml b/overlays/InfinityChargingAthens/res/values/brightness.xml
 new file mode 100644
 index 0000000000000000000000000000000000000000..fdb528481b7fdb5acd7e3fecb2a608392b8191d7
@@ -1630,7 +1594,7 @@ index 0000000000000000000000000000000000000000..541255ba93bd41f60d070d8e1d4ef278
 +
 +athens_uptsm_dir :=
 diff --git a/proprietary-files.txt b/proprietary-files.txt
-index e480c1e76540805d163876966e0b50e80e48bf52..acf958beda8d1f85a878f3af640867b38e1cf126 100644
+index 27bc631e0d3bd7afca925fc78c1d4e64f01cfac9..acf958beda8d1f85a878f3af640867b38e1cf126 100644
 --- a/proprietary-files.txt
 +++ b/proprietary-files.txt
 @@ -864,6 +864,14 @@ odm/lib64/camera/plugins/com.xiaomi.plugin.watermark.so
@@ -1648,7 +1612,7 @@ index e480c1e76540805d163876966e0b50e80e48bf52..acf958beda8d1f85a878f3af640867b3
  # Camera algorithms missing at bring-up (the video and 200MP graphs need them)
  odm/lib64/camera/dynamicplugins/com.xiaomi.plugin.depurple.so
  odm/lib64/camera/plugins/com.xiaomi.plugin.deflicker2.so
-@@ -1360,6 +1368,26 @@ odm/etc/display/B_Com_Gary_Gain.csv
+@@ -1360,6 +1368,23 @@ odm/etc/display/B_Com_Gary_Gain.csv
  odm/etc/display/G_Com_Gary_Gain.csv
  odm/etc/display/R_Com_Gary_Gain.csv
  
@@ -1669,13 +1633,10 @@ index e480c1e76540805d163876966e0b50e80e48bf52..acf958beda8d1f85a878f3af640867b3
 +system_ext/lib64/libmisuperframe.so;EXTRACT_ONLY;FILEGROUP=athens_mivk_superframe|f8bd835e34cd9e269d43b1c72d5041bca6992fa6
 +system_ext/lib64/libmivk.so;EXTRACT_ONLY;FILEGROUP=athens_mivk_oem|0953d6616db05860a323ce82f33ac46071fbedb2
 +
-+# Athens display panel calibration
-+odm/etc/mdss_dsi_athens_42_0d_0a_dsc_cmd_mi.xml
-+
- # Dolby
- odm/etc/dolby/dax-default-spatializer.xml
- odm/etc/dolby/dax-default.xml
-@@ -1875,6 +1903,35 @@ odm/lib64/libtical.so
+ # Athens display panel calibration
+ odm/etc/mdss_dsi_athens_42_0d_0a_dsc_cmd_mi.xml
+ 
+@@ -1878,6 +1903,35 @@ odm/lib64/libtical.so
  # SIA91xx speaker amp firmware required at kernel driver probe.
  odm/firmware/sipa.bin
  
