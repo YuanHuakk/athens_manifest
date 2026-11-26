@@ -1,0 +1,696 @@
+diff --git a/bluetooth/audio/aidl/default/A2dpOffloadAudioProvider.cpp b/bluetooth/audio/aidl/default/A2dpOffloadAudioProvider.cpp
+index 0802b3eb251e3f5d0d2e016bf612b8c194a594dc..08fc22279c58f41bcbf3703f09bf6fbd02353bc5 100644
+--- a/bluetooth/audio/aidl/default/A2dpOffloadAudioProvider.cpp
++++ b/bluetooth/audio/aidl/default/A2dpOffloadAudioProvider.cpp
+@@ -23,7 +23,10 @@
+ #include <android-base/logging.h>
+ #include <android-base/properties.h>
+ 
++#include <cstdint>
++
+ #include "a2dp/A2dpOffloadCodecAac.h"
++#include "a2dp/A2dpOffloadCodecAptxAdaptive.h"
+ #include "a2dp/A2dpOffloadCodecSbc.h"
+ 
+ namespace aidl {
+@@ -32,9 +35,43 @@ namespace hardware {
+ namespace bluetooth {
+ namespace audio {
+ 
++const A2dpOffloadCodecAptxAdaptive* GetLegacyAptxAdaptiveCodec(SessionType session_type) {
++    if (session_type != SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH ||
++        !::android::base::GetBoolProperty("ro.bluetooth.a2dp_aptx_adaptive_offload.supported",
++                                          false) ||
++        ::android::base::GetBoolProperty(kEnableA2dpCodecExtensibility, false)) {
++        return nullptr;
++    }
++    static const A2dpOffloadCodecAptxAdaptive codec(
++            ::android::base::GetBoolProperty(
++                    "persist.vendor.qcom.bluetooth.aptxadaptiver2_1_support", false),
++            ::android::base::GetBoolProperty(
++                    "persist.vendor.qcom.bluetooth.aptxadaptiver2_2_support", false));
++    return &codec;
++}
++
++static std::optional<AudioConfiguration> MakeLegacyAptxAdaptiveConfiguration(
++        const A2dpOffloadCodecAptxAdaptive* codec, const AudioConfiguration& input) {
++    if (codec == nullptr || input.getTag() != AudioConfiguration::a2dp) return std::nullopt;
++    const auto& stream = input.get<AudioConfiguration::a2dp>();
++    AptxAdaptiveConfiguration parameters;
++    if (!A2dpOffloadCodecAptxAdaptive::IsCodecId(stream.codecId) || stream.peerMtu <= 0 ||
++        stream.peerMtu > UINT16_MAX ||
++        codec->SelectA2dpConfiguration(stream.configuration, &parameters) != A2dpStatus::OK) {
++        return std::nullopt;
++    }
++
++    CodecConfiguration legacy;
++    legacy.codecType = CodecType::APTX_ADAPTIVE;
++    legacy.peerMtu = stream.peerMtu;
++    legacy.isScmstEnabled = stream.cpHeaderScmst.has_value();
++    legacy.config.set<CodecConfiguration::CodecSpecific::aptxAdaptiveConfig>(std::move(parameters));
++    return AudioConfiguration::make<AudioConfiguration::a2dpConfig>(std::move(legacy));
++}
++
+ A2dpOffloadEncodingAudioProvider::A2dpOffloadEncodingAudioProvider(
+-        const A2dpOffloadCodecFactory& codec_factory)
+-    : A2dpOffloadAudioProvider(codec_factory) {
++        const A2dpOffloadCodecFactory& codec_factory, bool adaptive_only)
++    : A2dpOffloadAudioProvider(codec_factory, adaptive_only) {
+     session_type_ = SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH;
+ }
+ 
+@@ -44,8 +81,9 @@ A2dpOffloadDecodingAudioProvider::A2dpOffloadDecodingAudioProvider(
+     session_type_ = SessionType::A2DP_HARDWARE_OFFLOAD_DECODING_DATAPATH;
+ }
+ 
+-A2dpOffloadAudioProvider::A2dpOffloadAudioProvider(const A2dpOffloadCodecFactory& codec_factory)
+-    : codec_factory_(codec_factory) {}
++A2dpOffloadAudioProvider::A2dpOffloadAudioProvider(const A2dpOffloadCodecFactory& codec_factory,
++                                                 bool adaptive_only)
++    : codec_factory_(codec_factory), adaptive_only_(adaptive_only) {}
+ 
+ bool A2dpOffloadAudioProvider::isValid(const SessionType& session_type) {
+     return (session_type == session_type_);
+@@ -54,6 +92,17 @@ bool A2dpOffloadAudioProvider::isValid(const SessionType& session_type) {
+ ndk::ScopedAStatus A2dpOffloadAudioProvider::startSession(
+         const std::shared_ptr<IBluetoothAudioPort>& host_if, const AudioConfiguration& audio_config,
+         const std::vector<LatencyMode>& latency_modes, DataMQDesc* _aidl_return) {
++    if (adaptive_only_) {
++        // PAL consumes the typed legacy codec configuration for Classic Adaptive.
++        const auto legacy = MakeLegacyAptxAdaptiveConfiguration(
++                GetLegacyAptxAdaptiveCodec(session_type_), audio_config);
++        if (!legacy.has_value()) {
++            *_aidl_return = DataMQDesc();
++            return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
++        }
++        LOG(INFO) << "Starting aptX Adaptive with typed legacy configuration";
++        return BluetoothAudioProvider::startSession(host_if, *legacy, latency_modes, _aidl_return);
++    }
+     if (audio_config.getTag() == AudioConfiguration::Tag::a2dp) {
+         auto a2dp_config = audio_config.get<AudioConfiguration::Tag::a2dp>();
+         A2dpStatus a2dp_status = A2dpStatus::NOT_SUPPORTED_CODEC_TYPE;
+@@ -102,6 +151,15 @@ ndk::ScopedAStatus A2dpOffloadAudioProvider::startSession(
+     return BluetoothAudioProvider::startSession(host_if, audio_config, latency_modes, _aidl_return);
+ }
+ 
++ndk::ScopedAStatus A2dpOffloadAudioProvider::updateAudioConfiguration(
++        const AudioConfiguration& audio_config) {
++    if (!adaptive_only_) return BluetoothAudioProvider::updateAudioConfiguration(audio_config);
++    const auto legacy = MakeLegacyAptxAdaptiveConfiguration(
++            GetLegacyAptxAdaptiveCodec(session_type_), audio_config);
++    if (!legacy.has_value()) return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
++    return BluetoothAudioProvider::updateAudioConfiguration(*legacy);
++}
++
+ ndk::ScopedAStatus A2dpOffloadAudioProvider::onSessionReady(DataMQDesc* _aidl_return) {
+     *_aidl_return = DataMQDesc();
+     BluetoothAudioSessionReport::OnSessionStarted(session_type_, stack_iface_, nullptr,
+@@ -112,6 +170,14 @@ ndk::ScopedAStatus A2dpOffloadAudioProvider::onSessionReady(DataMQDesc* _aidl_re
+ ndk::ScopedAStatus A2dpOffloadAudioProvider::parseA2dpConfiguration(
+         const CodecId& codec_id, const std::vector<uint8_t>& configuration,
+         CodecParameters* codec_parameters, A2dpStatus* _aidl_return) {
++    if (adaptive_only_) {
++        const auto* adaptive = GetLegacyAptxAdaptiveCodec(session_type_);
++        if (adaptive == nullptr || !A2dpOffloadCodecAptxAdaptive::IsCodecId(codec_id)) {
++            return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
++        }
++        *_aidl_return = adaptive->SelectA2dpConfiguration(configuration, codec_parameters);
++        return ndk::ScopedAStatus::ok();
++    }
+     if (!::android::base::GetBoolProperty(kEnableA2dpCodecExtensibility, false)) {
+         // parseA2dpConfiguration must not be implemented if A2dp codec
+         // extensibility is not supported.
+@@ -133,6 +199,29 @@ ndk::ScopedAStatus A2dpOffloadAudioProvider::parseA2dpConfiguration(
+ ndk::ScopedAStatus A2dpOffloadAudioProvider::getA2dpConfiguration(
+         const std::vector<A2dpRemoteCapabilities>& remote_a2dp_capabilities,
+         const A2dpConfigurationHint& hint, std::optional<audio::A2dpConfiguration>* _aidl_return) {
++    if (adaptive_only_) {
++        *_aidl_return = std::nullopt;
++        const auto* adaptive = GetLegacyAptxAdaptiveCodec(session_type_);
++        if (adaptive == nullptr) return ndk::ScopedAStatus::fromStatus(STATUS_UNKNOWN_TRANSACTION);
++        if (hint.codecId.has_value() && !A2dpOffloadCodecAptxAdaptive::IsCodecId(*hint.codecId)) {
++            return ndk::ScopedAStatus::ok();
++        }
++        for (const auto& remote : remote_a2dp_capabilities) {
++            if (!A2dpOffloadCodecAptxAdaptive::IsCodecId(remote.id)) continue;
++
++            A2dpConfiguration configuration;
++            if (adaptive->BuildConfiguration(remote.capabilities, hint.codecParameters,
++                                             &configuration.configuration) &&
++                adaptive->SelectA2dpConfiguration(configuration.configuration,
++                                                  &configuration.parameters) == A2dpStatus::OK) {
++                configuration.id = adaptive->info.id;
++                configuration.remoteSeid = remote.seid;
++                *_aidl_return = std::move(configuration);
++                break;
++            }
++        }
++        return ndk::ScopedAStatus::ok();
++    }
+     if (!::android::base::GetBoolProperty(kEnableA2dpCodecExtensibility, false)) {
+         // getA2dpConfiguration must not be implemented if A2dp codec
+         // extensibility is not supported.
+diff --git a/bluetooth/audio/aidl/default/A2dpOffloadAudioProvider.h b/bluetooth/audio/aidl/default/A2dpOffloadAudioProvider.h
+index 6cab99d6a6dd447ffa6e437cd432b83df373d27f..0c1e12f27b6be3d3ee8ded26b95ab1cb56f8a896 100644
+--- a/bluetooth/audio/aidl/default/A2dpOffloadAudioProvider.h
++++ b/bluetooth/audio/aidl/default/A2dpOffloadAudioProvider.h
+@@ -25,6 +25,10 @@ namespace hardware {
+ namespace bluetooth {
+ namespace audio {
+ 
++class A2dpOffloadCodecAptxAdaptive;
++
++const A2dpOffloadCodecAptxAdaptive* GetLegacyAptxAdaptiveCodec(SessionType session_type);
++
+ class A2dpOffloadAudioProvider : public BluetoothAudioProvider {
+   public:
+     bool isValid(const SessionType& session_type) override;
+@@ -34,6 +38,8 @@ class A2dpOffloadAudioProvider : public BluetoothAudioProvider {
+                                     const std::vector<LatencyMode>& latency_modes,
+                                     DataMQDesc* _aidl_return) override;
+ 
++    ndk::ScopedAStatus updateAudioConfiguration(const AudioConfiguration& audio_config) override;
++
+     ndk::ScopedAStatus parseA2dpConfiguration(const CodecId& codec_id,
+                                               const std::vector<uint8_t>& configuration,
+                                               CodecParameters* codec_parameters,
+@@ -45,17 +51,18 @@ class A2dpOffloadAudioProvider : public BluetoothAudioProvider {
+             std::optional<audio::A2dpConfiguration>* _aidl_return) override;
+ 
+   protected:
+-    A2dpOffloadAudioProvider(const A2dpOffloadCodecFactory&);
++    A2dpOffloadAudioProvider(const A2dpOffloadCodecFactory&, bool adaptive_only = false);
+ 
+   private:
+     const A2dpOffloadCodecFactory& codec_factory_;
++    const bool adaptive_only_;
+ 
+     ndk::ScopedAStatus onSessionReady(DataMQDesc* _aidl_return) override;
+ };
+ 
+ class A2dpOffloadEncodingAudioProvider : public A2dpOffloadAudioProvider {
+   public:
+-    A2dpOffloadEncodingAudioProvider(const A2dpOffloadCodecFactory&);
++    A2dpOffloadEncodingAudioProvider(const A2dpOffloadCodecFactory&, bool adaptive_only = false);
+ };
+ 
+ class A2dpOffloadDecodingAudioProvider : public A2dpOffloadAudioProvider {
+diff --git a/bluetooth/audio/aidl/default/BluetoothAudioProviderFactory.cpp b/bluetooth/audio/aidl/default/BluetoothAudioProviderFactory.cpp
+index f5c071b96b1ccbfe37a2d24f20de0f3a310cc573..182e96b9e92867bcb24ee63418b1e11de7aa9732 100644
+--- a/bluetooth/audio/aidl/default/BluetoothAudioProviderFactory.cpp
++++ b/bluetooth/audio/aidl/default/BluetoothAudioProviderFactory.cpp
+@@ -31,6 +31,7 @@
+ #include "HfpSoftwareAudioProvider.h"
+ #include "LeAudioOffloadAudioProvider.h"
+ #include "LeAudioSoftwareAudioProvider.h"
++#include "a2dp/A2dpOffloadCodecAptxAdaptive.h"
+ 
+ namespace aidl {
+ namespace android {
+@@ -44,9 +45,15 @@ static const std::string kHfpOffloadProviderName = "HFP_OFFLOAD_HARDWARE_OFFLOAD
+ 
+ BluetoothAudioProviderFactory::BluetoothAudioProviderFactory() {}
+ 
++BluetoothAudioProviderFactory::BluetoothAudioProviderFactory(bool adaptive_only)
++    : adaptive_only_(adaptive_only) {}
++
+ ndk::ScopedAStatus BluetoothAudioProviderFactory::openProvider(
+         const SessionType session_type, std::shared_ptr<IBluetoothAudioProvider>* _aidl_return) {
+     LOG(INFO) << __func__ << " - SessionType=" << toString(session_type);
++    if (adaptive_only_ && GetLegacyAptxAdaptiveCodec(session_type) == nullptr) {
++        return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
++    }
+     std::shared_ptr<BluetoothAudioProvider> provider = nullptr;
+ 
+     switch (session_type) {
+@@ -55,7 +62,7 @@ ndk::ScopedAStatus BluetoothAudioProviderFactory::openProvider(
+             break;
+         case SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH:
+             provider = ndk::SharedRefBase::make<A2dpOffloadEncodingAudioProvider>(
+-                    a2dp_offload_codec_factory_);
++                    a2dp_offload_codec_factory_, adaptive_only_);
+             break;
+         case SessionType::HEARING_AID_SOFTWARE_ENCODING_DATAPATH:
+             provider = ndk::SharedRefBase::make<HearingAidAudioProvider>();
+@@ -123,6 +130,12 @@ ndk::ScopedAStatus BluetoothAudioProviderFactory::openProvider(
+ 
+ ndk::ScopedAStatus BluetoothAudioProviderFactory::getProviderCapabilities(
+         const SessionType session_type, std::vector<AudioCapabilities>* _aidl_return) {
++    if (adaptive_only_) {
++        if (GetLegacyAptxAdaptiveCodec(session_type) == nullptr) {
++            return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
++        }
++        return ndk::ScopedAStatus::fromStatus(STATUS_UNKNOWN_TRANSACTION);
++    }
+     if (session_type == SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH ||
+         session_type == SessionType::A2DP_HARDWARE_OFFLOAD_DECODING_DATAPATH) {
+         if (::android::base::GetBoolProperty(kEnableA2dpCodecExtensibility, false)) {
+@@ -175,6 +188,17 @@ ndk::ScopedAStatus BluetoothAudioProviderFactory::getProviderInfo(
+ 
+     LOG(INFO) << __func__ << " - SessionType=" << toString(session_type);
+ 
++    if (adaptive_only_) {
++        const auto* adaptive = GetLegacyAptxAdaptiveCodec(session_type);
++        if (adaptive == nullptr) {
++            return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
++        }
++        auto& provider_info = _aidl_return->emplace();
++        provider_info.name = "AptxAdaptiveLegacy";
++        provider_info.codecInfos.push_back(adaptive->info);
++        return ndk::ScopedAStatus::ok();
++    }
++
+     if (session_type == SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH) {
+         if (!::android::base::GetBoolProperty(kEnableA2dpCodecExtensibility, false)) {
+             // Implementing getProviderInfo equates supporting
+diff --git a/bluetooth/audio/aidl/default/BluetoothAudioProviderFactory.h b/bluetooth/audio/aidl/default/BluetoothAudioProviderFactory.h
+index c810e5f60e68729d3280ef80c0447c238ffddd92..be97771326f49515f70ba84426e36bd0f4aad2ee 100644
+--- a/bluetooth/audio/aidl/default/BluetoothAudioProviderFactory.h
++++ b/bluetooth/audio/aidl/default/BluetoothAudioProviderFactory.h
+@@ -28,9 +28,11 @@ namespace audio {
+ 
+ class BluetoothAudioProviderFactory : public BnBluetoothAudioProviderFactory {
+     const A2dpOffloadCodecFactory a2dp_offload_codec_factory_;
++    const bool adaptive_only_ = false;
+ 
+   public:
+     BluetoothAudioProviderFactory();
++    explicit BluetoothAudioProviderFactory(bool adaptive_only);
+ 
+     ndk::ScopedAStatus openProvider(
+             const SessionType session_type,
+diff --git a/bluetooth/audio/aidl/default/service.cpp b/bluetooth/audio/aidl/default/service.cpp
+index 4c0502626900173eb2705fc83b04813ebd39a07a..7013b559ce0b5a2cc4b4539ec45123f4f50ccff2 100644
+--- a/bluetooth/audio/aidl/default/service.cpp
++++ b/bluetooth/audio/aidl/default/service.cpp
+@@ -20,9 +20,12 @@
+ #include <android/binder_process.h>
+ #include <utils/Log.h>
+ 
++#include "A2dpOffloadAudioProvider.h"
+ #include "BluetoothAudioProviderFactory.h"
+ 
+ using ::aidl::android::hardware::bluetooth::audio::BluetoothAudioProviderFactory;
++using ::aidl::android::hardware::bluetooth::audio::GetLegacyAptxAdaptiveCodec;
++using ::aidl::android::hardware::bluetooth::audio::SessionType;
+ 
+ extern "C" __attribute__((visibility("default"))) binder_status_t
+ createIBluetoothAudioProviderFactory() {
+@@ -34,4 +37,24 @@ createIBluetoothAudioProviderFactory() {
+     ALOGW_IF(aidl_status != STATUS_OK, "Could not register %s, status=%d", instance_name.c_str(),
+              aidl_status);
+     return aidl_status;
+-}
+\ No newline at end of file
++}
++
++extern "C" __attribute__((visibility("default"))) binder_status_t
++createAptxAdaptiveBluetoothAudioProviderFactory() {
++    if (GetLegacyAptxAdaptiveCodec(SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH) == nullptr) {
++        ALOGW("aptX Adaptive legacy offload is unavailable");
++        return STATUS_INVALID_OPERATION;
++    }
++
++    auto factory = ::ndk::SharedRefBase::make<BluetoothAudioProviderFactory>(true);
++    const std::string instance_name =
++            std::string() + BluetoothAudioProviderFactory::descriptor + "/aptx_adaptive";
++    const binder_status_t status =
++            AServiceManager_addService(factory->asBinder().get(), instance_name.c_str());
++    if (status == STATUS_OK) {
++        ALOGI("Registered %s", instance_name.c_str());
++    } else {
++        ALOGW("Could not register %s, status=%d", instance_name.c_str(), status);
++    }
++    return status;
++}
+diff --git a/bluetooth/audio/utils/Android.bp b/bluetooth/audio/utils/Android.bp
+index 7f7d600c23d42ce1dc6bd52c0edfc8482801c16f..e43aa45f8e9d6079dd9bfa084b03c1c56336fc3b 100644
+--- a/bluetooth/audio/utils/Android.bp
++++ b/bluetooth/audio/utils/Android.bp
+@@ -39,6 +39,7 @@ cc_library_shared {
+     host_supported: true,
+     srcs: [
+         "aidl_session/a2dp/A2dpOffloadCodecAac.cpp",
++        "aidl_session/a2dp/A2dpOffloadCodecAptxAdaptive.cpp",
+         "aidl_session/a2dp/A2dpOffloadCodecFactory.cpp",
+         "aidl_session/a2dp/A2dpOffloadCodecSbc.cpp",
+         "aidl_session/BluetoothAudioCodecs.cpp",
+diff --git a/bluetooth/audio/utils/aidl_session/BluetoothAudioSession.cpp b/bluetooth/audio/utils/aidl_session/BluetoothAudioSession.cpp
+index 6347a1f477b15f9b7e6ea7c5bd7abc33f08e9e45..d2b2905eb61474860076f0023e4f025895465cd8 100644
+--- a/bluetooth/audio/utils/aidl_session/BluetoothAudioSession.cpp
++++ b/bluetooth/audio/utils/aidl_session/BluetoothAudioSession.cpp
+@@ -55,6 +55,13 @@ static constexpr int kFrameDurationUs = 20000;     // A2DP frame duration
+ constexpr char kPropertyLeaSwOffload[] = "persist.vendor.audio.leaudio_sw_offload";
+ constexpr char kEnableA2dpCodecExtensibility[] = "persist.vendor.audio.a2dp_codec_extensibility";
+ 
++static bool IsLegacyAptxAdaptiveConfiguration(const AudioConfiguration& configuration) {
++    if (configuration.getTag() != AudioConfiguration::a2dpConfig) return false;
++    const auto& codec = configuration.get<AudioConfiguration::a2dpConfig>();
++    return codec.codecType == CodecType::APTX_ADAPTIVE &&
++           codec.config.getTag() == CodecConfiguration::CodecSpecific::aptxAdaptiveConfig;
++}
++
+ static std::string toString(const std::vector<LatencyMode>& latencies) {
+     std::stringstream latencyModesStr;
+     for (LatencyMode mode : latencies) {
+@@ -367,6 +374,10 @@ const AudioConfiguration BluetoothAudioSession::GetAudioConfig() {
+ 
+ void BluetoothAudioSession::ReportAudioConfigChanged(const AudioConfiguration& audio_config) {
+     std::lock_guard<std::recursive_mutex> guard(mutex_);
++    const bool is_legacy_adaptive =
++            session_type_ == SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH &&
++            audio_config_ != nullptr && IsLegacyAptxAdaptiveConfiguration(*audio_config_) &&
++            IsLegacyAptxAdaptiveConfiguration(audio_config);
+     if (session_type_ == SessionType::LE_AUDIO_HARDWARE_OFFLOAD_ENCODING_DATAPATH ||
+         session_type_ == SessionType::LE_AUDIO_HARDWARE_OFFLOAD_DECODING_DATAPATH) {
+         if (audio_config.getTag() != AudioConfiguration::leAudioConfig) {
+@@ -396,9 +407,9 @@ void BluetoothAudioSession::ReportAudioConfigChanged(const AudioConfiguration& a
+                        << " invalid audio config type for SessionType =" << toString(session_type_);
+             return;
+         }
+-    } else if (isA2dpSwOffloadAvailable() &&
+-               session_type_ == SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH) {
+-        if (audio_config.getTag() != AudioConfiguration::a2dp) {
++    } else if (session_type_ == SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH &&
++               (is_legacy_adaptive || isA2dpSwOffloadAvailable())) {
++        if (!is_legacy_adaptive && audio_config.getTag() != AudioConfiguration::a2dp) {
+             LOG(ERROR) << __func__
+                        << " invalid audio config type for SessionType =" << toString(session_type_);
+             return;
+@@ -426,7 +437,7 @@ void BluetoothAudioSession::ReportAudioConfigChanged(const AudioConfiguration& a
+ 
+     if (opus_audio_config.has_value()) {
+         audio_config_ = std::make_unique<AudioConfiguration>(opus_audio_config.value());
+-    } else if (isA2dpSwOffloadAvailable() &&
++    } else if (!is_legacy_adaptive && isA2dpSwOffloadAvailable() &&
+                session_type_ == SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH) {
+         std::optional<PcmConfiguration> pcm_config =
+                 SetSoftwareOffloaderConfiguration(audio_config);
+@@ -678,7 +689,7 @@ bool BluetoothAudioSession::UpdateAudioConfig(const AudioConfiguration& audio_co
+     auto opus_audio_config = convertToOpusAudioConfiguration(audio_config, is_stream_active);
+     if (opus_audio_config.has_value()) {
+         audio_config_ = std::make_unique<AudioConfiguration>(opus_audio_config.value());
+-    } else if (isA2dpSwOffloadAvailable() &&
++    } else if (!IsLegacyAptxAdaptiveConfiguration(audio_config) && isA2dpSwOffloadAvailable() &&
+                session_type_ == SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH) {
+         /* Prepare PCM config for possible data processing for Software Offloading
+          */
+diff --git a/bluetooth/audio/utils/aidl_session/a2dp/A2dpOffloadCodecAptxAdaptive.cpp b/bluetooth/audio/utils/aidl_session/a2dp/A2dpOffloadCodecAptxAdaptive.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..d86b9f783c90a4580024d8d1bebbaf07695c82d3
+--- /dev/null
++++ b/bluetooth/audio/utils/aidl_session/a2dp/A2dpOffloadCodecAptxAdaptive.cpp
+@@ -0,0 +1,242 @@
++/*
++ * Copyright (c) 2018, The Linux Foundation. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted (subject to the limitations in the disclaimer
++ * below) provided that the following conditions are met:
++ *
++ *  * Redistributions of source code must retain the above copyright notice,
++ *    this list of conditions and the following disclaimer.
++ *  * Redistributions in binary form must reproduce the above copyright notice,
++ *    this list of conditions and the following disclaimer in the documentation
++ *    and/or other materials provided with the distribution.
++ *  * Neither the name of The Linux Foundation nor the names of its contributors
++ *    may be used to endorse or promote products derived from this software
++ *    without specific prior written permission.
++ *
++ * NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE GRANTED BY
++ * THIS LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
++ * CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT
++ * NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
++ * PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER
++ * OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
++ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
++ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
++ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
++ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#include "A2dpOffloadCodecAptxAdaptive.h"
++
++#include <algorithm>
++#include <bit>
++#include <utility>
++
++namespace aidl::android::hardware::bluetooth::audio {
++namespace {
++
++// Qualcomm CAF a2dp_vendor_aptx_adaptive.cc and a2dp_vendor_aptx_adaptive_constants.h,
++// revision 85d7b3fb416b875ee072f95db5f71698eaad57a2. These offsets start after the
++// AVDTP media/codec type, vendor ID, and codec ID.
++constexpr int kVendorId = 0x000000d7;
++constexpr int kCodecId = 0x00ad;
++constexpr size_t kPayloadSize = 34;
++constexpr size_t kSamplingFrequency = 0;
++constexpr size_t kChannelMode = 1;
++constexpr size_t kTimeToPlay = 2;
++constexpr size_t kExtensionVersion = 9;
++constexpr size_t kFeatures = 10;
++constexpr size_t kExtensionEnd = 20;
++
++constexpr uint8_t kRateMask = 0xf8;
++constexpr uint8_t kRate48000 = 0x10;
++constexpr uint8_t kRate96000 = 0x80;
++constexpr uint8_t kRate96000Alternate = 0x20;
++constexpr uint8_t kRate96000Mask = kRate96000 | kRate96000Alternate;
++constexpr uint8_t kChannelMask = 0x3f;
++constexpr uint8_t kJointStereo = 0x08;
++constexpr uint8_t kR2Extension = 0x01;
++constexpr uint8_t kR21SourceFeatures = 0x03;
++constexpr uint8_t kR22SourceFeatures = 0x17;
++constexpr int32_t kBitdepth = 24;
++
++CodecId MakeCodecId() {
++    return CodecId::make<CodecId::Tag::vendor>(CodecId::Vendor{.id = kVendorId, .codecId = kCodecId});
++}
++
++CodecInfo MakeCodecInfo(bool supports_r2_1, bool supports_r2_2) {
++    uint8_t rates = kRate48000;
++    std::vector<int32_t> sampling_frequencies = {48000};
++    if (supports_r2_1 || supports_r2_2) {
++        rates |= kRate96000Mask;
++        sampling_frequencies.push_back(96000);
++    }
++    // Qualcomm's 44.1 kHz path also configures its controller Lossless mode.
++    // Keep that rate out of this encoder's capabilities until that mode is integrated.
++
++    uint8_t features = 0;
++    if (supports_r2_2) {
++        features = kR22SourceFeatures;
++    } else if (supports_r2_1) {
++        features = kR21SourceFeatures;
++    }
++
++    std::vector<uint8_t> capabilities = {
++            rates, kJointStereo,
++            0x50, 0x64, 0x64, 0x64, 0xff, 0xff, 0,  // TTP and reserved octet
++            kR2Extension, features, 0, 0, 0x0f,     // extension version and feature word
++            0x02, 0x03, 0x03, 0x03,                 // setup preferences
++            0, 0xaa,                               // end of extension
++    };
++    capabilities.resize(kPayloadSize);
++
++    return {.id = MakeCodecId(),
++            .name = "aptX Adaptive",
++            .transport = CodecInfo::Transport::make<CodecInfo::Transport::Tag::a2dp>(
++                    CodecInfo::A2dp{.capabilities = std::move(capabilities),
++                                    .channelMode = {ChannelMode::STEREO},
++                                    .samplingFrequencyHz = std::move(sampling_frequencies),
++                                    .bitdepth = {kBitdepth}})};
++}
++
++uint8_t RateMask(int32_t frequency) {
++    switch (frequency) {
++        case 48000:
++            return kRate48000;
++        case 96000:
++            return kRate96000Mask;
++        default:
++            return 0;
++    }
++}
++
++int32_t SamplingFrequency(uint8_t rate) {
++    switch (rate) {
++        case kRate48000:
++            return 48000;
++        case kRate96000Alternate:
++        case kRate96000:
++        case kRate96000Mask:
++            return 96000;
++        default:
++            return 0;
++    }
++}
++
++int8_t TimeToPlay(uint8_t value) {
++    return static_cast<int8_t>(static_cast<int>(value) - 128);
++}
++
++}  // namespace
++
++A2dpOffloadCodecAptxAdaptive::A2dpOffloadCodecAptxAdaptive(bool supports_r2_1, bool supports_r2_2)
++    : A2dpOffloadCodec(info_), info_(MakeCodecInfo(supports_r2_1, supports_r2_2)) {}
++
++bool A2dpOffloadCodecAptxAdaptive::IsCodecId(const CodecId& id) {
++    return id == MakeCodecId();
++}
++
++A2dpStatus A2dpOffloadCodecAptxAdaptive::SelectA2dpConfiguration(
++        const std::vector<uint8_t>& configuration, CodecParameters* codec_parameters) const {
++    if (configuration.size() != kPayloadSize) return A2dpStatus::BAD_LENGTH;
++
++    const uint8_t rate = configuration[kSamplingFrequency] & kRateMask;
++    const int32_t frequency = SamplingFrequency(rate);
++    if (frequency == 0) return A2dpStatus::INVALID_SAMPLING_FREQUENCY;
++
++    const uint8_t extension = configuration[kExtensionVersion];
++    if (extension > kR2Extension) return A2dpStatus::NOT_SUPPORTED_CODEC_PARAMETER;
++
++    const auto& capabilities = info_.transport.get<CodecInfo::Transport::Tag::a2dp>().capabilities;
++    if ((capabilities[kSamplingFrequency] & rate) != rate ||
++        (extension == 0 && rate != kRate48000)) {
++        return A2dpStatus::NOT_SUPPORTED_SAMPLING_FREQUENCY;
++    }
++
++    const uint8_t channels = configuration[kChannelMode] & kChannelMask;
++    if (!std::has_single_bit(channels)) return A2dpStatus::INVALID_CHANNEL_MODE;
++    if (channels != kJointStereo) return A2dpStatus::NOT_SUPPORTED_CHANNEL_MODE;
++
++    *codec_parameters = {.channelMode = ChannelMode::STEREO,
++                         .samplingFrequencyHz = frequency,
++                         .bitdepth = kBitdepth,
++                         .vendorSpecificParameters = {}};
++    return A2dpStatus::OK;
++}
++
++A2dpStatus A2dpOffloadCodecAptxAdaptive::SelectA2dpConfiguration(
++        const std::vector<uint8_t>& configuration, AptxAdaptiveConfiguration* codec_parameters) const {
++    CodecParameters parameters;
++    const auto status = SelectA2dpConfiguration(configuration, &parameters);
++    if (status != A2dpStatus::OK) return status;
++
++    // The typed offload interface carries the extension independently of the
++    // other negotiated fields. See Qualcomm CAF a2dp_encoding.cc:1305–1328.
++    *codec_parameters = {
++            .sampleRateHz = parameters.samplingFrequencyHz,
++            .channelMode = AptxAdaptiveChannelMode::JOINT_STEREO,
++            .bitsPerSample = kBitdepth,
++            .aptxMode = AptxMode::HIGH_QUALITY,
++            .sinkBufferingMs = {20, 50, 20, 50, 20, 50},
++            .ttp = {TimeToPlay(configuration[kTimeToPlay]),
++                    TimeToPlay(configuration[kTimeToPlay + 1]),
++                    TimeToPlay(configuration[kTimeToPlay + 2]),
++                    TimeToPlay(configuration[kTimeToPlay + 3]),
++                    TimeToPlay(configuration[kTimeToPlay + 4]),
++                    TimeToPlay(configuration[kTimeToPlay + 5])},
++            .inputMode = AptxAdaptiveInputMode::STEREO,
++            .inputFadeDurationMs = 255,
++            .aptxAdaptiveConfigStream = {configuration.begin() + kExtensionVersion,
++                                         configuration.begin() + kExtensionEnd},
++    };
++    return A2dpStatus::OK;
++}
++
++bool A2dpOffloadCodecAptxAdaptive::BuildConfiguration(
++        const std::vector<uint8_t>& remote_capabilities, const std::optional<CodecParameters>& hint,
++        std::vector<uint8_t>* configuration) const {
++    if (remote_capabilities.size() != kPayloadSize) return false;
++
++    const auto& local = info_.transport.get<CodecInfo::Transport::Tag::a2dp>().capabilities;
++    const uint8_t extension = remote_capabilities[kExtensionVersion];
++    if (extension > kR2Extension) return false;
++
++    if ((remote_capabilities[kChannelMode] & kJointStereo) == 0) return false;
++
++    const uint8_t source_features = local[kFeatures];
++    const uint8_t sink_features = remote_capabilities[kFeatures];
++    uint8_t rates = local[kSamplingFrequency] & remote_capabilities[kSamplingFrequency];
++    if (extension == 0) rates &= kRate48000;
++
++    uint8_t rate = hint ? rates & RateMask(hint->samplingFrequencyHz) : 0;
++    if (rate == 0) {
++        // Prefer 48 kHz for a new stream. A supported explicit rate can still
++        // select 96 kHz.
++        for (uint8_t preferred_rate : {kRate48000, kRate96000Mask}) {
++            rate = rates & preferred_rate;
++            if (rate != 0) break;
++        }
++    }
++    if (rate == 0) return false;
++    // Both 96 kHz encodings are supported. Signal one that the peer offers.
++    if (rate == kRate96000Mask) rate = kRate96000;
++
++    auto result = local;
++    result[kSamplingFrequency] = rate;
++    result[kChannelMode] = kJointStereo;
++    if (extension == 0) {
++        std::copy_n(remote_capabilities.begin() + kExtensionVersion,
++                    kExtensionEnd - kExtensionVersion, result.begin() + kExtensionVersion);
++    } else {
++        // Combine the source/sink role bits and intersect the shared features.
++        result[kFeatures] = ((source_features | sink_features) & 0xf0) |
++                            ((source_features & sink_features) & 0x0f);
++        std::copy_n(remote_capabilities.begin() + kFeatures + 1, 3, result.begin() + kFeatures + 1);
++    }
++    *configuration = std::move(result);
++    return true;
++}
++
++}  // namespace aidl::android::hardware::bluetooth::audio
+diff --git a/bluetooth/audio/utils/aidl_session/a2dp/A2dpOffloadCodecAptxAdaptive.h b/bluetooth/audio/utils/aidl_session/a2dp/A2dpOffloadCodecAptxAdaptive.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..43d9c2d08e6796b4dfe0c59b7ba7010ec1781141
+--- /dev/null
++++ b/bluetooth/audio/utils/aidl_session/a2dp/A2dpOffloadCodecAptxAdaptive.h
+@@ -0,0 +1,45 @@
++/*
++ * Copyright 2026 The Android Open Source Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#pragma once
++
++#include <aidl/android/hardware/bluetooth/audio/AptxAdaptiveConfiguration.h>
++
++#include "A2dpOffloadCodec.h"
++
++namespace aidl::android::hardware::bluetooth::audio {
++
++class A2dpOffloadCodecAptxAdaptive : public A2dpOffloadCodec {
++  public:
++    A2dpOffloadCodecAptxAdaptive(bool supports_r2_1, bool supports_r2_2);
++
++    static bool IsCodecId(const CodecId& id);
++
++    A2dpStatus SelectA2dpConfiguration(const std::vector<uint8_t>& configuration,
++                                      CodecParameters* codec_parameters) const override;
++
++    A2dpStatus SelectA2dpConfiguration(const std::vector<uint8_t>& configuration,
++                                      AptxAdaptiveConfiguration* codec_parameters) const;
++
++    bool BuildConfiguration(const std::vector<uint8_t>& remote_capabilities,
++                            const std::optional<CodecParameters>& hint,
++                            std::vector<uint8_t>* configuration) const override;
++
++  private:
++    const CodecInfo info_;
++};
++
++}  // namespace aidl::android::hardware::bluetooth::audio

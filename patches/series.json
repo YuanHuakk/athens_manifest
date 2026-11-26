@@ -78,5 +78,13 @@
   {
     "project": "device/xiaomi/athens",
     "patch": "upstream/22-device_xiaomi_athens.patch"
+  },
+  {
+    "project": "packages/modules/Bluetooth",
+    "patch": "upstream/26-packages_modules_Bluetooth.patch"
+  },
+  {
+    "project": "hardware/interfaces",
+    "patch": "upstream/27-hardware_interfaces.patch"
   }
 ]

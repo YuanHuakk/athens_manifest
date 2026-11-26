@@ -45,7 +45,7 @@ index 75d249626ecbf8630ce4c0dfe7c81818d51d960e..27697edf9055b1c7f5fdae78a7cdcf21
  
  BOARD_AVB_BOOT_KEY_PATH := external/avb/test/data/testkey_rsa4096.pem
 diff --git a/common.mk b/common.mk
-index 7a2612507a7bde40ec7a28a284291c7e87ea8f29..8a083d52b3a19761688010ff178b8de944c0ea63 100644
+index 7a2612507a7bde40ec7a28a284291c7e87ea8f29..72035d9662c6ec68c64ca043e35163198fb8ea8a 100644
 --- a/common.mk
 +++ b/common.mk
 @@ -20,7 +20,9 @@ $(call inherit-product, $(SRC_TARGET_DIR)/product/generic_ramdisk.mk)
@@ -58,7 +58,36 @@ index 7a2612507a7bde40ec7a28a284291c7e87ea8f29..8a083d52b3a19761688010ff178b8de9
  
  # Call the proprietary setup.
  $(call inherit-product, vendor/xiaomi/sm8850-common/sm8850-common-vendor.mk)
-@@ -165,10 +167,12 @@ PRODUCT_PACKAGES += \
+@@ -96,10 +98,16 @@ PRODUCT_PACKAGES += \
+ 
+ AUDIO_HAL_DIR := hardware/qcom-caf/sm8850/audio/primary-hal/configs/canoe
+ 
++ifeq ($(TARGET_PRODUCT):$(ATHENS_APTX_ADAPTIVE_TEST_BUILD),lineage_athens:true)
++QTI_AUDIO_INTERFACES_XML := device/xiaomi/athens/compat/aptx_adaptive_stock/vendor_audio_interfaces.xml
++else
++QTI_AUDIO_INTERFACES_XML := $(AUDIO_HAL_DIR)/vendor_audio_interfaces.xml
++endif
++
+ PRODUCT_COPY_FILES += \
+     $(AUDIO_HAL_DIR)/mem_logger_config.xml:$(TARGET_COPY_OUT_VENDOR)/etc/mem_logger_config.xml \
+     $(AUDIO_HAL_DIR)/microphone_characteristics.xml:$(TARGET_COPY_OUT_VENDOR)/etc/microphone_characteristics.xml \
+-    $(AUDIO_HAL_DIR)/vendor_audio_interfaces.xml:$(TARGET_COPY_OUT_VENDOR)/etc/vendor_audio_interfaces.xml \
++    $(QTI_AUDIO_INTERFACES_XML):$(TARGET_COPY_OUT_VENDOR)/etc/vendor_audio_interfaces.xml \
+     $(LOCAL_PATH)/configs/audio/audio_module_config_primary.xml:$(TARGET_COPY_OUT_VENDOR)/etc/audio/audio_module_config_primary.xml \
+     $(LOCAL_PATH)/configs/audio/audio_policy_configuration.xml:$(TARGET_COPY_OUT_VENDOR)/etc/audio/sku_canoe/audio_policy_configuration.xml
+ 
+@@ -121,6 +129,10 @@ PRODUCT_PACKAGES += \
+     lib_bt_ble \
+     lib_bt_bundle
+ 
++ifneq ($(TARGET_PRODUCT):$(ATHENS_APTX_ADAPTIVE_TEST_BUILD),lineage_athens:true)
++PRODUCT_PACKAGES += btaudio_offload_if
++endif
++
+ PRODUCT_COPY_FILES += \
+     frameworks/native/data/etc/android.hardware.bluetooth.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.bluetooth.xml \
+     frameworks/native/data/etc/android.hardware.bluetooth_le.channel_sounding.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.bluetooth_le.channel_sounding.xml \
+@@ -165,10 +177,12 @@ PRODUCT_PACKAGES += \
      fastbootd
  
  # Fingerprint
@@ -71,6 +100,58 @@ index 7a2612507a7bde40ec7a28a284291c7e87ea8f29..8a083d52b3a19761688010ff178b8de9
  
  PRODUCT_COPY_FILES += \
      frameworks/native/data/etc/android.hardware.fingerprint.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.hardware.fingerprint.xml
+diff --git a/compat/btaudio_offload/Android.bp b/compat/btaudio_offload/Android.bp
+new file mode 100644
+index 0000000000000000000000000000000000000000..f81b64e387e9f73fcafdb4c3ba92a3b2e836cdc0
+--- /dev/null
++++ b/compat/btaudio_offload/Android.bp
+@@ -0,0 +1,46 @@
++// SPDX-License-Identifier: Apache-2.0
++
++cc_defaults {
++    name: "xiaomi_btaudio_offload_blob_defaults",
++    soc_specific: true,
++    compile_multilib: "64",
++    strip: {
++        none: true,
++    },
++    shared_libs: [
++        "android.hardware.bluetooth.audio-V5-ndk",
++        "libbase",
++        "libbinder_ndk",
++        "libc",
++        "libc++",
++        "libcutils",
++        "libdl",
++        "libfmq",
++        "libhidlbase",
++        "liblog",
++        "libm",
++        "libutils",
++        "vendor.qti.hardware.bluetooth.audio-V1-ndk",
++        "//vendor/xiaomi/sm8850-common:android.hardware.bluetooth.audio-impl-qti",
++        "//vendor/xiaomi/sm8850-common:libbluetooth_audio_session_aidl_qti",
++        "//vendor/xiaomi/sm8850-common:libbluetooth_audio_session_qti",
++        "//vendor/xiaomi/sm8850-common:libbluetooth_audio_session_qti_2_1",
++        "//vendor/xiaomi/sm8850-common:libmisight",
++        "//vendor/xiaomi/sm8850-common:vendor.qti.hardware.bluetooth.btavsprovider-V1-ndk",
++        "//vendor/xiaomi/sm8850-common:vendor.qti.hardware.bluetooth.btavsprovider-impl-qti",
++    ],
++}
++
++cc_prebuilt_library_shared {
++    name: "btaudio_offload_if",
++    defaults: ["xiaomi_btaudio_offload_blob_defaults"],
++    enabled: select(soong_config_variable("athens_bluetooth", "aptx_adaptive"), {
++        true: false,
++        default: true,
++    }),
++    target: {
++        android_arm64: {
++            srcs: ["//vendor/xiaomi/sm8850-common:xiaomi_btaudio_offload_if_blob"],
++        },
++    },
++}
 diff --git a/compat/vpp_dsp.c b/compat/vpp_dsp.c
 new file mode 100644
 index 0000000000000000000000000000000000000000..e3abbc294e3ef35cb7afc77d59f9a567a7911a49
@@ -246,7 +327,7 @@ index f7eb2078112af6a4d89d9940dff68b5092ce8d28..cb5698e1afbdebc5d69889b546cf04d6
 \ No newline at end of file
 +    utils.run()
 diff --git a/proprietary-files.txt b/proprietary-files.txt
-index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..bc2290c30100251f4c5a6ba1976c831cd5184e7d 100644
+index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..1833dc6081cbf9db2d48388adbbd9e5eb11ac22a 100644
 --- a/proprietary-files.txt
 +++ b/proprietary-files.txt
 @@ -132,7 +132,7 @@ vendor/lib64/libaudioserviceexampleimpl.so;DISABLE_DEPS
@@ -276,6 +357,15 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..bc2290c30100251f4c5a6ba1976c831c
  vendor/etc/vintf/manifest/qasr_vintf.xml|c7c183d5deadec39de1f20a64bef630bbbbfe458
  
  # Audio Config
+@@ -258,7 +258,7 @@ vendor/etc/vintf/manifest/bttpi-saidl.xml
+ vendor/etc/vintf/manifest/manifest_btaudiocoreservices_qti.xml
+ vendor/etc/vintf/manifest/vendor.qti.hardware.bluetooth.btavsprovider.xml
+ vendor/etc/vintf/manifest/vendor.qti.hardware.bluetooth.xpanprovider.xml
+-vendor/lib64/btaudio_offload_if.so
++vendor/lib64/btaudio_offload_if.so;EXTRACT_ONLY;FILEGROUP=xiaomi_btaudio_offload_if_blob
+ vendor/lib64/hw/android.hardware.bluetooth.audio_sw.so;DISABLE_DEPS
+ vendor/lib64/hw/android.hardware.bluetooth.audio-impl-qti.so
+ vendor/lib64/hw/android.hardware.bluetooth.lmp_event-impl-qti.so
 @@ -287,16 +287,16 @@ vendor/lib64/vendor.qti.hardware.bttpi-V3-ndk.so
  
  # Camera

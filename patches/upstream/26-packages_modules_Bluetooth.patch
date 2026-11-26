@@ -1,0 +1,1941 @@
+diff --git a/system/audio_hal_interface/a2dp_encoding.cc b/system/audio_hal_interface/a2dp_encoding.cc
+index 87914100ffd55599cb0da2e9f82fdb98dca84605..d192aa72d6a30ffa190c89fd47a898ca66b38dc3 100644
+--- a/system/audio_hal_interface/a2dp_encoding.cc
++++ b/system/audio_hal_interface/a2dp_encoding.cc
+@@ -60,12 +60,12 @@ std::string ahal_codec_configuration::ToString() const {
+ 
+ bool update_codec_offloading_capabilities(
+         const std::vector<btav_a2dp_codec_config_t>& framework_preference,
+-        bool supports_a2dp_hw_offload_v2) {
++        bool supports_a2dp_hw_offload_v2, bool supports_qti_aptx_adaptive) {
+   if (HalVersionManager::GetHalTransport() == BluetoothAudioHalTransport::HIDL) {
+     return hidl::a2dp::update_codec_offloading_capabilities(framework_preference);
+   }
+-  return aidl::a2dp::update_codec_offloading_capabilities(framework_preference,
+-                                                          supports_a2dp_hw_offload_v2);
++  return aidl::a2dp::update_codec_offloading_capabilities(
++          framework_preference, supports_a2dp_hw_offload_v2, supports_qti_aptx_adaptive);
+ }
+ 
+ // Check if new bluetooth_audio is enabled
+@@ -121,12 +121,12 @@ bool setup_codec(const ahal_codec_configuration& config) {
+ 
+ // Send command to the BluetoothAudio HAL: StartSession, EndSession,
+ // StreamStarted, StreamSuspended
+-void start_session() {
++bool start_session() {
+   if (HalVersionManager::GetHalTransport() == BluetoothAudioHalTransport::HIDL) {
+     hidl::a2dp::start_session();
+-    return;
++    return true;
+   }
+-  aidl::a2dp::start_session();
++  return aidl::a2dp::start_session();
+ }
+ 
+ void end_session() {
+@@ -198,6 +198,11 @@ bool is_opus_supported() {
+ 
+ namespace provider {
+ 
++bool uses_qti_aptx_adaptive_offload() {
++  return HalVersionManager::GetHalTransport() == BluetoothAudioHalTransport::AIDL &&
++         aidl::a2dp::provider::uses_qti_aptx_adaptive_offload();
++}
++
+ // Lookup the codec info in the list of supported offloaded sink codecs.
+ std::optional<btav_a2dp_codec_index_t> sink_codec_index(const uint8_t* p_codec_info) {
+   return (HalVersionManager::GetHalTransport() == BluetoothAudioHalTransport::AIDL)
+diff --git a/system/audio_hal_interface/a2dp_encoding.h b/system/audio_hal_interface/a2dp_encoding.h
+index ac9091df471e9d6cf74f228f7e0a54b5535e793f..dec0c94b75340f740422022499cbc6bad8988c78 100644
+--- a/system/audio_hal_interface/a2dp_encoding.h
++++ b/system/audio_hal_interface/a2dp_encoding.h
+@@ -90,7 +90,7 @@ struct ahal_codec_configuration {
+ 
+ bool update_codec_offloading_capabilities(
+         const std::vector<btav_a2dp_codec_config_t>& framework_preference,
+-        bool supports_a2dp_hw_offload_v2);
++        bool supports_a2dp_hw_offload_v2, bool supports_qti_aptx_adaptive = false);
+ 
+ // Check if new bluetooth_audio is enabled
+ bool is_hal_enabled();
+@@ -116,7 +116,7 @@ void set_audio_low_latency_mode_allowed(bool allowed);
+ 
+ // Send command to the BluetoothAudio HAL: StartSession, EndSession,
+ // StreamStarted, StreamSuspended
+-void start_session();
++bool start_session();
+ void end_session();
+ void ack_stream_started(Status status);
+ void ack_stream_suspended(Status status);
+@@ -136,6 +136,9 @@ bool is_opus_supported();
+ // Definitions for A2DP hardware offload codec extensibility.
+ namespace provider {
+ 
++// The Qualcomm Adaptive provider uses the vendor HCI offload protocol.
++bool uses_qti_aptx_adaptive_offload();
++
+ // Lookup the codec info in the list of supported offloaded sink codecs.
+ std::optional<btav_a2dp_codec_index_t> sink_codec_index(const uint8_t* p_codec_info);
+ 
+diff --git a/system/audio_hal_interface/a2dp_encoding_host.cc b/system/audio_hal_interface/a2dp_encoding_host.cc
+index e94c451f8a656268f18349b13d1911a859bb19ff..de4325038e49105cb45a0065dabc27fcf104df5c 100644
+--- a/system/audio_hal_interface/a2dp_encoding_host.cc
++++ b/system/audio_hal_interface/a2dp_encoding_host.cc
+@@ -247,7 +247,7 @@ void set_remote_delay(uint16_t delay_report) { remote_delay_report_ = delay_repo
+ // Inform audio server about offloading codec; not used for now
+ bool update_codec_offloading_capabilities(
+         const std::vector<btav_a2dp_codec_config_t>& /*framework_preference*/,
+-        bool /*supports_a2dp_hw_offload_v2*/) {
++        bool /*supports_a2dp_hw_offload_v2*/, bool /*supports_qti_aptx_adaptive*/) {
+   return false;
+ }
+ 
+@@ -299,8 +299,9 @@ bool setup_codec(const ahal_codec_configuration& /* config */) {
+   return true;
+ }
+ 
+-void start_session() {
++bool start_session() {
+   // TODO: Notify server; or do we handle it during connected?
++  return true;
+ }
+ 
+ void end_session() {
+@@ -345,6 +346,8 @@ bool is_opus_supported() { return true; }
+ 
+ namespace provider {
+ 
++bool uses_qti_aptx_adaptive_offload() { return false; }
++
+ // Lookup the codec info in the list of supported offloaded sink codecs.
+ std::optional<btav_a2dp_codec_index_t> sink_codec_index(const uint8_t* /*p_codec_info*/) {
+   return std::nullopt;
+diff --git a/system/audio_hal_interface/aidl/a2dp/a2dp_encoding_aidl.cc b/system/audio_hal_interface/aidl/a2dp/a2dp_encoding_aidl.cc
+index 08389c191acdf5b689e0f60b61f1bffa6bcafb89..2fd425bbdb9d1a28abb596241be9c75358cafe00 100644
+--- a/system/audio_hal_interface/aidl/a2dp/a2dp_encoding_aidl.cc
++++ b/system/audio_hal_interface/aidl/a2dp/a2dp_encoding_aidl.cc
+@@ -20,6 +20,7 @@
+ #include <bluetooth/log.h>
+ #include <com_android_bluetooth_flags.h>
+ 
++#include <cerrno>
+ #include <vector>
+ 
+ #include "a2dp_aidl_transport.h"
+@@ -57,6 +58,7 @@ using ::bluetooth::audio::aidl::a2dp::codec::getHalPcmConfiguration;
+ // Common interface to call-out into Bluetooth Audio HAL
+ BluetoothAudioClientInterface* software_hal_interface = nullptr;
+ BluetoothAudioClientInterface* offloading_hal_interface = nullptr;
++BluetoothAudioClientInterface* adaptive_hal_interface = nullptr;
+ BluetoothAudioClientInterface* decoder_offloading_hal_interface = nullptr;
+ BluetoothAudioClientInterface* active_hal_interface = nullptr;
+ 
+@@ -73,12 +75,16 @@ bool is_low_latency_mode_allowed = false;
+ 
+ }  // namespace
+ 
++bool provider::uses_qti_aptx_adaptive_offload() {
++  return provider_info != nullptr && provider_info->uses_qti_aptx_adaptive_offload;
++}
++
+ bool update_codec_offloading_capabilities(
+         const std::vector<btav_a2dp_codec_config_t>& framework_preference,
+-        bool supports_a2dp_hw_offload_v2) {
++        bool supports_a2dp_hw_offload_v2, bool supports_qti_aptx_adaptive) {
+   /* Load the provider information if supported by the HAL. */
+   provider_info = ::bluetooth::audio::aidl::a2dp::ProviderInfo::GetProviderInfo(
+-          supports_a2dp_hw_offload_v2);
++          supports_a2dp_hw_offload_v2, supports_qti_aptx_adaptive);
+   return ::bluetooth::audio::aidl::a2dp::codec::UpdateOffloadingCapabilities(framework_preference);
+ }
+ 
+@@ -131,6 +137,17 @@ bool init(bluetooth::common::MessageLoopThread* /*message_loop*/,
+     }
+   }
+ 
++  if (offload_enabled && provider::uses_qti_aptx_adaptive_offload()) {
++    adaptive_hal_interface =
++            new BluetoothAudioClientInterface(SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH,
++                                              stream_callbacks, kAptxAdaptiveFactoryInstance);
++    if (!adaptive_hal_interface->IsValid()) {
++      log::warn("Unable to open the Qualcomm aptX Adaptive Bluetooth Audio HAL");
++      delete adaptive_hal_interface;
++      adaptive_hal_interface = nullptr;
++    }
++  }
++
+   active_hal_interface =
+           (offloading_hal_interface != nullptr ? offloading_hal_interface : software_hal_interface);
+ 
+@@ -185,6 +202,8 @@ void cleanup() {
+     delete offloading_hal_interface;
+     offloading_hal_interface = nullptr;
+   }
++  delete adaptive_hal_interface;
++  adaptive_hal_interface = nullptr;
+ 
+   if (com_android_bluetooth_flags_a2dp_sink_offload() &&
+       decoder_offloading_hal_interface != nullptr) {
+@@ -213,30 +232,25 @@ bool setup_codec(const ahal_codec_configuration& config) {
+     a2dp_stream_configuration.codecId =
+             provider_info->GetCodec(config.codec_config.codec_type).value()->id;
+ 
+-    size_t parameters_start = 0;
+-    size_t parameters_end = 0;
+-    size_t codec_info_length = static_cast<size_t>(config.codec_specific_information_elements[0]);
+-    switch (config.codec_config.codec_type) {
+-      case BTAV_A2DP_CODEC_INDEX_SOURCE_SBC:
+-      case BTAV_A2DP_CODEC_INDEX_SOURCE_AAC:
+-        parameters_start = 3;
+-        parameters_end = 1 + codec_info_length;
+-        break;
+-      default:
+-        parameters_start = 9;
+-        parameters_end = 1 + codec_info_length;
+-        break;
++    auto payload = getCodecPayload(config.codec_specific_information_elements);
++    if (!payload) {
++      log::error("Invalid A2DP codec information from the stack");
++      return false;
+     }
+-
+-    a2dp_stream_configuration.configuration.insert(
+-            a2dp_stream_configuration.configuration.end(),
+-            config.codec_specific_information_elements + parameters_start,
+-            config.codec_specific_information_elements + parameters_end);
+-
+-    if (!is_hal_offloading()) {
++    a2dp_stream_configuration.configuration.assign(payload->begin(), payload->end());
++
++    const bool legacy_adaptive =
++            provider::uses_qti_aptx_adaptive_offload() &&
++            bluetooth::a2dp::ParseCodecId(config.codec_specific_information_elements) ==
++                    bluetooth::a2dp::kAptxAdaptiveCodec;
++    auto* target = legacy_adaptive ? adaptive_hal_interface : offloading_hal_interface;
++    if (target == nullptr) {
++      return false;
++    }
++    if (active_hal_interface != target) {
+       log::warn("Switching BluetoothAudio HAL to Hardware");
+       end_session();
+-      active_hal_interface = offloading_hal_interface;
++      active_hal_interface = target;
+     }
+ 
+     return active_hal_interface->UpdateAudioConfig(AudioConfiguration(a2dp_stream_configuration));
+@@ -250,7 +264,10 @@ bool setup_codec(const ahal_codec_configuration& config) {
+   // Compute the codec configuration for the hardware encoding session and
+   // check if the parameters are supported.
+   if (getHalCodecConfiguration(config, &codec_config)) {
+-    if (!is_hal_offloading()) {
++    if (offloading_hal_interface == nullptr) {
++      return false;
++    }
++    if (active_hal_interface != offloading_hal_interface) {
+       log::info("Switching BluetoothAudio HAL to Hardware");
+       end_session();
+       active_hal_interface = offloading_hal_interface;
+@@ -279,17 +296,18 @@ bool setup_codec(const ahal_codec_configuration& config) {
+   return false;
+ }
+ 
+-void start_session() {
++bool start_session() {
+   if (!is_hal_enabled()) {
+     log::error("BluetoothAudio HAL is not enabled");
+-    return;
++    return false;
+   }
+   std::vector<LatencyMode> latency_modes = {LatencyMode::FREE};
+   if (is_low_latency_mode_allowed) {
+     latency_modes.push_back(LatencyMode::LOW_LATENCY);
+   }
+   active_hal_interface->SetAllowedLatencyModes(latency_modes);
+-  active_hal_interface->StartSession();
++  const int status = active_hal_interface->StartSession();
++  return status == 0 || status == -EBUSY;
+ }
+ 
+ void end_session() {
+@@ -505,42 +523,30 @@ provider::get_a2dp_configuration(
+   using ::aidl::android::hardware::bluetooth::audio::A2dpRemoteCapabilities;
+   using ::aidl::android::hardware::bluetooth::audio::CodecId;
+ 
+-  BluetoothAudioClientInterface* hal_interface_to_use = nullptr;
+-
+-  if (com_android_bluetooth_flags_a2dp_sink_offload()) {
+-    if (is_source) {
+-      hal_interface_to_use = offloading_hal_interface;
+-      if (hal_interface_to_use == nullptr) {
+-        log::error("the offloading HAL interface is not opened");
+-        return std::nullopt;
+-      }
+-    } else {
+-      hal_interface_to_use = decoder_offloading_hal_interface;
+-      if (hal_interface_to_use == nullptr) {
+-        log::error("the decoder offloading HAL interface is not opened");
+-        return std::nullopt;
+-      }
+-    }
+-  } else {
+-    if (offloading_hal_interface == nullptr) {
+-      log::error("the offloading HAL interface is not opened");
+-      return std::nullopt;
+-    }
++  auto* hal_interface_to_use = offloading_hal_interface;
++  if (is_source && uses_qti_aptx_adaptive_offload()) {
++    hal_interface_to_use = adaptive_hal_interface;
++  } else if (!is_source && com_android_bluetooth_flags_a2dp_sink_offload()) {
++    hal_interface_to_use = decoder_offloading_hal_interface;
++  }
++  if (hal_interface_to_use == nullptr) {
++    return std::nullopt;
+   }
+ 
+   // Convert the remote audio capabilities to the exchange format used
+   // by the HAL.
+   std::vector<A2dpRemoteCapabilities> a2dp_remote_capabilities;
+   for (auto const& sep : remote_seps) {
+-    size_t capabilities_start = 0;
+-    size_t capabilities_end = 0;
++    auto payload = getCodecPayload(
++            std::span<const uint8_t, AVDT_CODEC_SIZE>(sep.capabilities, AVDT_CODEC_SIZE));
++    if (!payload) {
++      continue;
++    }
+     CodecId id;
+     switch (sep.capabilities[2]) {
+       case A2DP_MEDIA_CT_SBC:
+       case A2DP_MEDIA_CT_AAC: {
+         id = CodecId::make<CodecId::a2dp>(static_cast<CodecId::A2dp>(sep.capabilities[2]));
+-        capabilities_start = 3;
+-        capabilities_end = 1 + sep.capabilities[0];
+         break;
+       }
+       case A2DP_MEDIA_CT_NON_A2DP: {
+@@ -552,8 +558,6 @@ provider::get_a2dp_configuration(
+                             (static_cast<uint16_t>(sep.capabilities[8]) << 8);
+         id = CodecId::make<CodecId::vendor>(
+                 CodecId::Vendor({.id = (int32_t)vendor_id, .codecId = codec_id}));
+-        capabilities_start = 9;
+-        capabilities_end = 1 + sep.capabilities[0];
+         break;
+       }
+       default:
+@@ -562,9 +566,7 @@ provider::get_a2dp_configuration(
+     A2dpRemoteCapabilities& capabilities = a2dp_remote_capabilities.emplace_back();
+     capabilities.seid = sep.seid;
+     capabilities.id = id;
+-    capabilities.capabilities.insert(capabilities.capabilities.end(),
+-                                     sep.capabilities + capabilities_start,
+-                                     sep.capabilities + capabilities_end);
++    capabilities.capabilities.assign(payload->begin(), payload->end());
+   }
+ 
+   // Convert the user preferences into a configuration hint.
+@@ -644,12 +646,7 @@ provider::get_a2dp_configuration(
+ 
+   // Invoke the HAL GetAdpCapabilities method with the
+   // remote capabilities.
+-  std::optional<A2dpConfiguration> result = std::nullopt;
+-  if (com_android_bluetooth_flags_a2dp_sink_offload()) {
+-    result = hal_interface_to_use->GetA2dpConfiguration(a2dp_remote_capabilities, hint);
+-  } else {
+-    result = offloading_hal_interface->GetA2dpConfiguration(a2dp_remote_capabilities, hint);
+-  }
++  auto result = hal_interface_to_use->GetA2dpConfiguration(a2dp_remote_capabilities, hint);
+   // Convert the result configuration back to the stack's format.
+   if (!result.has_value()) {
+     log::info("provider cannot resolve the a2dp configuration");
+@@ -658,10 +655,14 @@ provider::get_a2dp_configuration(
+ 
+   log::info("provider selected {}", result->toString());
+   auto a2dp_configuration = convertA2dpConfiguration(result.value());
+-  a2dp_configuration.codec_parameters.codec_type =
+-          is_source ? provider_info->SourceCodecIndex(result->id).value()
+-                    : provider_info->SinkCodecIndex(result->id).value();
+-  return std::make_optional(a2dp_configuration);
++  auto codec_index = is_source ? provider_info->SourceCodecIndex(result->id)
++                               : provider_info->SinkCodecIndex(result->id);
++  if (!a2dp_configuration || !codec_index) {
++    log::error("Provider returned an invalid A2DP configuration");
++    return std::nullopt;
++  }
++  a2dp_configuration->codec_parameters.codec_type = *codec_index;
++  return a2dp_configuration;
+ }
+ 
+ /***
+@@ -674,16 +675,26 @@ tA2DP_STATUS provider::parse_a2dp_configuration(::bluetooth::a2dp::CodecId codec
+                                                 const uint8_t* codec_info,
+                                                 btav_a2dp_codec_config_t* codec_parameters,
+                                                 std::vector<uint8_t>* vendor_specific_parameters) {
+-  std::vector<uint8_t> configuration;
+   CodecParameters codec_parameters_aidl;
+ 
+   auto aidl_codec_id = convertCodecId(codec_id);
+   log::assert_that(aidl_codec_id.has_value(), "convertCodecId failed");
+ 
+-  std::copy(codec_info, codec_info + AVDT_CODEC_SIZE, std::back_inserter(configuration));
++  auto payload =
++          getCodecPayload(std::span<const uint8_t, AVDT_CODEC_SIZE>(codec_info, AVDT_CODEC_SIZE));
++  if (!payload) {
++    return AVDTP_BAD_LENGTH;
++  }
++  std::vector<uint8_t> configuration(payload->begin(), payload->end());
+ 
+-  auto a2dp_status = offloading_hal_interface->ParseA2dpConfiguration(
+-          aidl_codec_id.value(), configuration, &codec_parameters_aidl);
++  auto* hal = codec_id == bluetooth::a2dp::kAptxAdaptiveCodec && uses_qti_aptx_adaptive_offload()
++                      ? adaptive_hal_interface
++                      : offloading_hal_interface;
++  if (hal == nullptr) {
++    return A2DP_FAIL;
++  }
++  auto a2dp_status =
++          hal->ParseA2dpConfiguration(aidl_codec_id.value(), configuration, &codec_parameters_aidl);
+ 
+   if (!a2dp_status.has_value()) {
+     log::error("provider failed to parse configuration");
+diff --git a/system/audio_hal_interface/aidl/a2dp/a2dp_encoding_aidl.h b/system/audio_hal_interface/aidl/a2dp/a2dp_encoding_aidl.h
+index 80d9400845a6ce80c1e850452f1fd828a192fbcc..4062e523629f2b35ace1f30438f77166f04a69bc 100644
+--- a/system/audio_hal_interface/aidl/a2dp/a2dp_encoding_aidl.h
++++ b/system/audio_hal_interface/aidl/a2dp/a2dp_encoding_aidl.h
+@@ -34,7 +34,7 @@ namespace a2dp {
+ 
+ bool update_codec_offloading_capabilities(
+         const std::vector<btav_a2dp_codec_config_t>& framework_preference,
+-        bool supports_a2dp_hw_offload_v2);
++        bool supports_a2dp_hw_offload_v2, bool supports_qti_aptx_adaptive);
+ 
+ /***
+  * Check if new bluetooth_audio is enabled
+@@ -72,7 +72,7 @@ bool setup_codec(const ::bluetooth::audio::a2dp::ahal_codec_configuration& confi
+  * Send command to the BluetoothAudio HAL: StartSession, EndSession,
+  * StreamStarted, StreamSuspended
+  ***/
+-void start_session();
++bool start_session();
+ void end_session();
+ void ack_stream_started(::bluetooth::audio::a2dp::Status status);
+ void ack_stream_suspended(::bluetooth::audio::a2dp::Status status);
+@@ -95,6 +95,8 @@ void set_low_latency_mode_allowed(bool allowed);
+ 
+ namespace provider {
+ 
++bool uses_qti_aptx_adaptive_offload();
++
+ /***
+  * Lookup the codec info in the list of supported offloaded sink codecs.
+  * Should not be called before update_codec_offloading_capabilities.
+diff --git a/system/audio_hal_interface/aidl/a2dp/a2dp_encoding_aidl_utils.cc b/system/audio_hal_interface/aidl/a2dp/a2dp_encoding_aidl_utils.cc
+index 5675f20c9e3a641dbd29f4a8c0232edd49249e29..df1b26c0a9b1d413b31849593f92e8e6ee78b4de 100644
+--- a/system/audio_hal_interface/aidl/a2dp/a2dp_encoding_aidl_utils.cc
++++ b/system/audio_hal_interface/aidl/a2dp/a2dp_encoding_aidl_utils.cc
+@@ -120,6 +120,9 @@ bool convertCodecCapabilities(const CodecId& codec_id, const std::vector<uint8_t
+                               uint8_t* codec_info) {
+   switch (codec_id.getTag()) {
+     case CodecId::a2dp: {
++      if (capabilities.size() > AVDT_CODEC_SIZE - 3) {
++        return false;
++      }
+       auto id = codec_id.get<CodecId::a2dp>();
+       codec_info[0] = 2 + capabilities.size();
+       codec_info[1] = AVDT_MEDIA_TYPE_AUDIO << 4;
+@@ -128,6 +131,9 @@ bool convertCodecCapabilities(const CodecId& codec_id, const std::vector<uint8_t
+       return true;
+     }
+     case CodecId::vendor: {
++      if (capabilities.size() > AVDT_CODEC_SIZE - 9) {
++        return false;
++      }
+       auto id = codec_id.get<CodecId::vendor>();
+       uint32_t vendor_id = static_cast<uint32_t>(id.id);
+       uint16_t codec_id = static_cast<uint16_t>(id.codecId);
+@@ -150,11 +156,23 @@ bool convertCodecCapabilities(const CodecId& codec_id, const std::vector<uint8_t
+   return false;
+ }
+ 
+-a2dp_configuration convertA2dpConfiguration(const A2dpConfiguration& config) {
+-  a2dp_configuration result_config;
++std::optional<std::span<const uint8_t>> getCodecPayload(
++        std::span<const uint8_t, AVDT_CODEC_SIZE> codec_info) {
++  const size_t length = size_t{codec_info[0]} + 1;
++  const size_t offset = codec_info[2] == A2DP_MEDIA_CT_NON_A2DP ? 9 : 3;
++  if (length < offset || length > codec_info.size()) {
++    return std::nullopt;
++  }
++  return codec_info.subspan(offset, length - offset);
++}
++
++std::optional<a2dp_configuration> convertA2dpConfiguration(const A2dpConfiguration& config) {
++  a2dp_configuration result_config{};
++  if (!convertCodecCapabilities(config.id, config.configuration, result_config.codec_config)) {
++    return std::nullopt;
++  }
+   result_config.remote_seid = config.remoteSeid;
+   result_config.vendor_specific_parameters = config.parameters.vendorSpecificParameters;
+-  convertCodecCapabilities(config.id, config.configuration, result_config.codec_config);
+   result_config.codec_parameters.channel_mode = convertChannelMode(config.parameters.channelMode);
+   result_config.codec_parameters.sample_rate =
+           convertSampleRate(config.parameters.samplingFrequencyHz);
+diff --git a/system/audio_hal_interface/aidl/a2dp/a2dp_encoding_aidl_utils.h b/system/audio_hal_interface/aidl/a2dp/a2dp_encoding_aidl_utils.h
+index 487964ba102c264004c0a4f70732108cda354ed5..5c1229113581aa6b91b769753263a0d9e98bf6d8 100644
+--- a/system/audio_hal_interface/aidl/a2dp/a2dp_encoding_aidl_utils.h
++++ b/system/audio_hal_interface/aidl/a2dp/a2dp_encoding_aidl_utils.h
+@@ -17,6 +17,7 @@
+ #pragma once
+ 
+ #include <cstdint>
++#include <span>
+ #include <vector>
+ 
+ #include "a2dp_encoding.h"
+@@ -42,7 +43,10 @@ btav_a2dp_codec_bits_per_sample_t convertBitsPerSample(const std::vector<int32_t
+ bool convertCodecCapabilities(const ::aidl::android::hardware::bluetooth::audio::CodecId& codec_id,
+                               const std::vector<uint8_t>& capabilities, uint8_t* codec_info);
+ 
+-::bluetooth::audio::a2dp::provider::a2dp_configuration convertA2dpConfiguration(
++std::optional<std::span<const uint8_t>> getCodecPayload(
++        std::span<const uint8_t, AVDT_CODEC_SIZE> codec_info);
++
++std::optional<::bluetooth::audio::a2dp::provider::a2dp_configuration> convertA2dpConfiguration(
+         const ::aidl::android::hardware::bluetooth::audio::A2dpConfiguration& config);
+ 
+ void convertCodecParameters(
+diff --git a/system/audio_hal_interface/aidl/a2dp/a2dp_provider_info.cc b/system/audio_hal_interface/aidl/a2dp/a2dp_provider_info.cc
+index 29684b5ca57970bdcbfd681226a1378de30fd566..90f7f9345f13a093dd894a0f1bb46ec84b65f434 100644
+--- a/system/audio_hal_interface/aidl/a2dp/a2dp_provider_info.cc
++++ b/system/audio_hal_interface/aidl/a2dp/a2dp_provider_info.cc
+@@ -48,36 +48,43 @@ using ::aidl::android::hardware::bluetooth::audio::SessionType;
+  * getProviderInfo, or if the feature flag for codec
+  * extensibility is disabled.
+  ***/
+-std::unique_ptr<ProviderInfo> ProviderInfo::GetProviderInfo(bool supports_a2dp_hw_offload_v2) {
+-  if (!supports_a2dp_hw_offload_v2) {
+-    log::info(
+-            "a2dp hw offload v2 is not supported by the controller,"
+-            " not going to load the ProviderInfo");
+-    return nullptr;
+-  }
+-
+-  auto source_provider_info = BluetoothAudioClientInterface::GetProviderInfo(
+-          SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH, nullptr);
+-
+-  auto sink_provider_info = BluetoothAudioClientInterface::GetProviderInfo(
+-          SessionType::A2DP_HARDWARE_OFFLOAD_DECODING_DATAPATH, nullptr);
+-
+-  if (!source_provider_info.has_value() && !sink_provider_info.has_value()) {
+-    log::info(
+-            "a2dp offload codec extensibility is enabled,"
+-            " but the provider info is empty");
+-    return nullptr;
+-  }
+-
++std::unique_ptr<ProviderInfo> ProviderInfo::GetProviderInfo(bool supports_a2dp_hw_offload_v2,
++                                                           bool supports_qti_aptx_adaptive) {
+   std::vector<CodecInfo> source_codecs;
+   std::vector<CodecInfo> sink_codecs;
++  bool default_provider_info_found = false;
++  if (supports_a2dp_hw_offload_v2) {
++    auto source_provider_info = BluetoothAudioClientInterface::GetProviderInfo(
++            SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH, nullptr);
++    auto sink_provider_info = BluetoothAudioClientInterface::GetProviderInfo(
++            SessionType::A2DP_HARDWARE_OFFLOAD_DECODING_DATAPATH, nullptr);
++    default_provider_info_found = source_provider_info.has_value() || sink_provider_info.has_value();
++    if (source_provider_info) {
++      source_codecs = std::move(source_provider_info->codecInfos);
++    }
++    if (sink_provider_info) {
++      sink_codecs = std::move(sink_provider_info->codecInfos);
++    }
++  }
+ 
+-  if (source_provider_info.has_value()) {
+-    source_codecs = std::move(source_provider_info->codecInfos);
++  // The legacy Qualcomm factory is an encoding-only fallback for the default factory.
++  if (supports_qti_aptx_adaptive && source_codecs.empty()) {
++    auto info = BluetoothAudioClientInterface::GetProviderInfoForInstance(
++            SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH, kAptxAdaptiveFactoryInstance);
++    const CodecId adaptive = CodecId::make<CodecId::vendor>(
++            CodecId::Vendor{.id = bluetooth::a2dp::kAptxAdaptiveCompanyId,
++                            .codecId = bluetooth::a2dp::kAptxAdaptiveCodecId});
++    if (info && info->name == "AptxAdaptiveLegacy" && info->codecInfos.size() == 1 &&
++        info->codecInfos.front().id == adaptive) {
++      log::info("Selected the Qualcomm aptX Adaptive offload provider");
++      return std::make_unique<ProviderInfo>(std::move(info->codecInfos), std::move(sink_codecs),
++                                            true);
++    }
++    log::warn("Qualcomm aptX Adaptive offload provider is unavailable");
+   }
+ 
+-  if (sink_provider_info.has_value()) {
+-    sink_codecs = std::move(sink_provider_info->codecInfos);
++  if (!default_provider_info_found) {
++    return nullptr;
+   }
+ 
+   log::info("successfully loaded provider info");
+@@ -188,8 +195,11 @@ static std::optional<btav_a2dp_codec_index_t> assignSinkCodecIndex(
+   }
+ }
+ 
+-ProviderInfo::ProviderInfo(std::vector<CodecInfo> source_codecs, std::vector<CodecInfo> sink_codecs)
+-    : source_codecs(std::move(source_codecs)), sink_codecs(std::move(sink_codecs)) {
++ProviderInfo::ProviderInfo(std::vector<CodecInfo> source_codecs, std::vector<CodecInfo> sink_codecs,
++                           bool uses_qti_aptx_adaptive_offload)
++    : source_codecs(std::move(source_codecs)),
++      sink_codecs(std::move(sink_codecs)),
++      uses_qti_aptx_adaptive_offload(uses_qti_aptx_adaptive_offload) {
+   btav_a2dp_codec_index_t ext_source_index = BTAV_A2DP_CODEC_INDEX_SOURCE_EXT_MIN;
+   for (size_t i = 0; i < this->source_codecs.size(); i++) {
+     auto& codec = this->source_codecs[i];
+diff --git a/system/audio_hal_interface/aidl/a2dp/a2dp_provider_info.h b/system/audio_hal_interface/aidl/a2dp/a2dp_provider_info.h
+index 218b217ebfe0a3d341fee0ed0245911b288b098f..e83b9301ae72115f712c6a6cc6e7aeb39b9b5036 100644
+--- a/system/audio_hal_interface/aidl/a2dp/a2dp_provider_info.h
++++ b/system/audio_hal_interface/aidl/a2dp/a2dp_provider_info.h
+@@ -25,6 +25,8 @@
+ 
+ namespace bluetooth::audio::aidl::a2dp {
+ 
++inline constexpr char kAptxAdaptiveFactoryInstance[] = "aptx_adaptive";
++
+ using ::aidl::android::hardware::bluetooth::audio::CodecId;
+ using ::aidl::android::hardware::bluetooth::audio::CodecInfo;
+ 
+@@ -39,9 +41,11 @@ public:
+    * getProviderInfo, or if the feature flag for codec
+    * extensibility is disabled.
+    ***/
+-  static std::unique_ptr<ProviderInfo> GetProviderInfo(bool supports_a2dp_hw_offload_v2);
++  static std::unique_ptr<ProviderInfo> GetProviderInfo(bool supports_a2dp_hw_offload_v2,
++                                                       bool supports_qti_aptx_adaptive = false);
+ 
+-  ProviderInfo(std::vector<CodecInfo> source_codecs, std::vector<CodecInfo> sink_codecs);
++  ProviderInfo(std::vector<CodecInfo> source_codecs, std::vector<CodecInfo> sink_codecs,
++               bool uses_qti_aptx_adaptive_offload = false);
+   ~ProviderInfo() = default;
+ 
+   /***
+@@ -87,6 +91,7 @@ public:
+ 
+   const std::vector<CodecInfo> source_codecs;
+   const std::vector<CodecInfo> sink_codecs;
++  const bool uses_qti_aptx_adaptive_offload;
+ 
+ private:
+   std::unordered_map<btav_a2dp_codec_index_t, CodecInfo const*> assigned_codec_indexes;
+diff --git a/system/audio_hal_interface/aidl/a2dp/a2dp_provider_info_unittest.cc b/system/audio_hal_interface/aidl/a2dp/a2dp_provider_info_unittest.cc
+index 5ac015c23dd90d92de9b8a2c93169b52c152e82e..2d4e59729cd8eb4bb789775458ed93b427a1b49b 100644
+--- a/system/audio_hal_interface/aidl/a2dp/a2dp_provider_info_unittest.cc
++++ b/system/audio_hal_interface/aidl/a2dp/a2dp_provider_info_unittest.cc
+@@ -37,6 +37,7 @@ using aidl::android::hardware::bluetooth::audio::CodecId;
+ using aidl::android::hardware::bluetooth::audio::CodecInfo;
+ using bluetooth::audio::aidl::a2dp::BluetoothAudioClientInterface;
+ using bluetooth::audio::aidl::a2dp::IBluetoothAudioProviderFactory;
++using bluetooth::audio::aidl::a2dp::kAptxAdaptiveFactoryInstance;
+ using bluetooth::audio::aidl::a2dp::ProviderInfo;
+ using bluetooth::audio::aidl::a2dp::SessionType;
+ using ::testing::_;
+@@ -67,6 +68,9 @@ public:
+   MOCK_METHOD(std::optional<IBluetoothAudioProviderFactory::ProviderInfo>, GetProviderInfo,
+               (SessionType session_type,
+                std::shared_ptr<IBluetoothAudioProviderFactory> provider_factory));
++  MOCK_METHOD(std::optional<IBluetoothAudioProviderFactory::ProviderInfo>,
++              GetProviderInfoForInstance,
++              (SessionType session_type, std::string_view factory_instance));
+ };
+ 
+ static MockBluetoothAudioClientInterface* mock_bt_audio_client_itf = nullptr;
+@@ -82,6 +86,12 @@ BluetoothAudioClientInterface::GetProviderInfo(
+   return mock_bt_audio_client_itf->GetProviderInfo(session_type, provider_factory);
+ }
+ 
++std::optional<IBluetoothAudioProviderFactory::ProviderInfo>
++BluetoothAudioClientInterface::GetProviderInfoForInstance(SessionType session_type,
++                                                          std::string_view factory_instance) {
++  return mock_bt_audio_client_itf->GetProviderInfoForInstance(session_type, factory_instance);
++}
++
+ }  // namespace aidl
+ }  // namespace audio
+ }  // namespace bluetooth
+@@ -217,6 +227,85 @@ TEST_F(ProviderInfoTest, TestGetProviderInfoEmptyProviderInfo) {
+ 
+ TEST_F(ProviderInfoTest, TestGetProviderInfo) { GetProviderInfoForTesting(true, false); }
+ 
++TEST_F(ProviderInfoTest, QualcommAdaptiveProviderWithoutV2) {
++  CodecInfo adaptive = test_source_provider_info.codecInfos.back();
++  adaptive.id = CodecId::make<CodecId::vendor>(
++          CodecId::Vendor{.id = bluetooth::a2dp::kAptxAdaptiveCompanyId,
++                          .codecId = bluetooth::a2dp::kAptxAdaptiveCodecId});
++  test_source_provider_info.name = "AptxAdaptiveLegacy";
++  test_source_provider_info.codecInfos = {adaptive};
++  EXPECT_CALL(client_itf_mock,
++              GetProviderInfoForInstance(SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH,
++                                         kAptxAdaptiveFactoryInstance))
++          .WillOnce(Return(std::make_optional(test_source_provider_info)));
++  EXPECT_CALL(client_itf_mock, GetProviderInfo(_, _)).Times(0);
++
++  auto provider = ProviderInfo::GetProviderInfo(false, true);
++  ASSERT_NE(provider, nullptr);
++  EXPECT_TRUE(provider->uses_qti_aptx_adaptive_offload);
++  EXPECT_EQ(provider->SourceCodecIndex(adaptive.id), BTAV_A2DP_CODEC_INDEX_SOURCE_EXT_MIN);
++  EXPECT_TRUE(provider->sink_codecs.empty());
++}
++
++TEST_F(ProviderInfoTest, DefaultEncodingProviderTakesPrecedenceOverQualcommLegacy) {
++  EXPECT_CALL(client_itf_mock,
++              GetProviderInfo(SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH, _))
++          .WillOnce(Return(std::make_optional(test_source_provider_info)));
++  EXPECT_CALL(client_itf_mock,
++              GetProviderInfo(SessionType::A2DP_HARDWARE_OFFLOAD_DECODING_DATAPATH, _))
++          .WillOnce(Return(std::make_optional(test_sink_provider_info)));
++  EXPECT_CALL(client_itf_mock, GetProviderInfoForInstance(_, _)).Times(0);
++
++  auto provider = ProviderInfo::GetProviderInfo(true, true);
++  ASSERT_NE(provider, nullptr);
++  EXPECT_FALSE(provider->uses_qti_aptx_adaptive_offload);
++  EXPECT_EQ(provider->source_codecs, test_source_provider_info.codecInfos);
++  EXPECT_EQ(provider->sink_codecs, test_sink_provider_info.codecInfos);
++  EXPECT_EQ(provider->SourceCodecIndex(CodecId(CodecId::A2dp::AAC)), BTAV_A2DP_CODEC_INDEX_SOURCE_AAC);
++}
++
++TEST_F(ProviderInfoTest, QualcommLegacyEncodingKeepsDefaultDecodingProvider) {
++  auto adaptive_info = test_source_provider_info;
++  adaptive_info.name = "AptxAdaptiveLegacy";
++  adaptive_info.codecInfos.resize(1);
++  auto& adaptive = adaptive_info.codecInfos.front();
++  adaptive.id = CodecId::make<CodecId::vendor>(
++          CodecId::Vendor{.id = bluetooth::a2dp::kAptxAdaptiveCompanyId,
++                          .codecId = bluetooth::a2dp::kAptxAdaptiveCodecId});
++  EXPECT_CALL(client_itf_mock,
++              GetProviderInfo(SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH, _))
++          .WillOnce(Return(std::nullopt));
++  EXPECT_CALL(client_itf_mock,
++              GetProviderInfo(SessionType::A2DP_HARDWARE_OFFLOAD_DECODING_DATAPATH, _))
++          .WillOnce(Return(std::make_optional(test_sink_provider_info)));
++  EXPECT_CALL(client_itf_mock,
++              GetProviderInfoForInstance(SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH,
++                                         kAptxAdaptiveFactoryInstance))
++          .WillOnce(Return(std::make_optional(adaptive_info)));
++
++  auto provider = ProviderInfo::GetProviderInfo(true, true);
++  ASSERT_NE(provider, nullptr);
++  EXPECT_TRUE(provider->uses_qti_aptx_adaptive_offload);
++  EXPECT_EQ(provider->SourceCodecIndex(adaptive.id), BTAV_A2DP_CODEC_INDEX_SOURCE_EXT_MIN);
++  EXPECT_EQ(provider->SinkCodecIndex(CodecId(CodecId::A2dp::AAC)), BTAV_A2DP_CODEC_INDEX_SINK_AAC);
++}
++
++TEST_F(ProviderInfoTest, QualcommAdaptiveProviderRejectsWrongCodec) {
++  test_source_provider_info.name = "AptxAdaptiveLegacy";
++  test_source_provider_info.codecInfos = {test_source_provider_info.codecInfos.front()};
++  EXPECT_CALL(client_itf_mock,
++              GetProviderInfoForInstance(SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH,
++                                         kAptxAdaptiveFactoryInstance))
++          .WillOnce(Return(std::make_optional(test_source_provider_info)));
++  EXPECT_EQ(ProviderInfo::GetProviderInfo(false, true), nullptr);
++}
++
++TEST_F(ProviderInfoTest, QualcommAdaptiveProviderRequiresOptIn) {
++  EXPECT_CALL(client_itf_mock, GetProviderInfo(_, _)).Times(0);
++  EXPECT_CALL(client_itf_mock, GetProviderInfoForInstance(_, _)).Times(0);
++  EXPECT_EQ(ProviderInfo::GetProviderInfo(false, false), nullptr);
++}
++
+ TEST_F(ProviderInfoTest, TestGetCodecSbc) {
+   GetProviderInfoForTesting(true, false);
+ 
+@@ -476,7 +565,7 @@ TEST_F(ProviderInfoTest, TestSupportsCodec) {
+ TEST_F(ProviderInfoTest, TestCodecCapabilitiesSbc) {
+   GetProviderInfoForTesting(true, false);
+ 
+-  uint8_t result_codec_info[20];
++  uint8_t result_codec_info[AVDT_CODEC_SIZE];
+   btav_a2dp_codec_config_t result_codec_config;
+   bluetooth::a2dp::CodecId result_codec_id;
+ 
+@@ -497,7 +586,7 @@ TEST_F(ProviderInfoTest, TestCodecCapabilitiesSbc) {
+ TEST_F(ProviderInfoTest, TestCodecCapabilitiesAac) {
+   GetProviderInfoForTesting(true, false);
+ 
+-  uint8_t result_codec_info[20];
++  uint8_t result_codec_info[AVDT_CODEC_SIZE];
+   btav_a2dp_codec_config_t result_codec_config;
+   bluetooth::a2dp::CodecId result_codec_id;
+ 
+@@ -518,7 +607,7 @@ TEST_F(ProviderInfoTest, TestCodecCapabilitiesAac) {
+ TEST_F(ProviderInfoTest, TestCodecCapabilitiesOpus) {
+   GetProviderInfoForTesting(true, false);
+ 
+-  uint8_t result_codec_info[20];
++  uint8_t result_codec_info[AVDT_CODEC_SIZE];
+   btav_a2dp_codec_config_t result_codec_config;
+   bluetooth::a2dp::CodecId result_codec_id;
+ 
+@@ -540,7 +629,7 @@ TEST_F(ProviderInfoTest, TestCodecCapabilitiesOpus) {
+ TEST_F(ProviderInfoTest, TestCodecCapabilitiesFoobar) {
+   GetProviderInfoForTesting(true, false);
+ 
+-  uint8_t result_codec_info[20];
++  uint8_t result_codec_info[AVDT_CODEC_SIZE];
+   btav_a2dp_codec_config_t result_codec_config;
+   bluetooth::a2dp::CodecId result_codec_id;
+ 
+diff --git a/system/audio_hal_interface/aidl/a2dp/client_interface_aidl.cc b/system/audio_hal_interface/aidl/a2dp/client_interface_aidl.cc
+index 030e7068a57ef1bc53135b8596a2c8a8244e43bb..862fb35ba0ed9e986bbd5a736133c1bef64d1163 100644
+--- a/system/audio_hal_interface/aidl/a2dp/client_interface_aidl.cc
++++ b/system/audio_hal_interface/aidl/a2dp/client_interface_aidl.cc
+@@ -37,23 +37,33 @@ namespace bluetooth {
+ namespace audio {
+ namespace aidl {
+ namespace a2dp {
++namespace {
++
++std::string factory_service_name(std::string_view factory_instance) {
++  return std::string(IBluetoothAudioProviderFactory::descriptor) + "/" +
++         std::string(factory_instance);
++}
++
++}  // namespace
+ 
+ BluetoothAudioClientInterface::BluetoothAudioClientInterface(
+-        SessionType sessionType, StreamCallbacks const* stream_callbacks)
++        SessionType sessionType, StreamCallbacks const* stream_callbacks,
++        std::string_view factory_instance)
+     : provider_(nullptr),
+       provider_factory_(nullptr),
+       session_started_(false),
+       data_mq_(nullptr),
++      factory_service_name_(factory_service_name(factory_instance)),
+       latency_modes_({LatencyMode::FREE}) {
+   death_recipient_ =
+           ::ndk::ScopedAIBinder_DeathRecipient(AIBinder_DeathRecipient_new(binderDiedCallbackAidl));
+   transport_ = std::make_shared<A2dpTransport>(sessionType, stream_callbacks);
+-  FetchAudioProvider();
++  FetchAudioProvider(factory_service_name_ == kDefaultAudioProviderFactoryInterface);
+ }
+ 
+ BluetoothAudioClientInterface::~BluetoothAudioClientInterface() {
+   if (provider_factory_ != nullptr) {
+-    AIBinder_unlinkToDeath(provider_factory_->asBinder().get(), death_recipient_.get(), nullptr);
++    AIBinder_unlinkToDeath(provider_factory_->asBinder().get(), death_recipient_.get(), this);
+   }
+ }
+ 
+@@ -89,11 +99,10 @@ std::optional<IBluetoothAudioProviderFactory::ProviderInfo>
+ BluetoothAudioClientInterface::GetProviderInfo(
+         SessionType session_type,
+         std::shared_ptr<IBluetoothAudioProviderFactory> provider_factory) {
+-  if (!is_aidl_available()) {
+-    return std::nullopt;
+-  }
+-
+   if (provider_factory == nullptr) {
++    if (!is_aidl_available()) {
++      return std::nullopt;
++    }
+     provider_factory = IBluetoothAudioProviderFactory::fromBinder(::ndk::SpAIBinder(
+             AServiceManager_waitForService(kDefaultAudioProviderFactoryInterface.c_str())));
+   }
+@@ -115,13 +124,24 @@ BluetoothAudioClientInterface::GetProviderInfo(
+   return provider_info;
+ }
+ 
+-std::optional<A2dpConfiguration> BluetoothAudioClientInterface::GetA2dpConfiguration(
+-        std::vector<A2dpRemoteCapabilities> const& remote_capabilities,
+-        A2dpConfigurationHint const& hint) const {
+-  if (!is_aidl_available()) {
++std::optional<IBluetoothAudioProviderFactory::ProviderInfo>
++BluetoothAudioClientInterface::GetProviderInfoForInstance(SessionType session_type,
++                                                          std::string_view factory_instance) {
++  const std::string service_name = factory_service_name(factory_instance);
++  if (!AServiceManager_isDeclared(service_name.c_str())) {
+     return std::nullopt;
+   }
++  auto provider_factory = IBluetoothAudioProviderFactory::fromBinder(
++          ::ndk::SpAIBinder(AServiceManager_checkService(service_name.c_str())));
++  if (provider_factory == nullptr) {
++    return std::nullopt;
++  }
++  return GetProviderInfo(session_type, std::move(provider_factory));
++}
+ 
++std::optional<A2dpConfiguration> BluetoothAudioClientInterface::GetA2dpConfiguration(
++        std::vector<A2dpRemoteCapabilities> const& remote_capabilities,
++        A2dpConfigurationHint const& hint) const {
+   if (provider_ == nullptr) {
+     log::error("can't get a2dp configuration from unknown provider");
+     return std::nullopt;
+@@ -159,49 +179,55 @@ std::optional<A2dpStatus> BluetoothAudioClientInterface::ParseA2dpConfiguration(
+   return std::make_optional(a2dp_status);
+ }
+ 
+-void BluetoothAudioClientInterface::FetchAudioProvider() {
+-  if (!is_aidl_available()) {
+-    log::error("aidl is not supported on this platform.");
+-    return;
++void BluetoothAudioClientInterface::FetchAudioProvider(bool wait_for_service) {
++  if (provider_factory_ != nullptr) {
++    AIBinder_unlinkToDeath(provider_factory_->asBinder().get(), death_recipient_.get(), this);
++    provider_factory_.reset();
++    provider_.reset();
+   }
+-  if (provider_ != nullptr) {
+-    log::warn("refetch");
++  if (!AServiceManager_isDeclared(factory_service_name_.c_str())) {
++    log::error("Bluetooth audio factory {} is not declared", factory_service_name_);
++    return;
+   }
+-  // Retry if audioserver restarts in the middle of fetching.
+-  // When audioserver restarts, IBluetoothAudioProviderFactory service is also
+-  // re-registered, so we need to re-fetch the service.
++
++  // A service can restart between lookup and openProvider. Always retry the same instance.
+   for (int retry_no = 0; retry_no < kFetchAudioProviderRetryNumber; ++retry_no) {
+     auto provider_factory = IBluetoothAudioProviderFactory::fromBinder(::ndk::SpAIBinder(
+-            AServiceManager_waitForService(kDefaultAudioProviderFactoryInterface.c_str())));
+-
++            wait_for_service ? AServiceManager_waitForService(factory_service_name_.c_str())
++                             : AServiceManager_checkService(factory_service_name_.c_str())));
+     if (provider_factory == nullptr) {
+-      log::error("can't get capability from unknown factory");
++      log::warn("Bluetooth audio factory {} is unavailable", factory_service_name_);
+       return;
+     }
+ 
+-    auto aidl_retval = provider_factory->openProvider(transport_->GetSessionType(), &provider_);
+-    if (!aidl_retval.isOk() || provider_ == nullptr) {
+-      log::error("BluetoothAudioHal::openProvider failure: {}, retry number {}",
++    std::shared_ptr<IBluetoothAudioProvider> provider;
++    auto aidl_retval = provider_factory->openProvider(transport_->GetSessionType(), &provider);
++    if (!aidl_retval.isOk() || provider == nullptr) {
++      log::error("{}.openProvider failure: {}, retry number {}", factory_service_name_,
+                  aidl_retval.getDescription(), retry_no + 1);
+-    } else {
+-      provider_factory_ = std::move(provider_factory);
+-      break;
++      continue;
+     }
+-  }
+ 
+-  log::assert_that(provider_factory_ != nullptr,
+-                   "IBluetoothAudioProvidersFactory::openProvider({}) failed {} times",
+-                   toString(transport_->GetSessionType()), kFetchAudioProviderRetryNumber);
+-  log::assert_that(provider_ != nullptr, "assert failed: provider_ != nullptr");
++    const binder_status_t binder_status =
++            AIBinder_linkToDeath(provider_factory->asBinder().get(), death_recipient_.get(), this);
++    if (binder_status != STATUS_OK) {
++      log::error("Failed to linkToDeath for {}: {}", factory_service_name_,
++                 static_cast<int>(binder_status));
++      if (binder_status == STATUS_DEAD_OBJECT) {
++        continue;
++      }
++    }
+ 
+-  binder_status_t binder_status =
+-          AIBinder_linkToDeath(provider_factory_->asBinder().get(), death_recipient_.get(), this);
+-  if (binder_status != STATUS_OK) {
+-    log::error("Failed to linkToDeath {}", static_cast<int>(binder_status));
++    provider_factory_ = std::move(provider_factory);
++    provider_ = std::move(provider);
++    log::info("{}.openProvider() returned {}{}", factory_service_name_,
++              std::format_ptr(provider_.get()), provider_->isRemote() ? " (remote)" : " (local)");
++    return;
+   }
+ 
+-  log::info("IBluetoothAudioProvidersFactory::openProvider() returned {}{}",
+-            std::format_ptr(provider_.get()), (provider_->isRemote() ? " (remote)" : " (local)"));
++  log::assert_that(factory_service_name_ != kDefaultAudioProviderFactoryInterface,
++                   "{}.openProvider({}) failed {} times", factory_service_name_,
++                   toString(transport_->GetSessionType()), kFetchAudioProviderRetryNumber);
+ }
+ 
+ void BluetoothAudioClientInterface::binderDiedCallbackAidl(void* ptr) {
+@@ -557,7 +583,7 @@ void BluetoothAudioClientInterface::FlushAudioData() {
+ void BluetoothAudioClientInterface::RenewAudioProviderAndSession() {
+   // NOTE: must be invoked on the same thread where this
+   // BluetoothAudioClientInterface is running
+-  FetchAudioProvider();
++  FetchAudioProvider(factory_service_name_ == kDefaultAudioProviderFactoryInterface);
+ 
+   if (session_started_) {
+     log::info("Restart the session while audio HAL recovering");
+diff --git a/system/audio_hal_interface/aidl/a2dp/client_interface_aidl.h b/system/audio_hal_interface/aidl/a2dp/client_interface_aidl.h
+index da431e0f8647fcd9ffba06bb5ced1af076bdb1bc..846892625e77c81dbd2ec007d885de9b212f4207 100644
+--- a/system/audio_hal_interface/aidl/a2dp/client_interface_aidl.h
++++ b/system/audio_hal_interface/aidl/a2dp/client_interface_aidl.h
+@@ -21,6 +21,8 @@
+ 
+ #include <ctime>
+ #include <mutex>
++#include <string>
++#include <string_view>
+ #include <vector>
+ 
+ #include "audio_aidl_interfaces.h"
+@@ -91,7 +93,8 @@ inline BluetoothAudioStatus StatusToHalStatus(Status ack) {
+  ***/
+ class BluetoothAudioClientInterface {
+ public:
+-  BluetoothAudioClientInterface(SessionType sessionType, StreamCallbacks const* stream_callbacks);
++  BluetoothAudioClientInterface(SessionType sessionType, StreamCallbacks const* stream_callbacks,
++                                std::string_view factory_instance = "default");
+   virtual ~BluetoothAudioClientInterface();
+ 
+   bool IsValid() const;
+@@ -101,6 +104,9 @@ public:
+   static std::optional<IBluetoothAudioProviderFactory::ProviderInfo> GetProviderInfo(
+           SessionType session_type,
+           std::shared_ptr<IBluetoothAudioProviderFactory> provider_factory = nullptr);
++  // Query a registered instance without waiting for it to start.
++  static std::optional<IBluetoothAudioProviderFactory::ProviderInfo> GetProviderInfoForInstance(
++          SessionType session_type, std::string_view factory_instance);
+ 
+   std::optional<A2dpStatus> ParseA2dpConfiguration(const CodecId& codec_id,
+                                                    const std::vector<uint8_t>& configuration,
+@@ -143,7 +149,7 @@ protected:
+   /***
+    * Helper function to connect to an IBluetoothAudioProvider
+    ***/
+-  void FetchAudioProvider();
++  void FetchAudioProvider(bool wait_for_service);
+ 
+   /***
+    * Invoked when binder died
+@@ -168,6 +174,7 @@ protected:
+           std::string() + IBluetoothAudioProviderFactory::descriptor + "/default";
+ 
+ private:
++  const std::string factory_service_name_;
+   std::shared_ptr<A2dpTransport> transport_;
+   std::vector<AudioCapabilities> capabilities_;
+   std::vector<LatencyMode> latency_modes_;
+diff --git a/system/audio_hal_interface/test/a2dp_encoding_aidl_utils_unittest.cc b/system/audio_hal_interface/test/a2dp_encoding_aidl_utils_unittest.cc
+index 3a2ef71655db2dcb40805e10beb2e1724260412d..095ecd220fdf36b4724a6081630f77b6e5547760 100644
+--- a/system/audio_hal_interface/test/a2dp_encoding_aidl_utils_unittest.cc
++++ b/system/audio_hal_interface/test/a2dp_encoding_aidl_utils_unittest.cc
+@@ -141,6 +141,9 @@ TEST_F(A2dpEncodingAidlUtilsTest, StackCodecCapabilitiesSbc) {
+   bluetooth::log::info("result_sbc_codec_info:\n{}", codecInfoToString(result_sbc_codec_info));
+ 
+   ASSERT_EQ(memcmp(codec_info, result_sbc_codec_info, sizeof(result_sbc_codec_info)), 0);
++  auto payload = getCodecPayload(codec_info);
++  ASSERT_TRUE(payload.has_value());
++  EXPECT_THAT(*payload, ::testing::ElementsAreArray(capabilities));
+ }
+ 
+ TEST_F(A2dpEncodingAidlUtilsTest, StackCodecCapabilitiesVendor) {
+@@ -176,6 +179,27 @@ TEST_F(A2dpEncodingAidlUtilsTest, StackCodecCapabilitiesCore) {
+   ASSERT_FALSE(convertCodecCapabilities(core, capabilities, codec_info));
+ }
+ 
++TEST_F(A2dpEncodingAidlUtilsTest, LongVendorCodecPayload) {
++  const auto codec = CodecId::make<CodecId::vendor>(CodecId::Vendor{.id = 0xd7, .codecId = 0xad});
++  uint8_t codec_info[AVDT_CODEC_SIZE]{};
++  std::vector<uint8_t> capabilities(34);
++  capabilities.front() = 0xf0;
++  capabilities.back() = 0x5a;
++
++  ASSERT_TRUE(convertCodecCapabilities(codec, capabilities, codec_info));
++  EXPECT_EQ(codec_info[0], 42);
++  auto payload = getCodecPayload(codec_info);
++  ASSERT_TRUE(payload.has_value());
++  EXPECT_THAT(*payload, ::testing::ElementsAreArray(capabilities));
++
++  capabilities.resize(AVDT_CODEC_SIZE - 8);
++  EXPECT_FALSE(convertCodecCapabilities(codec, capabilities, codec_info));
++  codec_info[0] = AVDT_CODEC_SIZE;
++  EXPECT_FALSE(getCodecPayload(codec_info).has_value());
++  codec_info[0] = 7;
++  EXPECT_FALSE(getCodecPayload(codec_info).has_value());
++}
++
+ TEST_F(A2dpEncodingAidlUtilsTest, AidlCodecId) {
+   // Stack known codecs
+   CodecId sbc =
+diff --git a/system/bta/av/bta_av_aact.cc b/system/bta/av/bta_av_aact.cc
+index c9d3c2e47cb907a35c2a80361a75af1c0a3e152b..83c8f0c90408df3906c34066b1feeb4f4e4466ef 100644
+--- a/system/bta/av/bta_av_aact.cc
++++ b/system/bta/av/bta_av_aact.cc
+@@ -33,10 +33,14 @@
+ #include <bluetooth/types/hci_role.h>
+ #include <com_android_bluetooth_flags.h>
+ 
++#include <algorithm>
++#include <array>
++#include <bit>
+ #include <cstdint>
+ #include <cstring>
+ #include <vector>
+ 
++#include "audio_hal_interface/a2dp_encoding.h"
+ #include "bta/av/bta_av_int.h"
+ #include "bta/include/bta_av_co.h"
+ #include "bta_av_api.h"
+@@ -51,7 +55,9 @@
+ #include "device/include/device_iot_config.h"
+ #include "device/include/interop.h"
+ #include "hardware/bt_av.h"
++#include "hci/controller.h"
+ #include "internal_include/bt_target.h"
++#include "main/shim/entry.h"
+ #include "osi/include/alarm.h"
+ #include "osi/include/allocator.h"
+ #include "osi/include/list.h"
+@@ -75,11 +81,12 @@
+ #include "stack/include/btm_client_interface.h"
+ #include "stack/include/btm_log_history.h"
+ #include "stack/include/btm_status.h"
++#include "stack/include/btu_hcif.h"
+ #include "stack/include/hci_error_code.h"
+ #include "stack/include/hcidefs.h"
++#include "stack/include/l2cap_av_interface.h"
+ #include "stack/include/l2cap_interface.h"
+ #include "stack/include/l2cap_types.h"
+-#include "stack/include/l2cap_av_interface.h"
+ #include "stack/include/sdpdefs.h"
+ #include "storage/config_keys.h"
+ 
+@@ -117,6 +124,7 @@ constexpr char kBtmLogTag[] = "A2DP";
+ 
+ static void bta_av_accept_open_timer_cback(void* data);
+ static void bta_av_offload_codec_builder(tBTA_AV_SCB* p_scb, tBT_A2DP_OFFLOAD* p_a2dp_offload);
++static void bta_av_stop_qti_aptx_adaptive_offload(const tBTA_AV_SCB& scb);
+ 
+ /* state machine states */
+ enum {
+@@ -857,6 +865,7 @@ void bta_av_cleanup(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* /* p_data */) {
+   uint8_t role = BTA_AV_ROLE_AD_INT;
+ 
+   log::info("peer {}", p_scb->PeerAddress());
++  bta_av_stop_qti_aptx_adaptive_offload(*p_scb);
+ 
+   /* free any buffers */
+   bta_av_free_sdb(p_scb, NULL);
+@@ -1010,6 +1019,7 @@ void bta_av_disconnect_req(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* /* p_data */) {
+   tBTA_AV_RCB* p_rcb;
+ 
+   log::debug("conn_lcb: 0x{:x} peer_addr: {}", bta_av_cb.conn_lcb, p_scb->PeerAddress());
++  bta_av_stop_qti_aptx_adaptive_offload(*p_scb);
+ 
+   alarm_cancel(p_scb->link_signalling_timer);
+   alarm_cancel(p_scb->accept_signalling_timer);
+@@ -1912,6 +1922,7 @@ void bta_av_str_stopped(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
+   log::info("peer {} bta_handle:0x{:x} audio_open_cnt:{}, p_data {} start:{}", p_scb->PeerAddress(),
+             p_scb->hndl, bta_av_cb.audio_open_cnt, std::format_ptr(p_data), start);
+ 
++  bta_av_stop_qti_aptx_adaptive_offload(*p_scb);
+   if (p_scb->co_started) {
+     if (bta_av_cb.offload_started_hndl == p_scb->hndl) {
+       bta_av_vendor_offload_stop();
+@@ -2522,6 +2533,7 @@ void bta_av_suspend_cfm(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
+   log::debug("peer {} bta_handle:0x{:x} audio_open_cnt:{} err_code:{} scb_started:{}",
+              p_scb->PeerAddress(), p_scb->hndl, bta_av_cb.audio_open_cnt, err_code, p_scb->started);
+ 
++  bta_av_stop_qti_aptx_adaptive_offload(*p_scb);
+   if (!p_scb->started) {
+     /* handle the condition where there is a collision of SUSPEND req from
+      *either side
+@@ -3020,14 +3032,173 @@ static uint8_t bta_av_get_coex_opcode(void) {
+             kA2dpCoexOpcodeDefault);
+ }
+ 
++namespace {
++
++constexpr uint16_t kQtiA2dpOffloadOpcode = 0xfc0a;
++constexpr uint8_t kQtiA2dpOffloadStart = 0x0a;
++constexpr uint8_t kQtiA2dpOffloadStop = 0x05;
++constexpr uint8_t kQtiA2dpAptxAdaptive = 0x0a;
++constexpr size_t kQtiOffloadCodecOffset = 22;
++constexpr size_t kQtiOffloadCodecSize = 44;
++constexpr size_t kAptxAdaptiveCieSize = a2dp::kAptxAdaptiveCieLength + 1;
++static_assert(kAptxAdaptiveCieSize <= kQtiOffloadCodecSize);
++
++// The BTA control block is cleared when the profile is enabled again. Keep tokens unique across
++// that reset so a late completion cannot acknowledge a new stream using the same handle.
++uint64_t qti_aptx_adaptive_offload_sequence = 0;
++
++void report_qti_aptx_adaptive_start(tBTA_AV_HNDL handle, tBTA_AV_STATUS status) {
++  tBTA_AV result{.offload_start = {.status = status, .hndl = handle}};
++  (*bta_av_cb.p_cback)(BTA_AV_OFFLOAD_START_RSP_EVT, &result);
++}
++
++bool qti_a2dp_offload_succeeded(const hci::CommandCompleteView& complete, uint8_t subcommand) {
++  const auto payload = complete.GetPayload();
++  return payload.size() >= 2 && payload[0] == 0 && payload[1] == subcommand;
++}
++
++void send_qti_aptx_adaptive_stop() {
++  std::array<uint8_t, 2> parameters{kQtiA2dpOffloadStop, 0};
++  btu_hcif_send_cmd_with_cb(kQtiA2dpOffloadOpcode, parameters.data(), parameters.size(),
++                            base::BindOnce([](hci::CommandCompleteView complete) {
++                              if (qti_a2dp_offload_succeeded(complete, kQtiA2dpOffloadStop)) {
++                                log::info("Qualcomm aptX Adaptive offload stopped");
++                              } else {
++                                log::warn("Qualcomm aptX Adaptive offload stop failed");
++                              }
++                            }));
++}
++
++}  // namespace
++
++static void bta_av_stop_qti_aptx_adaptive_offload(const tBTA_AV_SCB& scb) {
++  if (bta_av_cb.qti_aptx_adaptive_offload_generation == 0) {
++    return;
++  }
++
++  const bool pending = bta_av_cb.offload_start_pending_hndl == scb.hndl;
++  if (!pending && bta_av_cb.offload_started_hndl != scb.hndl) {
++    return;
++  }
++
++  bta_av_cb.qti_aptx_adaptive_offload_generation = 0;
++  bta_av_cb.offload_start_pending_hndl = BTA_AV_INVALID_HANDLE;
++  bta_av_cb.offload_started_hndl = BTA_AV_INVALID_HANDLE;
++  // HCI serializes commands. Queue the stop even if the controller has yet to finish the start.
++  send_qti_aptx_adaptive_stop();
++  if (pending && scb.PeerAddress() == btif_av_source_active_peer()) {
++    report_qti_aptx_adaptive_start(scb.hndl, BTA_AV_FAIL_STREAM);
++  }
++}
++
++static void on_qti_aptx_adaptive_started(tBTA_AV_HNDL handle, uint64_t generation,
++                                         hci::CommandCompleteView complete) {
++  if (bta_av_cb.qti_aptx_adaptive_offload_generation != generation ||
++      bta_av_cb.offload_start_pending_hndl != handle) {
++    return;
++  }
++
++  const auto payload = complete.GetPayload();
++  const bool started = qti_a2dp_offload_succeeded(complete, kQtiA2dpOffloadStart);
++  const tBTA_AV_SCB* scb = bta_av_hndl_to_scb(handle);
++  const bool active = scb && scb->PeerAddress() == btif_av_source_active_peer();
++  bta_av_cb.offload_start_pending_hndl = BTA_AV_INVALID_HANDLE;
++  if (started && active && scb->started && !scb->suspending) {
++    bta_av_cb.offload_started_hndl = handle;
++    log::info("Qualcomm aptX Adaptive offload started");
++    report_qti_aptx_adaptive_start(handle, BTA_AV_SUCCESS);
++    return;
++  }
++
++  bta_av_cb.qti_aptx_adaptive_offload_generation = 0;
++  if (payload.size() == 0 || payload[0] == 0) {
++    // The command may have started the hardware even when its completion was incomplete.
++    send_qti_aptx_adaptive_stop();
++  }
++  if (!started) {
++    const int status = payload.size() == 0 ? -1 : payload[0];
++    log::warn("Qualcomm aptX Adaptive offload start failed: HCI status={}, length={}", status,
++              payload.size());
++  }
++  if (active) {
++    const bool stream_running = scb->started && !scb->suspending;
++    const auto status = stream_running ? BTA_AV_FAIL_RESOURCES : BTA_AV_FAIL_STREAM;
++    report_qti_aptx_adaptive_start(handle, status);
++  }
++}
++
++static void bta_av_start_qti_aptx_adaptive_offload(tBTA_AV_SCB& scb) {
++  if (scb.suspending || scb.PeerAddress() != btif_av_source_active_peer()) {
++    report_qti_aptx_adaptive_start(scb.hndl, BTA_AV_FAIL_STREAM);
++    return;
++  }
++
++  auto* controller = shim::GetController();
++  auto* codec = bta_av_get_a2dp_peer_current_codec(scb.PeerAddress());
++  std::array<uint8_t, AVDT_CODEC_SIZE> provider_config;
++  if (!controller ||
++      controller->GetLocalVersionInformation().manufacturer_name_ != LMP_COMPID_QTI || !codec ||
++      !codec->isHardwareProviderCodec() || codec->codecId() != a2dp::kAptxAdaptiveCodec ||
++      scb.cfg.codec_info[0] != a2dp::kAptxAdaptiveCieLength ||
++      A2DP_GetMediaType(scb.cfg.codec_info) != AVDT_MEDIA_TYPE_AUDIO ||
++      a2dp::ParseCodecId(scb.cfg.codec_info) != a2dp::kAptxAdaptiveCodec ||
++      !codec->copyOutOtaCodecConfig(provider_config.data()) ||
++      !std::equal(provider_config.begin(), provider_config.begin() + kAptxAdaptiveCieSize,
++                  scb.cfg.codec_info)) {
++    log::warn("Qualcomm aptX Adaptive offload requires a negotiated hardware codec configuration");
++    report_qti_aptx_adaptive_start(scb.hndl, BTA_AV_FAIL_RESOURCES);
++    return;
++  }
++
++  // Qualcomm's sampling frequency field uses the same bit values as btav for 44.1–192 kHz.
++  const auto sample_rate = static_cast<uint16_t>(codec->getCodecConfig().sample_rate);
++  const uint16_t acl_handle = get_btm_client_interface().peer.BTM_GetHCIConnHandle(
++          scb.PeerAddress(), BT_TRANSPORT_BR_EDR);
++  uint16_t remote_cid = 0;
++  if (!std::has_single_bit(sample_rate) || sample_rate > BTAV_A2DP_CODEC_SAMPLE_RATE_192000 ||
++      acl_handle == HCI_INVALID_HANDLE || scb.stream_mtu == 0 ||
++      !stack::l2cap::get_interface().L2CA_GetRemoteChannelId(scb.l2c_cid, &remote_cid) ||
++      remote_cid == 0) {
++    log::warn("Qualcomm aptX Adaptive offload has an invalid sample rate or transport");
++    report_qti_aptx_adaptive_start(scb.hndl, BTA_AV_FAIL_RESOURCES);
++    return;
++  }
++
++  std::array<uint8_t, kQtiOffloadCodecOffset + kQtiOffloadCodecSize> parameters{};
++  parameters[0] = kQtiA2dpOffloadStart;
++  parameters[1] = kQtiA2dpAptxAdaptive;  // Codec type
++  parameters[3] = kQtiA2dpAptxAdaptive;  // Stream type
++  parameters[7] = scb.p_cos->get_scmst_info(scb.PeerAddress()).enable_status;
++  parameters[8] = 2;  // SCMS-T header
++  uint8_t* transport = parameters.data() + 9;
++  UINT16_TO_STREAM(transport, sample_rate);
++  UINT16_TO_STREAM(transport, acl_handle);
++  UINT16_TO_STREAM(transport, remote_cid);
++  const uint16_t mtu =
++          std::min<uint16_t>(scb.stream_mtu, MAX_3MBPS_AVDTP_MTU) + AVDT_MEDIA_HDR_SIZE;
++  UINT16_TO_STREAM(transport, mtu);
++  parameters[17] = 1;    // Start streaming
++  parameters[20] = 150;  // Time to play (little-endian)
++  // LOSC is 42, so there are 43 bytes including LOSC. The controller field holds 44 bytes.
++  std::copy_n(scb.cfg.codec_info, kAptxAdaptiveCieSize,
++              parameters.begin() + kQtiOffloadCodecOffset);
++
++  const uint64_t generation = ++qti_aptx_adaptive_offload_sequence;
++  bta_av_cb.qti_aptx_adaptive_offload_generation = generation;
++  bta_av_cb.offload_start_pending_hndl = scb.hndl;
++  bta_av_cb.offload_start_v2 = false;
++  btu_hcif_send_cmd_with_cb(kQtiA2dpOffloadOpcode, parameters.data(), parameters.size(),
++                            base::BindOnce(on_qti_aptx_adaptive_started, scb.hndl, generation));
++}
++
+ static void offload_vendor_callback(tBTM_VSC_CMPL* param) {
+-  tBTA_AV value{0};
++  tBTA_AV value{.offload_start = {}};
+   uint8_t sub_opcode = 0;
+   if (param->param_len) {
+     log::debug("param_len = {} status = {}", param->param_len, param->p_param_buf[0]);
+-    value.status = static_cast<tBTA_AV_STATUS>(param->p_param_buf[0]);
++    value.offload_start.status = static_cast<tBTA_AV_STATUS>(param->p_param_buf[0]);
+   }
+-  if (value.status == 0) {
++  if (value.offload_start.status == 0) {
+     sub_opcode = param->p_param_buf[1];
+     log::debug("subopcode = {}", sub_opcode);
+     switch (sub_opcode) {
+@@ -3042,6 +3213,9 @@ static void offload_vendor_callback(tBTM_VSC_CMPL* param) {
+         break;
+       case VS_HCI_A2DP_OFFLOAD_START:
+       case VS_HCI_A2DP_OFFLOAD_START_V2:
++        if (bta_av_cb.qti_aptx_adaptive_offload_generation != 0) {
++          break;
++        }
+         if (bta_av_cb.offload_start_pending_hndl) {
+           log::debug("VS_HCI_START_A2DP_MEDIA successful");
+           bta_av_cb.offload_started_hndl = bta_av_cb.offload_start_pending_hndl;
+@@ -3060,6 +3234,9 @@ static void offload_vendor_callback(tBTM_VSC_CMPL* param) {
+       return;
+     }
+     if (param->opcode != VS_HCI_A2DP_OFFLOAD_STOP && param->opcode != VS_HCI_A2DP_OFFLOAD_STOP_V2) {
++      if (bta_av_cb.qti_aptx_adaptive_offload_generation != 0) {
++        return;
++      }
+       bta_av_cb.offload_start_pending_hndl = BTA_AV_INVALID_HANDLE;
+       (*bta_av_cb.p_cback)(BTA_AV_OFFLOAD_START_RSP_EVT, &value);
+     } else {
+@@ -3217,14 +3394,19 @@ void bta_av_vendor_offload_stop() {
+  *
+  ******************************************************************************/
+ void bta_av_offload_req(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* /*p_data*/) {
+-  tBTA_AV bta_av_data = {};
+   tBT_A2DP_OFFLOAD offload_start;
++  const bool qti_provider = audio::a2dp::provider::uses_qti_aptx_adaptive_offload();
++  const bool qti_codec =
++          qti_provider && a2dp::ParseCodecId(p_scb->cfg.codec_info) == a2dp::kAptxAdaptiveCodec;
+   log::debug("stream {}, audio channels open {}", p_scb->started ? "STARTED" : "STOPPED",
+              bta_av_cb.audio_open_cnt);
+ 
+   if (!p_scb->started) {
+     log::warn("stream not started, start offload failed.");
+-    bta_av_data.status = BTA_AV_FAIL_STREAM;
++    tBTA_AV bta_av_data{.offload_start = {.status = BTA_AV_FAIL_STREAM}};
++    if (qti_codec) {
++      bta_av_data.offload_start.hndl = p_scb->hndl;
++    }
+     (*bta_av_cb.p_cback)(BTA_AV_OFFLOAD_START_RSP_EVT, &bta_av_data);
+     return;
+   }
+@@ -3235,6 +3417,11 @@ void bta_av_offload_req(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* /*p_data*/) {
+   }
+ 
+   A2dpCodecConfig* codec_config = bta_av_get_a2dp_current_codec();
++  if (qti_codec ||
++      (qti_provider && codec_config && codec_config->codecId() == a2dp::kAptxAdaptiveCodec)) {
++    bta_av_start_qti_aptx_adaptive_offload(*p_scb);
++    return;
++  }
+   if (codec_config == nullptr) {
+     log::error("current codec is null, ignore request");
+     return;
+@@ -3259,6 +3446,10 @@ void bta_av_offload_req(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* /*p_data*/) {
+  *
+  ******************************************************************************/
+ void bta_av_offload_rsp(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
++  if (bta_av_cb.qti_aptx_adaptive_offload_generation != 0) {
++    return;
++  }
++
+   tBTA_AV_STATUS status = p_data->api_status_rsp.status;
+ 
+   log::debug("stream {} status {}", p_scb->started ? "STARTED" : "STOPPED",
+@@ -3270,8 +3461,7 @@ void bta_av_offload_rsp(tBTA_AV_SCB* p_scb, tBTA_AV_DATA* p_data) {
+   }
+ 
+   bta_av_cb.offload_start_pending_hndl = BTA_AV_INVALID_HANDLE;
+-  tBTA_AV bta_av_data;
+-  bta_av_data.status = status;
++  tBTA_AV bta_av_data{.offload_start = {.status = status}};
+   (*bta_av_cb.p_cback)(BTA_AV_OFFLOAD_START_RSP_EVT, &bta_av_data);
+ }
+ 
+diff --git a/system/bta/av/bta_av_int.h b/system/bta/av/bta_av_int.h
+index 69d48beeb45c8fe81239f2013d71731177b060e7..d02c6801ada2f567c4af181c5fa5b58d9e802123 100644
+--- a/system/bta/av/bta_av_int.h
++++ b/system/bta/av/bta_av_int.h
+@@ -638,6 +638,7 @@ typedef struct {
+   bool sco_occupied;  /* true if SCO is being used or call is in progress */
+   uint16_t offload_start_pending_hndl;
+   uint16_t offload_started_hndl;
++  uint64_t qti_aptx_adaptive_offload_generation;
+   /* Set to true if the new offload start vendor command
+    * was used to start the stream on the controller. */
+   bool offload_start_v2;
+diff --git a/system/bta/include/bta_av_api.h b/system/bta/include/bta_av_api.h
+index 8d4f0cebf38d389f6a01f25ba6f208bc16faf546..ba54a25e955497011c0a4d2f71a06e31bda74c5d 100644
+--- a/system/bta/include/bta_av_api.h
++++ b/system/bta/include/bta_av_api.h
+@@ -333,6 +333,12 @@ typedef struct {
+                         connection. */
+ } tBTA_AV_REJECT;
+ 
++/* data associated with BTA_AV_OFFLOAD_START_RSP_EVT */
++typedef struct {
++  tBTA_AV_STATUS status;
++  tBTA_AV_HNDL hndl; /* BTA_AV_INVALID_HANDLE for generic responses. */
++} tBTA_AV_OFFLOAD_START_RSP;
++
+ /* union of data associated with AV callback */
+ typedef union {
+   tBTA_AV_CHNL chnl;
+@@ -358,6 +364,7 @@ typedef union {
+   tBTA_AV_REJECT reject;
+   tBTA_AV_RC_FEAT rc_feat;
+   tBTA_AV_RC_PSM rc_cover_art_psm;
++  tBTA_AV_OFFLOAD_START_RSP offload_start;
+   tBTA_AV_STATUS status;
+ } tBTA_AV;
+ 
+diff --git a/system/btif/co/bta_av_co.cc b/system/btif/co/bta_av_co.cc
+index c19b124678f618049dee52afed53ce625ccd79e4..7e0a23198a4db1e4ab7b851ecf6db8523433923e 100644
+--- a/system/btif/co/bta_av_co.cc
++++ b/system/btif/co/bta_av_co.cc
+@@ -32,6 +32,7 @@
+ #include <com_android_bluetooth_flags.h>
+ #include <stdio.h>
+ 
++#include <algorithm>
+ #include <cstddef>
+ #include <cstdint>
+ #include <cstring>
+@@ -869,6 +870,40 @@ done:
+   return success;
+ }
+ 
++bool BtaAvCo::FallbackFromAptxAdaptive(const RawAddress& peer_address) {
++  BtaAvCoPeer* peer = peer_cache_->FindPeer(peer_address);
++  if (peer == nullptr || !peer->opened || peer != bta_av_source_state_.getActivePeer()) {
++    return false;
++  }
++  auto* current_codec = peer->GetCodecs()->getCurrentCodecConfig();
++  if (current_codec == nullptr || current_codec->codecId() != bluetooth::a2dp::kAptxAdaptiveCodec) {
++    return false;
++  }
++
++  const auto source_codecs = peer->GetCodecs()->orderedSourceCodecs();
++  for (auto codec_index : {BTAV_A2DP_CODEC_INDEX_SOURCE_AAC, BTAV_A2DP_CODEC_INDEX_SOURCE_SBC}) {
++    auto codec = std::find_if(source_codecs.begin(), source_codecs.end(),
++                              [codec_index](const A2dpCodecConfig* config) {
++                                return config->codecIndex() == codec_index;
++                              });
++    if (codec == source_codecs.end()) {
++      continue;
++    }
++    const auto* sink = AttemptSourceCodecSelection(**codec, peer);
++    if (sink == nullptr) {
++      continue;
++    }
++    peer->acceptor = false;
++    uint8_t num_protect =
++            ContentProtectEnabled() && peer->ContentProtectActive() ? AVDT_CP_INFO_LEN : 0;
++    log::info("Reconfiguring aptX Adaptive stream to {}", (*codec)->name());
++    BTA_AvReconfig(peer->BtaAvHandle(), true, sink->sep_info_idx, peer->codec_config, num_protect,
++                   bta_av_co_cp_scmst);
++    return true;
++  }
++  return false;
++}
++
+ bool BtaAvCo::SetCodecAudioConfig(const btav_a2dp_codec_config_t& codec_audio_config) {
+   uint8_t result_codec_config[AVDT_CODEC_SIZE];
+   bool restart_output = false;
+@@ -1068,6 +1103,12 @@ BtaAvCo::GetProviderCodecConfiguration(BtaAvCoPeer* p_peer) {
+   auto a2dp_codec_config = p_peer->GetCodecs()->orderedSourceCodecs().front();
+ 
+   auto a2dp_codec_user_config = a2dp_codec_config->getCodecUserConfig();
++  if (::bluetooth::audio::a2dp::provider::uses_qti_aptx_adaptive_offload() &&
++      (btif_av_peer_prefers_mandatory_codec(p_peer->addr, A2dpType::kSource) ||
++       (a2dp_codec_user_config.codec_priority == BTAV_A2DP_CODEC_PRIORITY_HIGHEST &&
++        !a2dp_codec_config->isHardwareProviderCodec()))) {
++    return std::nullopt;
++  }
+   // TODO: pass the highest priority codec from the list of offload-supported codecs
+   std::optional<::bluetooth::a2dp::CodecId> user_preferred_codec_id = std::nullopt;
+   if (com_android_bluetooth_flags_a2dp_offload_user_codec_selection()) {
+@@ -1469,6 +1510,14 @@ static bool bta_av_co_should_select_hardware_codec(
+     }
+   }
+ 
++  // Keep Evolution X's automatic LHDC selection when legacy Adaptive is also offered.
++  if (::bluetooth::audio::a2dp::provider::uses_qti_aptx_adaptive_offload() &&
++      (software_codec_index == BTAV_A2DP_CODEC_INDEX_SOURCE_LHDCV3 ||
++       software_codec_index == BTAV_A2DP_CODEC_INDEX_SOURCE_LHDCV5)) {
++    return user_codec_config.codec_priority == BTAV_A2DP_CODEC_PRIORITY_HIGHEST &&
++           user_codec_config.codec_type == hardware_offload_index;
++  }
++
+   // Prioritize any offload codec except SBC and AAC
+   if (A2DP_GetCodecType(hardware_config.codec_config) == A2DP_MEDIA_CT_NON_A2DP) {
+     log::debug("select hardware codec: {}", A2DP_CodecIndexStr(hardware_offload_index));
+@@ -1598,6 +1647,10 @@ bool bta_av_co_set_codec_user_config(const RawAddress& peer_address,
+   return bta_av_co_cb.SetCodecUserConfig(peer_address, codec_user_config, p_restart_output);
+ }
+ 
++bool bta_av_co_fallback_from_aptx_adaptive(const RawAddress& peer_address) {
++  return bta_av_co_cb.FallbackFromAptxAdaptive(peer_address);
++}
++
+ bool bta_av_co_set_codec_audio_config(const btav_a2dp_codec_config_t& codec_audio_config) {
+   return bta_av_co_cb.SetCodecAudioConfig(codec_audio_config);
+ }
+diff --git a/system/btif/include/bta_av_co.h b/system/btif/include/bta_av_co.h
+index 528a84c27a173df0489c266b44d2808bd77d2a64..623f57f03e0caa1100e04c96e90b850d416db2bc 100644
+--- a/system/btif/include/bta_av_co.h
++++ b/system/btif/include/bta_av_co.h
+@@ -320,6 +320,8 @@ public:
+                           const btav_a2dp_codec_config_t& codec_user_config,
+                           bool* p_restart_output);
+ 
++  bool FallbackFromAptxAdaptive(const RawAddress& peer_address);
++
+   /**
+    * Set the codec audio configuration.
+    *
+diff --git a/system/btif/include/btif_av_co.h b/system/btif/include/btif_av_co.h
+index 38dda226fa9b74e1e331698b1a5a507d31d528cb..74e9d67218bc7c4d8e9d469352cf65ad91161319 100644
+--- a/system/btif/include/btif_av_co.h
++++ b/system/btif/include/btif_av_co.h
+@@ -62,6 +62,8 @@ bool bta_av_co_set_codec_user_config(const RawAddress& peer_addr,
+                                      const btav_a2dp_codec_config_t& codec_user_config,
+                                      bool* p_restart_output);
+ 
++bool bta_av_co_fallback_from_aptx_adaptive(const RawAddress& peer_address);
++
+ // Sets the Audio HAL selected audio feeding parameters.
+ // Those parameters are applied only to the currently selected codec.
+ // |codec_audio_config| contains the selected audio feeding configuration.
+diff --git a/system/btif/src/btif_a2dp_source.cc b/system/btif/src/btif_a2dp_source.cc
+index d9a14021e894caa737bf91ef41056765867aa13c..c3906748cc08e0fdfa250f07e355a0128c8257f6 100644
+--- a/system/btif/src/btif_a2dp_source.cc
++++ b/system/btif/src/btif_a2dp_source.cc
+@@ -543,6 +543,10 @@ static void btif_a2dp_source_start_session_delayed(const RawAddress& peer_addres
+   btif_a2dp_source_cb.encoder_interval_ms =
+           btif_a2dp_source_cb.encoder_interface->get_encoder_interval_ms();
+ 
++  const bool adaptive_legacy =
++          a2dp_codec_config->codecId() == bluetooth::a2dp::kAptxAdaptiveCodec &&
++          bluetooth::audio::a2dp::provider::uses_qti_aptx_adaptive_offload();
++  bool codec_configured = false;
+   if (bluetooth::audio::a2dp::is_hal_enabled()) {
+     bluetooth::audio::a2dp::ahal_codec_configuration config = {
+             .peer_mtu = btif_a2dp_get_peer_mtu(a2dp_codec_config),
+@@ -550,11 +554,14 @@ static void btif_a2dp_source_start_session_delayed(const RawAddress& peer_addres
+             .codec_bitrate = a2dp_codec_config->getTrackBitRate(),
+             .codec_config = a2dp_codec_config->getCodecConfig(),
+     };
+-    a2dp_codec_config->copyOutOtaCodecConfig(config.codec_specific_information_elements);
++    const bool has_ota_config =
++            a2dp_codec_config->copyOutOtaCodecConfig(config.codec_specific_information_elements);
+ 
+     log::debug("{}", config.ToString());
+ 
+-    bluetooth::audio::a2dp::setup_codec(config);
++    if (!adaptive_legacy || has_ota_config) {
++      codec_configured = bluetooth::audio::a2dp::setup_codec(config);
++    }
+   }
+ 
+   if (btif_a2dp_source_cb.State() != BtifA2dpSource::kStateRunning) {
+@@ -563,10 +570,22 @@ static void btif_a2dp_source_start_session_delayed(const RawAddress& peer_addres
+     return;
+   }
+ 
+-  if (bluetooth::audio::a2dp::is_hal_enabled()) {
+-    bluetooth::audio::a2dp::start_session();
++  bool session_started = false;
++  if (bluetooth::audio::a2dp::is_hal_enabled() && (!adaptive_legacy || codec_configured)) {
++    session_started = bluetooth::audio::a2dp::start_session();
+     bluetooth::audio::a2dp::set_remote_delay(btif_av_get_audio_delay(A2dpType::kSource));
+   }
++  if (adaptive_legacy && !session_started) {
++    log::warn("Qualcomm aptX Adaptive session rejected by the audio HAL");
++    if (bluetooth::audio::a2dp::is_hal_enabled()) {
++      bluetooth::audio::a2dp::end_session();
++    }
++    if (!bta_av_co_fallback_from_aptx_adaptive(peer_address)) {
++      btif_av_stream_stop(peer_address);
++    }
++    peer_ready_promise.set_value();
++    return;
++  }
+ 
+   bta_av_co_report_codec_config_changed(peer_address);
+   peer_ready_promise.set_value();
+diff --git a/system/btif/src/btif_av.cc b/system/btif/src/btif_av.cc
+index a78a63de967ed8a1b4dff80326d3b59e7ebc02dd..94ef42f994a87fddcca6a54250e061c984404c31 100644
+--- a/system/btif/src/btif_av.cc
++++ b/system/btif/src/btif_av.cc
+@@ -60,7 +60,9 @@
+ #include "common/state_machine.h"
+ #include "device/include/device_iot_config.h"
+ #include "hardware/bt_av.h"
++#include "hci/controller.h"
+ #include "include/hardware/bt_rc.h"
++#include "main/shim/entry.h"
+ #include "osi/include/alarm.h"
+ #include "osi/include/allocator.h"
+ #include "osi/include/properties.h"
+@@ -72,6 +74,7 @@
+ #include "stack/include/bt_uuid16.h"
+ #include "stack/include/btm_ble_api.h"
+ #include "stack/include/btm_log_history.h"
++#include "stack/include/hcidefs.h"
+ #include "stack/include/main_thread.h"
+ 
+ #ifdef __ANDROID__
+@@ -268,6 +271,8 @@ public:
+     kFlagPendingStart = 0x4,
+     kFlagPendingStop = 0x8,
+     kFlagPendingReconfigure = 0x10,
++    kFlagAptxAdaptiveFallback = 0x20,
++    kFlagAptxAdaptiveFallbackPending = 0x40,
+   };
+   static constexpr uint64_t kTimeoutAvOpenOnRcMs = 2 * 1000;  // 2s
+ 
+@@ -1197,8 +1202,13 @@ void BtifAvSource::Init(btav_source_callbacks_t* callbacks, int max_connected_au
+     BTM_BleGetVendorCapabilities(&vsc_cb);
+     bool supports_a2dp_hw_offload_v2 =
+             vsc_cb.version_supported >= 0x0104 && vsc_cb.a2dp_offload_v2_support;
+-    bluetooth::audio::a2dp::update_codec_offloading_capabilities(offloading_preference,
+-                                                                 supports_a2dp_hw_offload_v2);
++    const auto* controller = bluetooth::shim::GetController();
++    bool supports_qti_aptx_adaptive =
++            osi_property_get_bool("ro.bluetooth.a2dp_aptx_adaptive_offload.supported", false) &&
++            controller != nullptr &&
++            controller->GetLocalVersionInformation().manufacturer_name_ == LMP_COMPID_QTI;
++    bluetooth::audio::a2dp::update_codec_offloading_capabilities(
++            offloading_preference, supports_a2dp_hw_offload_v2, supports_qti_aptx_adaptive);
+   }
+ 
+   bta_av_co_init(codec_priorities, supported_codecs);
+@@ -2438,6 +2448,7 @@ bool BtifAvStateMachine::StateOpened::ProcessEvent(uint32_t event, void* p_data)
+       break;
+ 
+     case BTA_AV_RECONFIG_EVT:
++      peer_.ClearFlags(BtifAvPeer::kFlagAptxAdaptiveFallbackPending);
+       if (p_av->reconfig.status != BTA_AV_SUCCESS) {
+         log::warn("Peer {} : failed reconfiguration", peer_.PeerAddress());
+         if (peer_.CheckFlags(BtifAvPeer::kFlagPendingStart)) {
+@@ -2768,9 +2779,36 @@ bool BtifAvStateMachine::StateStarted::ProcessEvent(uint32_t event, void* p_data
+       BTA_AvOffloadStart(peer_.BtaHandle());
+       break;
+ 
+-    case BTA_AV_OFFLOAD_START_RSP_EVT:
+-      btif_a2dp_on_offload_started(peer_.PeerAddress(), p_av->status);
++    case BTA_AV_OFFLOAD_START_RSP_EVT: {
++      const auto& rsp = p_av->offload_start;
++      if (rsp.hndl != 0 && (rsp.hndl != peer_.BtaHandle() || !peer_.IsActivePeer())) {
++        break;
++      }
++      if (rsp.hndl != 0 && rsp.status == BTA_AV_FAIL_RESOURCES &&
++          !peer_.CheckFlags(BtifAvPeer::kFlagAptxAdaptiveFallback |
++                            BtifAvPeer::kFlagLocalSuspendPending | BtifAvPeer::kFlagRemoteSuspend |
++                            BtifAvPeer::kFlagPendingStop | BtifAvPeer::kFlagPendingReconfigure) &&
++          bta_av_co_fallback_from_aptx_adaptive(peer_.PeerAddress())) {
++        peer_.SetFlags(BtifAvPeer::kFlagAptxAdaptiveFallback |
++                       BtifAvPeer::kFlagAptxAdaptiveFallbackPending);
++        bluetooth::audio::a2dp::ack_stream_started(
++                bluetooth::audio::a2dp::Status::UNSUPPORTED_CODEC_CONFIGURATION);
++        bluetooth::audio::a2dp::end_session();
++        break;
++      }
++      btif_a2dp_on_offload_started(peer_.PeerAddress(), rsp.status);
+       break;
++    }
++
++    case BTA_AV_RECONFIG_EVT:
++      if (!peer_.CheckFlags(BtifAvPeer::kFlagAptxAdaptiveFallbackPending)) {
++        return false;
++      }
++      // An unsupported Reconfigure can reopen the stream without sending a STOP event.
++      btif_a2dp_on_stopped(nullptr, A2dpType::kSource);
++      btif_report_audio_state(peer_.PeerAddress(), BTAV_AUDIO_STATE_STOPPED, A2dpType::kSource);
++      peer_.StateMachine().TransitionTo(BtifAvStateMachine::kStateOpened);
++      return peer_.StateMachine().ProcessEvent(event, p_data);
+ 
+     case BTIF_AV_SET_LATENCY_REQ_EVT: {
+       const btif_av_set_latency_req_t* p_set_latency_req =
+@@ -3371,8 +3409,10 @@ static void btif_av_handle_bta_av_event(uint8_t peer_sep, const BtifAvEvent& bti
+       }
+     }
+     case BTA_AV_OFFLOAD_START_RSP_EVT: {
+-      // TODO: Might be wrong - this code will be removed once those
+-      // events are received from the AVRCP module.
++      if (event == BTA_AV_OFFLOAD_START_RSP_EVT && p_data->offload_start.hndl != 0) {
++        bta_handle = p_data->offload_start.hndl;
++        break;
++      }
+       if (peer_sep == AVDT_TSEP_SNK) {
+         peer_address = btif_av_source.ActivePeer();
+         msg = "Stream sink offloaded";
+diff --git a/system/include/hardware/bt_av.h b/system/include/hardware/bt_av.h
+index b89341309d7975c485f0256c09847f5293f9bd92..0b740f6fcd3ce2dc7fcee857453de529ff4082e2 100644
+--- a/system/include/hardware/bt_av.h
++++ b/system/include/hardware/bt_av.h
+@@ -303,7 +303,7 @@ typedef struct {
+ typedef struct {
+   ::bluetooth::a2dp::CodecId codec_id;
+   std::string name;
+-  uint8_t media_codec_capabilites[20];
++  uint8_t media_codec_capabilites[AVDT_CODEC_SIZE];
+   btav_a2dp_codec_config_t codec_capabilities;
+   bool lossless;
+ 
+diff --git a/system/stack/a2dp/a2dp_codec_config.cc b/system/stack/a2dp/a2dp_codec_config.cc
+index 50d4227f2cacd387aba273c9f7f2acb16d43d213..35defd6b1049467d8ccf1a36eb0dd418afb5a1f3 100644
+--- a/system/stack/a2dp/a2dp_codec_config.cc
++++ b/system/stack/a2dp/a2dp_codec_config.cc
+@@ -320,7 +320,13 @@ bool A2dpCodecConfig::copyOutOtaCodecConfig(uint8_t* p_codec_info) {
+ 
+   // TODO: We should use a mechanism to verify codec config,
+   // not codec capability.
+-  if (!A2DP_IsSourceCodecValid(ota_codec_config_.data())) {
++  if (codec_id_ == a2dp::kAptxAdaptiveCodec &&
++      audio::a2dp::provider::uses_qti_aptx_adaptive_offload()) {
++    if (ota_codec_config_.length() != a2dp::kAptxAdaptiveCieLength ||
++        ota_codec_config_.codecId() != codec_id_) {
++      return false;
++    }
++  } else if (!A2DP_IsSourceCodecValid(ota_codec_config_.data())) {
+     return false;
+   }
+   memcpy(p_codec_info, ota_codec_config_.data(), AVDT_CODEC_SIZE);
+@@ -704,7 +710,7 @@ bool A2dpCodecs::init() {
+ 
+     indexed_codecs_.insert(std::make_pair(codec_index, codec_config));
+ 
+-    if (codec_index < BTAV_A2DP_CODEC_INDEX_SOURCE_MAX) {
++    if (codec_index < BTAV_A2DP_CODEC_INDEX_SOURCE_EXT_MAX) {
+       ordered_source_codecs_.push_back(codec_config);
+       ordered_source_codecs_.sort(compare_codec_priority);
+     } else {
+@@ -1261,6 +1267,12 @@ bool A2DP_CodecEquals(const uint8_t* p_codec_info_a, const uint8_t* p_codec_info
+     return false;
+   }
+ 
++  if (codec_id_a == a2dp::kAptxAdaptiveCodec) {
++    return p_codec_info_a[0] == a2dp::kAptxAdaptiveCieLength &&
++           p_codec_info_b[0] == a2dp::kAptxAdaptiveCieLength &&
++           memcmp(p_codec_info_a, p_codec_info_b, a2dp::kAptxAdaptiveCieLength + 1) == 0;
++  }
++
+   switch (codec_id_a.value()) {
+     case bluetooth::a2dp::CodecId::SBC:
+       return A2DP_CodecEqualsSbc(p_codec_info_a, p_codec_info_b);
+diff --git a/system/stack/a2dp/a2dp_ext.cc b/system/stack/a2dp/a2dp_ext.cc
+index 96e43ed201bc41a7b5ce4d4dc921130750c6b6fe..7045453b6c21766a8f7d6111aa565c4c78ecba26 100644
+--- a/system/stack/a2dp/a2dp_ext.cc
++++ b/system/stack/a2dp/a2dp_ext.cc
+@@ -53,7 +53,7 @@ A2dpCodecConfigExt::A2dpCodecConfigExt(btav_a2dp_codec_index_t codec_index, bool
+ }
+ 
+ tA2DP_STATUS A2dpCodecConfigExt::setCodecConfig(const uint8_t* p_peer_codec_info,
+-                                                bool /* is_capability */,
++                                                bool is_capability,
+                                                 uint8_t* p_result_codec_config) {
+   if (p_peer_codec_info == nullptr || p_result_codec_config == nullptr) {
+     return A2DP_FAIL;
+@@ -63,6 +63,24 @@ tA2DP_STATUS A2dpCodecConfigExt::setCodecConfig(const uint8_t* p_peer_codec_info
+   // This method need to update codec_config_, and ota_codec_config_
+   // using the local codec_user_config_, and input peer_codec_info.
+   using namespace bluetooth::audio::a2dp;
++  if (!is_capability && is_source_ && codec_id_ == a2dp::kAptxAdaptiveCodec &&
++      provider::uses_qti_aptx_adaptive_offload()) {
++    if (p_peer_codec_info[0] != a2dp::kAptxAdaptiveCieLength ||
++        a2dp::ParseCodecId(p_peer_codec_info) != codec_id_) {
++      return AVDTP_UNSUPPORTED_CONFIGURATION;
++    }
++    auto parameters = codec_config_;
++    std::vector<uint8_t> vendor_specific_parameters;
++    const auto status = provider::parse_a2dp_configuration(
++            codec_id_, p_peer_codec_info, &parameters, &vendor_specific_parameters);
++    if (status != A2DP_SUCCESS) {
++      return status;
++    }
++    setCodecConfig(parameters, p_peer_codec_info, vendor_specific_parameters);
++    memcpy(p_result_codec_config, p_peer_codec_info, AVDT_CODEC_SIZE);
++    return A2DP_SUCCESS;
++  }
++
+   provider::a2dp_remote_capabilities capabilities = {
+           .seid = 0,  // the SEID does not matter here.
+           .capabilities = p_peer_codec_info,
+diff --git a/system/stack/avdt/avdt_msg.cc b/system/stack/avdt/avdt_msg.cc
+index a8d08d274f99bebd4c75ef3aeea0d55411c978a7..a4d2a20115cd166a8a12944c960222d14ecc0f83 100644
+--- a/system/stack/avdt/avdt_msg.cc
++++ b/system/stack/avdt/avdt_msg.cc
+@@ -294,14 +294,14 @@ static void avdt_msg_bld_cfg(uint8_t** p, AvdtpSepConfig* p_cfg) {
+ 
+   /* codec */
+   if (p_cfg->num_codec != 0) {
+-    *(*p)++ = AVDT_CAT_CODEC;
+-    len = p_cfg->codec_info[0] + 1;
+-    if (len > AVDT_CODEC_SIZE) {
+-      len = AVDT_CODEC_SIZE;
++    size_t codec_length = size_t{p_cfg->codec_info[0]} + 1;
++    if (codec_length <= sizeof(p_cfg->codec_info)) {
++      *(*p)++ = AVDT_CAT_CODEC;
++      memcpy(*p, p_cfg->codec_info, codec_length);
++      *p += codec_length;
++    } else {
++      log::warn("Invalid codec information length: {}", codec_length);
+     }
+-
+-    memcpy(*p, p_cfg->codec_info, len);
+-    *p += len;
+   }
+ 
+   /* content protection */
+@@ -526,7 +526,6 @@ static uint8_t avdt_msg_prs_cfg(AvdtpSepConfig* p_cfg, uint8_t* p, uint16_t len,
+   uint8_t* p_end;
+   uint8_t elem = 0;
+   uint8_t elem_len;
+-  uint8_t tmp;
+   uint8_t err = 0;
+   uint8_t protect_offset = 0;
+ 
+@@ -538,6 +537,7 @@ static uint8_t avdt_msg_prs_cfg(AvdtpSepConfig* p_cfg, uint8_t* p, uint16_t len,
+   p_cfg->psc_mask = 0;
+   p_cfg->num_codec = 0;
+   p_cfg->num_protect = 0;
++  memset(p_cfg->codec_info, 0, sizeof(p_cfg->codec_info));
+ 
+   /* while there is still data to parse */
+   p_end = p + len;
+@@ -628,17 +628,21 @@ static uint8_t avdt_msg_prs_cfg(AvdtpSepConfig* p_cfg, uint8_t* p, uint16_t len,
+ 
+       case AVDT_CAT_CODEC:
+         p_cfg->psc_mask &= ~AVDT_PSC_CODEC;
+-        tmp = elem_len;
+-        if (elem_len >= AVDT_CODEC_SIZE) {
+-          tmp = AVDT_CODEC_SIZE - 1;
+-        }
+-        if (p + tmp > p_end) {
++        if (elem_len > p_end - p) {
+           err = AVDT_ERR_LENGTH;
+           break;
+         }
++        if (elem_len >= sizeof(p_cfg->codec_info)) {
++          if (sig_id == AVDT_SIG_SETCONFIG || sig_id == AVDT_SIG_RECONFIG) {
++            err = AVDT_ERR_LENGTH;
++            break;
++          }
++          p += elem_len;
++          break;
++        }
+         p_cfg->num_codec++;
+         p_cfg->codec_info[0] = elem_len;
+-        memcpy(&p_cfg->codec_info[1], p, tmp);
++        memcpy(&p_cfg->codec_info[1], p, elem_len);
+         p += elem_len;
+         break;
+ 
+diff --git a/system/stack/include/a2dp_constants.h b/system/stack/include/a2dp_constants.h
+index 062b313fad4510b5deb75650d5f24ea2d130f26b..a0d75acd915910cc4373fd9cad4b22643e9cc7ad 100644
+--- a/system/stack/include/a2dp_constants.h
++++ b/system/stack/include/a2dp_constants.h
+@@ -22,8 +22,8 @@
+ #include <cstdint>
+ #include <optional>
+ 
+-/* Maximum size in bytes of the codec capabilities information element. */
+-#define AVDT_CODEC_SIZE 20
++/* Codec information element storage, including its length byte. */
++#define AVDT_CODEC_SIZE 45
+ 
+ /* Profile supported features */
+ #define A2DP_SUPF_PLAYER 0x0001
+@@ -57,6 +57,7 @@ constexpr static uint64_t VendorCodecId(uint16_t company_id, uint16_t codec_id)
+ 
+ static constexpr uint16_t kAptxCompanyId = 0x004F;
+ static constexpr uint16_t kAptxHdCompanyId = 0x00D7;
++static constexpr uint16_t kAptxAdaptiveCompanyId = 0x00D7;
+ static constexpr uint16_t kLdacCompanyId = 0x012D;
+ static constexpr uint16_t kOpusCompanyId = 0x00E0;
+ static constexpr uint16_t kLhdcV5CompanyId = 0x053A;
+@@ -64,6 +65,8 @@ static constexpr uint16_t kLhdcV3CompanyId = 0x053A;
+ 
+ static constexpr uint16_t kAptxCodecId = 0x0001;
+ static constexpr uint16_t kAptxHdCodecId = 0x0024;
++static constexpr uint16_t kAptxAdaptiveCodecId = 0x00AD;
++static constexpr uint8_t kAptxAdaptiveCieLength = 42;
+ static constexpr uint16_t kLdacCodecId = 0x00AA;
+ static constexpr uint16_t kOpusCodecId = 0x0001;
+ static constexpr uint16_t kLhdcV5CodecId = 0x4C35;
+@@ -97,6 +100,9 @@ enum class CodecId : uint64_t {
+   LHDCV3 = VendorCodecId(kLhdcV3CompanyId, kLhdcV3CodecId),
+ };
+ 
++inline constexpr auto kAptxAdaptiveCodec =
++        static_cast<CodecId>(VendorCodecId(kAptxAdaptiveCompanyId, kAptxAdaptiveCodecId));
++
+ /// Parse the standardized codec identifier from the Media Codec Capabilities.
+ /// `media_codec_capabilities` must point to a non-null buffer that contains
+ /// well formed Media Codec Capabilities.
+diff --git a/system/test/mock/mock_audio_hal_interface_a2dp_encoding.cc b/system/test/mock/mock_audio_hal_interface_a2dp_encoding.cc
+index 0aa44430f4595ab62f347fe1094d6f4d08b52cce..dee6d12038983fc1968719ea80fdbb87590e2e3a 100644
+--- a/system/test/mock/mock_audio_hal_interface_a2dp_encoding.cc
++++ b/system/test/mock/mock_audio_hal_interface_a2dp_encoding.cc
+@@ -184,17 +184,20 @@ std::optional<btav_a2dp_codec_index_t> provider::source_codec_index(const uint8_
+   inc_func_call_count(__func__);
+   return test::mock::audio_hal_interface_a2dp_encoding::source_codec_index(p_codec_info);
+ }
+-void start_session() {
++bool start_session() {
+   inc_func_call_count(__func__);
+   test::mock::audio_hal_interface_a2dp_encoding::start_session();
++  return true;
+ }
+ bool provider::supports_codec(btav_a2dp_codec_index_t codec_index) {
+   inc_func_call_count(__func__);
+   return test::mock::audio_hal_interface_a2dp_encoding::supports_codec(codec_index);
+ }
++bool provider::uses_qti_aptx_adaptive_offload() { return false; }
++
+ bool update_codec_offloading_capabilities(
+         const std::vector<btav_a2dp_codec_config_t>& framework_preference,
+-        bool supports_a2dp_hw_offload_v2) {
++        bool supports_a2dp_hw_offload_v2, bool /*supports_qti_aptx_adaptive*/) {
+   inc_func_call_count(__func__);
+   return test::mock::audio_hal_interface_a2dp_encoding::update_codec_offloading_capabilities(
+           framework_preference, supports_a2dp_hw_offload_v2);
