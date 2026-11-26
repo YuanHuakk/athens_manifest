@@ -1,0 +1,110 @@
+diff --git a/src/com/android/settings/fuelgauge/BatteryInfo.java b/src/com/android/settings/fuelgauge/BatteryInfo.java
+index 06228d451bd141ae9f04e15a644b22d63d3237f6..0201bc06bd2046a8c445a6e7e2e58b9f0d27c87a 100644
+--- a/src/com/android/settings/fuelgauge/BatteryInfo.java
++++ b/src/com/android/settings/fuelgauge/BatteryInfo.java
+@@ -318,9 +318,6 @@ public class BatteryInfo {
+         info.batteryStatus =
+                 batteryBroadcast.getIntExtra(
+                         BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN);
+-        info.isFastCharging =
+-                BatteryStatus.getChargingSpeed(context, batteryBroadcast)
+-                        == BatteryStatus.CHARGING_FAST;
+         if (info.isLongLife) {
+             info.isBatteryDefender =
+                     FeatureFactory.getFeatureFactory()
+@@ -410,6 +407,14 @@ public class BatteryInfo {
+             info.chargeLabel = context.getString(chargingLimitedResId, info.batteryPercentString);
+             return;
+         }
++        if (status == BatteryManager.BATTERY_STATUS_CHARGING && info.mCharging) {
++            final BatteryStatus batteryStatus = new BatteryStatus(batteryBroadcast);
++            final int chargingSpeed = batteryStatus.isPluggedInWired()
++                    ? batteryStatus.getChargingSpeed(context)
++                    : BatteryStatus.getChargingSpeed(context, batteryBroadcast);
++            info.isFastCharging = chargingSpeed == BatteryStatus.CHARGING_FAST
++                    || chargingSpeed == BatteryStatus.CHARGING_OEM;
++        }
+         final BatterySettingsFeatureProvider featureProvider =
+                 FeatureFactory.getFeatureFactory().getBatterySettingsFeatureProvider();
+         if (featureProvider.isChargingOptimizationMode(context, info.isLongLife)) {
+diff --git a/tests/robotests/src/com/android/settings/fuelgauge/BatteryInfoTest.java b/tests/robotests/src/com/android/settings/fuelgauge/BatteryInfoTest.java
+index 209c1333e0180f9740e923d586919739f850d93c..d5d9741a45e7f63e4968a0f5325072c80f77d55a 100644
+--- a/tests/robotests/src/com/android/settings/fuelgauge/BatteryInfoTest.java
++++ b/tests/robotests/src/com/android/settings/fuelgauge/BatteryInfoTest.java
+@@ -318,6 +318,8 @@ public class BatteryInfoTest {
+         mChargingBatteryBroadcast.putExtra(
+                 BatteryManager.EXTRA_CHARGING_STATUS,
+                 BatteryManager.CHARGING_POLICY_ADAPTIVE_LONGLIFE);
++        mChargingBatteryBroadcast.putExtra(BatteryManager.EXTRA_OEM_CHARGER, true);
++        mChargingBatteryBroadcast.putExtra(BatteryManager.EXTRA_MAX_CHARGING_CURRENT, 0);
+ 
+         BatteryInfo info =
+                 BatteryInfo.getBatteryInfo(
+@@ -330,6 +332,7 @@ public class BatteryInfoTest {
+ 
+         assertThat(info.isBatteryDefender).isTrue();
+         assertThat(info.chargeLabel.toString()).contains(STATUS_CHARGING_PAUSED);
++        assertThat(info.isFastCharging).isFalse();
+     }
+ 
+     @Test
+@@ -461,6 +464,59 @@ public class BatteryInfoTest {
+                 expectedChargeLabel);
+     }
+ 
++    @Test
++    public void getBatteryInfo_oemWiredChargingWithoutCurrent_reportsFastCharging() {
++        prepareTestGetBatteryInfoEnvironment(
++                /* remainingTimeMs= */ Duration.ofMinutes(90).toMillis(),
++                /* chargingStringV2Enabled= */ false);
++        Intent batteryIntent =
++                createBatteryIntent(
++                        BatteryManager.BATTERY_PLUGGED_AC,
++                        /* level= */ 61,
++                        BatteryManager.BATTERY_STATUS_CHARGING)
++                        .putExtra(BatteryManager.EXTRA_MAX_CHARGING_CURRENT, 0)
++                        .putExtra(BatteryManager.EXTRA_OEM_CHARGER, true);
++
++        BatteryInfo info =
++                BatteryInfo.getBatteryInfo(
++                        mContext,
++                        batteryIntent,
++                        mBatteryUsageStats,
++                        MOCK_ESTIMATE,
++                        /* elapsedRealtimeUs= */ UNUSED_TIME_MS,
++                        /* shortString= */ false,
++                        /* currentTimeMs= */ UNUSED_TIME_MS);
++
++        assertThat(info.isFastCharging).isTrue();
++        assertThat(info.statusLabel)
++                .isEqualTo(mContext.getString(
++                        com.android.settingslib.R.string.battery_info_status_charging_fast));
++    }
++
++    @Test
++    public void getBatteryInfo_oemChargerDisconnected_doesNotReportFastCharging() {
++        Intent batteryIntent =
++                createBatteryIntent(
++                        /* plugged= */ 0,
++                        /* level= */ 61,
++                        BatteryManager.BATTERY_STATUS_DISCHARGING)
++                        .putExtra(BatteryManager.EXTRA_MAX_CHARGING_CURRENT, 3000000)
++                        .putExtra(BatteryManager.EXTRA_MAX_CHARGING_VOLTAGE, 9000000)
++                        .putExtra(BatteryManager.EXTRA_OEM_CHARGER, true);
++
++        BatteryInfo info =
++                BatteryInfo.getBatteryInfo(
++                        mContext,
++                        batteryIntent,
++                        mBatteryUsageStats,
++                        MOCK_ESTIMATE,
++                        /* elapsedRealtimeUs= */ UNUSED_TIME_MS,
++                        /* shortString= */ false,
++                        /* currentTimeMs= */ UNUSED_TIME_MS);
++
++        assertThat(info.isFastCharging).isFalse();
++    }
++
+     @Test
+     public void getBatteryInfo_regularCharging_updateRemainingLabelAndStatusLabel() {
+         prepareTestGetBatteryInfoEnvironment(

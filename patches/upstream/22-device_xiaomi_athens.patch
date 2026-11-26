@@ -1,5 +1,5 @@
 diff --git a/lineage_athens.mk b/lineage_athens.mk
-index 144a2a807274ed6941394df92253df9fb0c3439d..f7d5b3cfaf752fc130276ade44b093c6b8b10621 100644
+index 144a2a807274ed6941394df92253df9fb0c3439d..84a3d438a1e17e100298147583f59cfeacaef8e7 100644
 --- a/lineage_athens.mk
 +++ b/lineage_athens.mk
 @@ -11,6 +11,9 @@ $(call inherit-product, vendor/lineage/config/common_full_phone.mk)
@@ -7,7 +7,7 @@ index 144a2a807274ed6941394df92253df9fb0c3439d..f7d5b3cfaf752fc130276ade44b093c6
  $(call inherit-product, device/xiaomi/athens/device.mk)
  
 +# Athens panel cap for app window brightness requests.
-+PRODUCT_PACKAGES += AthensAppWindowBrightness
++PRODUCT_PACKAGES += AthensAppWindowBrightness InfinityChargingAthens
 +
  # Device identity
  PRODUCT_DEVICE := athens

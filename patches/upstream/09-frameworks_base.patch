@@ -660,3 +660,15 @@ index f30aa4875709161831d2b7685e08af8fb3f6a768..51ae3f6243a43643af2000ba0481c7f3
 +                .isEqualTo(overrideRequest.brightness);
 +    }
  }
+diff --git a/packages/SettingsLib/src/com/android/settingslib/Utils.java b/packages/SettingsLib/src/com/android/settingslib/Utils.java
+index 65ab1b3d3403f9f1420568cb541ae6c295fccd1b..deedd8b9961faa1ee167009d0f0f3e00e080fddd 100644
+--- a/packages/SettingsLib/src/com/android/settingslib/Utils.java
++++ b/packages/SettingsLib/src/com/android/settingslib/Utils.java
+@@ -278,6 +278,7 @@ public class Utils {
+                 } else if (batteryStatus.isPluggedInWired()) {
+                     switch (batteryStatus.getChargingSpeed(context)) {
+                         case BatteryStatus.CHARGING_FAST:
++                        case BatteryStatus.CHARGING_OEM:
+                             statusString = getFastChargingStatusString(res);
+                             break;
+                         case BatteryStatus.CHARGING_SLOWLY:
