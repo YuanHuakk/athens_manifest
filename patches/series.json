@@ -64,6 +64,10 @@
     "patch": "upstream/18-frameworks_av.patch"
   },
   {
+    "project": "system/sepolicy",
+    "patch": "upstream/19-system_sepolicy.patch"
+  },
+  {
     "project": "vendor/lineage",
     "patch": "upstream/20-vendor_lineage.patch"
   },
@@ -74,5 +78,13 @@
   {
     "project": "device/xiaomi/athens",
     "patch": "upstream/22-device_xiaomi_athens.patch"
+  },
+  {
+    "project": "packages/modules/Bluetooth",
+    "patch": "upstream/26-packages_modules_Bluetooth.patch"
+  },
+  {
+    "project": "hardware/interfaces",
+    "patch": "upstream/27-hardware_interfaces.patch"
   }
 ]

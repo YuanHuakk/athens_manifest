@@ -1,11 +1,683 @@
+diff --git a/BoardConfig.mk b/BoardConfig.mk
+index 6ed78245fb24e0267a833e0ac657095511b324ad..cb4a6e64a48256b41e79b078bfa73bf589d124af 100644
+--- a/BoardConfig.mk
++++ b/BoardConfig.mk
+@@ -35,6 +35,11 @@ ODM_MANIFEST_FILES := \
+ DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE += \
+     $(DEVICE_PATH)/configs/vintf/compatibility_matrix.athens.xml
+ 
++ifeq ($(TARGET_PRODUCT):$(ATHENS_APTX_ADAPTIVE_TEST_BUILD),custom_athens:true)
++DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE += \
++    $(DEVICE_PATH)/compat/aptx_adaptive_stock/compatibility_matrix.aptx_adaptive.xml
++endif
++
+ # SELinux policy
+ BOARD_VENDOR_SEPOLICY_DIRS += $(DEVICE_PATH)/sepolicy/vendor
+ SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS += $(DEVICE_PATH)/sepolicy/private
+diff --git a/compat/aptx_adaptive/Android.bp b/compat/aptx_adaptive/Android.bp
+new file mode 100644
+index 0000000000000000000000000000000000000000..d3e6fc3e83f75a216dddcddeee59fba116829f41
+--- /dev/null
++++ b/compat/aptx_adaptive/Android.bp
+@@ -0,0 +1,44 @@
++// SPDX-License-Identifier: Apache-2.0
++
++cc_library_shared {
++    name: "athens_btaudio_offload_if",
++    stem: "btaudio_offload_if",
++    enabled: select(soong_config_variable("athens_bluetooth", "aptx_adaptive"), {
++        true: true,
++        default: false,
++    }),
++    vendor: true,
++    compile_multilib: "64",
++    srcs: ["BtaudioOffload.cpp"],
++    header_libs: ["libaudio_system_headers"],
++    shared_libs: [
++        "libbase",
++        "libdl",
++    ],
++}
++
++cc_library_shared {
++    name: "libathens_aptx_adaptive_v6",
++    enabled: select(soong_config_variable("athens_bluetooth", "aptx_adaptive"), {
++        true: true,
++        default: false,
++    }),
++    vendor: true,
++    compile_multilib: "64",
++    defaults: ["latest_android_hardware_bluetooth_audio_ndk_shared"],
++    srcs: ["AptxAdaptiveOffload.cpp"],
++    include_dirs: ["hardware/qcom-caf/sm8850/audio/pal/plugins/codecs"],
++    header_libs: [
++        "//hardware/qcom-caf/sm8850:libarosal_headers",
++        "//hardware/qcom-caf/sm8850:libspf-headers",
++        "libaudio_system_headers",
++        "libhardware_headers",
++    ],
++    shared_libs: [
++        "libbase",
++        "libbinder_ndk",
++        "libbluetooth_audio_session_aidl",
++        "libfmq",
++        "liblog",
++    ],
++}
+diff --git a/compat/aptx_adaptive/AptxAdaptiveBridge.h b/compat/aptx_adaptive/AptxAdaptiveBridge.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..6ced551b3e4443b1df26c0d2456d030c71120411
+--- /dev/null
++++ b/compat/aptx_adaptive/AptxAdaptiveBridge.h
+@@ -0,0 +1,19 @@
++// SPDX-License-Identifier: Apache-2.0
++
++#pragma once
++
++#include <system/audio.h>
++
++struct AptxAdaptiveBridge {
++    bool (*is_ready)();
++    bool (*owns_stream)();
++    int (*start)();
++    int (*suspend)();
++    void (*stop)();
++    void* (*get_codec_config)(uint8_t* multicast, uint8_t* device_count, audio_format_t* format);
++    uint16_t (*get_latency_ms)();
++    int (*get_latency_modes)(size_t* count, size_t max, uint32_t* modes);
++    int (*set_latency_mode)(uint32_t mode);
++};
++
++extern "C" const AptxAdaptiveBridge* athens_aptx_adaptive_bridge();
+diff --git a/compat/aptx_adaptive/AptxAdaptiveOffload.cpp b/compat/aptx_adaptive/AptxAdaptiveOffload.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..5ef9529bf54dfafe3712dca01d8fb6423121e18e
+--- /dev/null
++++ b/compat/aptx_adaptive/AptxAdaptiveOffload.cpp
+@@ -0,0 +1,241 @@
++// SPDX-License-Identifier: Apache-2.0
++
++#include <BluetoothAudioSessionControl_V6.h>
++#include <android-base/logging.h>
++
++#include <algorithm>
++#include <atomic>
++#include <cerrno>
++#include <chrono>
++#include <condition_variable>
++#include <cstddef>
++#include <cstdint>
++#include <mutex>
++#include <optional>
++
++#include "AptxAdaptiveBridge.h"
++#include "bt_aptx.h"
++
++namespace {
++
++namespace bt = aidl::android::hardware::bluetooth::audio;
++using Session = bt::BluetoothAudioSessionControl_V6;
++constexpr auto kSession = bt::SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH;
++// These are the C API values in the SM8850 PAL Bluetooth.h.
++constexpr int kSuccess = 0;
++constexpr int kUnsupported = 1;
++constexpr int kFailure = 2;
++constexpr int kDisconnected = 6;
++constexpr int kReconfiguration = 8;
++constexpr auto kControlTimeout = std::chrono::milliseconds(4500);
++static_assert(sizeof(audio_aptx_ad_encoder_config_t) == 72);
++static_assert(offsetof(audio_aptx_ad_encoder_config_t, sink_cap) == 60);
++
++std::optional<bt::CodecConfiguration> GetAdaptiveConfig() {
++    const auto config = Session::GetAudioConfig(kSession);
++    if (config.getTag() != bt::AudioConfiguration::a2dpConfig) return std::nullopt;
++    const auto& codec = config.get<bt::AudioConfiguration::a2dpConfig>();
++    if (codec.codecType != bt::CodecType::APTX_ADAPTIVE ||
++        codec.config.getTag() != bt::CodecConfiguration::CodecSpecific::aptxAdaptiveConfig) {
++        return std::nullopt;
++    }
++    return codec;
++}
++
++int ToPalStatus(bt::BluetoothAudioStatus status) {
++    switch (status) {
++        case bt::BluetoothAudioStatus::SUCCESS:
++            return kSuccess;
++        case bt::BluetoothAudioStatus::UNSUPPORTED_CODEC_CONFIGURATION:
++            return kUnsupported;
++        case bt::BluetoothAudioStatus::RECONFIGURATION:
++            return kReconfiguration;
++        default:
++            return kFailure;
++    }
++}
++
++class AdaptiveStream {
++  public:
++    bool OwnsStream() const { return owns_stream_; }
++
++    int Start() { return Control(true); }
++    int Suspend() { return Control(false); }
++
++    // A2DP StopStream does not return a control ACK to PAL. Wait for the
++    // acknowledged suspend before allowing another start on this session.
++    void Stop() { Control(false, true); }
++
++    void SetLowLatency(bool enabled) { low_latency_ = enabled; }
++
++  private:
++    int Control(bool start, bool release_stream = false) {
++        std::lock_guard command_lock(command_mutex_);
++        const bool owns_stream = release_stream ? owns_stream_.exchange(false) : owns_stream_.load();
++        if (!GetAdaptiveConfig().has_value()) return kDisconnected;
++        if (!start && !owns_stream) return kSuccess;
++
++        if (cookie_ == bt::kObserversCookieUndefined) {
++            cookie_ = Session::RegisterControlResultCback(
++                    kSession,
++                    {.control_result_cb_ =
++                             [this](uint16_t, bool start_reply, bt::BluetoothAudioStatus status) {
++                                 std::lock_guard lock(event_mutex_);
++                                 if (pending_ == start_reply) {
++                                     reply_ = ToPalStatus(status);
++                                     event_.notify_one();
++                                 }
++                             },
++                     .session_changed_cb_ =
++                             [this](uint16_t) {
++                                 std::lock_guard lock(event_mutex_);
++                                 owns_stream_ = false;
++                                 timed_out_ = false;
++                                 if (pending_.has_value()) {
++                                     reply_ = kDisconnected;
++                                     event_.notify_one();
++                                 }
++                             },
++                     .audio_configuration_changed_cb_ = {},
++                     .low_latency_mode_allowed_cb_ = {}});
++            if (cookie_ == bt::kObserversCookieUndefined) return kFailure;
++        }
++
++        std::unique_lock event_lock(event_mutex_);
++        // A late ACK cannot be distinguished from a fresh command until the
++        // provider starts or ends the session.
++        if (timed_out_) return kFailure;
++        pending_ = start;
++        reply_.reset();
++        event_lock.unlock();
++        const bool sent = start ? Session::StartStream(kSession, low_latency_)
++                                : Session::SuspendStream(kSession);
++        event_lock.lock();
++        if (sent &&
++            !event_.wait_for(event_lock, kControlTimeout, [this] { return reply_.has_value(); })) {
++            timed_out_ = true;
++            LOG(WARNING) << "aptX Adaptive: timed out waiting for Bluetooth stream control";
++        }
++        pending_.reset();
++        int result = sent ? reply_.value_or(kFailure) : kDisconnected;
++        if (start && result == kSuccess) owns_stream_ = true;
++        return result;
++    }
++
++    std::mutex command_mutex_;
++    uint16_t cookie_ = bt::kObserversCookieUndefined;
++    std::atomic<bool> owns_stream_{false};
++    std::atomic<bool> low_latency_{false};
++    std::mutex event_mutex_;
++    std::condition_variable event_;
++    std::optional<bool> pending_;
++    std::optional<int> reply_;
++    bool timed_out_ = false;
++};
++
++AdaptiveStream& GetAdaptiveStream() {
++    // The registered observer shares the audio HAL process lifetime.
++    static auto* const stream = new AdaptiveStream;
++    return *stream;
++}
++
++std::optional<audio_aptx_ad_encoder_config_t> ToPalConfig(const bt::CodecConfiguration& config) {
++    const auto& aptx =
++            config.config.get<bt::CodecConfiguration::CodecSpecific::aptxAdaptiveConfig>();
++    unsigned rate;
++    switch (aptx.sampleRateHz) {
++        case 48000:
++            rate = APTX_AD_48;
++            break;
++        case 96000:
++            rate = APTX_AD_96;
++            break;
++        default:
++            return std::nullopt;
++    }
++    audio_aptx_ad_encoder_config_t pal{};
++    if (aptx.aptxAdaptiveConfigStream.size() != sizeof(pal.sink_cap)) return std::nullopt;
++    pal.sampling_rate = rate;
++    pal.mtu = config.peerMtu;
++    pal.channel_mode = static_cast<int32_t>(aptx.channelMode);
++    pal.min_sink_modeA = aptx.sinkBufferingMs.minLowLatency;
++    pal.max_sink_modeA = aptx.sinkBufferingMs.maxLowLatency;
++    pal.min_sink_modeB = aptx.sinkBufferingMs.minHighQuality;
++    pal.max_sink_modeB = aptx.sinkBufferingMs.maxHighQuality;
++    pal.min_sink_modeC = aptx.sinkBufferingMs.minTws;
++    pal.max_sink_modeC = aptx.sinkBufferingMs.maxTws;
++    pal.encoder_mode = static_cast<uint32_t>(aptx.aptxMode);
++    pal.TTP_modeA_low = static_cast<uint8_t>(aptx.ttp.lowLowLatency);
++    pal.TTP_modeA_high = static_cast<uint8_t>(aptx.ttp.highLowLatency);
++    pal.TTP_modeB_low = static_cast<uint8_t>(aptx.ttp.lowHighQuality);
++    pal.TTP_modeB_high = static_cast<uint8_t>(aptx.ttp.highHighQuality);
++    pal.TTP_TWS_low = static_cast<uint8_t>(aptx.ttp.lowTws);
++    pal.TTP_TWS_high = static_cast<uint8_t>(aptx.ttp.highTws);
++    pal.bits_per_sample = aptx.bitsPerSample;
++    pal.input_mode = static_cast<uint32_t>(aptx.inputMode);
++    pal.fade_duration = aptx.inputFadeDurationMs;
++    std::copy(aptx.aptxAdaptiveConfigStream.begin(), aptx.aptxAdaptiveConfigStream.end(),
++              pal.sink_cap);
++    return pal;
++}
++
++void* GetCodecConfig(uint8_t* multicast, uint8_t* device_count, audio_format_t* format) {
++    if (!GetAdaptiveStream().OwnsStream() || format == nullptr) return nullptr;
++    const auto config = GetAdaptiveConfig();
++    if (!config.has_value()) return nullptr;
++    const auto converted = ToPalConfig(*config);
++    if (!converted.has_value()) return nullptr;
++
++    // PAL retains this pointer and serializes configuration and consumption for
++    // its one Classic A2DP source device.
++    static audio_aptx_ad_encoder_config_t payload;
++    payload = *converted;
++    if (multicast != nullptr) *multicast = 0;
++    if (device_count != nullptr) *device_count = 1;
++    *format = static_cast<audio_format_t>(CODEC_TYPE_APTX_AD);
++    LOG(INFO) << "PAL aptX Adaptive encoder configuration ready";
++    return &payload;
++}
++
++uint16_t GetLatencyMs() {
++    bt::PresentationPosition position;
++    if (!Session::GetPresentationPosition(kSession, position)) return 0;
++    const auto latency_ms = position.remoteDeviceAudioDelayNanos / 1000000;
++    return static_cast<uint16_t>(std::clamp<int64_t>(latency_ms, 0, UINT16_MAX));
++}
++
++int GetLatencyModes(size_t* count, size_t max, uint32_t* modes) {
++    if (count == nullptr || (max != 0 && modes == nullptr)) return -EINVAL;
++    *count = 0;
++    for (const auto mode : Session::GetSupportedLatencyModes(kSession)) {
++        if (*count == max) break;
++        if (mode == bt::LatencyMode::LOW_LATENCY) modes[(*count)++] = AUDIO_LATENCY_MODE_LOW;
++        if (mode == bt::LatencyMode::FREE) modes[(*count)++] = AUDIO_LATENCY_MODE_FREE;
++    }
++    return 0;
++}
++
++int SetLatencyMode(uint32_t mode) {
++    if (mode != AUDIO_LATENCY_MODE_FREE && mode != AUDIO_LATENCY_MODE_LOW) return -EINVAL;
++    const bool low_latency = mode == AUDIO_LATENCY_MODE_LOW;
++    GetAdaptiveStream().SetLowLatency(low_latency);
++    Session::SetLatencyMode(kSession,
++                            low_latency ? bt::LatencyMode::LOW_LATENCY : bt::LatencyMode::FREE);
++    return 0;
++}
++
++}  // namespace
++
++extern "C" const AptxAdaptiveBridge* athens_aptx_adaptive_bridge() {
++    static const AptxAdaptiveBridge bridge = {
++            .is_ready = [] { return GetAdaptiveConfig().has_value(); },
++            .owns_stream = [] { return GetAdaptiveStream().OwnsStream(); },
++            .start = [] { return GetAdaptiveStream().Start(); },
++            .suspend = [] { return GetAdaptiveStream().Suspend(); },
++            .stop = [] { GetAdaptiveStream().Stop(); },
++            .get_codec_config = GetCodecConfig,
++            .get_latency_ms = GetLatencyMs,
++            .get_latency_modes = GetLatencyModes,
++            .set_latency_mode = SetLatencyMode};
++    return &bridge;
++}
+diff --git a/compat/aptx_adaptive/BtaudioOffload.cpp b/compat/aptx_adaptive/BtaudioOffload.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..5ffeb596062551528dde98be4848976222c665db
+--- /dev/null
++++ b/compat/aptx_adaptive/BtaudioOffload.cpp
+@@ -0,0 +1,197 @@
++// SPDX-License-Identifier: Apache-2.0
++
++#include <android-base/logging.h>
++#include <android-base/properties.h>
++#include <dlfcn.h>
++
++#include <cerrno>
++
++#include "AptxAdaptiveBridge.h"
++
++// The SM8850 PAL declares this enum in its C++ Bluetooth.h. Keep the same
++// type name on the C entry points for cross-DSO indirect-call checks.
++enum tSESSION_TYPE : unsigned int { A2DP_HARDWARE_OFFLOAD_DATAPATH = 2 };
++
++namespace {
++
++constexpr int kFailure = 2;
++
++void* GetStockHandle() {
++    static void* const handle = [] {
++        auto* library = dlopen("btaudio_offload_if_stock.so", RTLD_NOW | RTLD_LOCAL);
++        if (library == nullptr) {
++            LOG(ERROR) << "Failed to load stock Bluetooth offload interface: " << dlerror();
++        }
++        return library;
++    }();
++    return handle;
++}
++
++template <typename Function>
++Function GetStockFunction(const char* name) {
++    auto* handle = GetStockHandle();
++    if (handle == nullptr) return nullptr;
++    auto fn = reinterpret_cast<Function>(dlsym(handle, name));
++    if (fn == nullptr) LOG(ERROR) << "Stock Bluetooth offload entry point missing: " << name;
++    return fn;
++}
++
++template <typename Result, typename... Args>
++Result CallStock(const char* name, Result failure, Args... args) {
++    auto fn = GetStockFunction<Result (*)(Args...)>(name);
++    return fn == nullptr ? failure : fn(args...);
++}
++
++template <typename... Args>
++void CallStockVoid(const char* name, Args... args) {
++    if (auto fn = GetStockFunction<void (*)(Args...)>(name); fn != nullptr) fn(args...);
++}
++
++const AptxAdaptiveBridge* GetBridge(tSESSION_TYPE session_type) {
++    static const bool enabled = android::base::GetBoolProperty(
++            "ro.bluetooth.a2dp_aptx_adaptive_offload.supported", false);
++    if (session_type != A2DP_HARDWARE_OFFLOAD_DATAPATH || !enabled) return nullptr;
++    // Load in a separate local dependency group to keep the stock QTI V5
++    // session symbols out of the source V6 bridge's lookup scope.
++    static const AptxAdaptiveBridge* const bridge = [] {
++        auto* handle = dlopen("libathens_aptx_adaptive_v6.so", RTLD_NOW | RTLD_LOCAL);
++        if (handle == nullptr) {
++            LOG(ERROR) << "Failed to load the Athens aptX Adaptive bridge: " << dlerror();
++            return static_cast<const AptxAdaptiveBridge*>(nullptr);
++        }
++        auto entry = reinterpret_cast<decltype(&athens_aptx_adaptive_bridge)>(
++                dlsym(handle, "athens_aptx_adaptive_bridge"));
++        if (entry == nullptr)
++            LOG(ERROR) << "Athens aptX Adaptive bridge API missing: " << dlerror();
++        return entry != nullptr ? entry() : nullptr;
++    }();
++    return bridge;
++}
++
++}  // namespace
++
++extern "C" int audio_stream_open_api(tSESSION_TYPE type) {
++    if (const auto* bridge = GetBridge(type); bridge != nullptr && bridge->is_ready()) return 0;
++    return CallStock(__func__, kFailure, type);
++}
++
++extern "C" int audio_stream_close_api(tSESSION_TYPE type) {
++    const auto* bridge = GetBridge(type);
++    const bool adaptive = bridge != nullptr && (bridge->owns_stream() || bridge->is_ready());
++    if (adaptive) bridge->stop();
++    const int stock_result = CallStock(__func__, 0, type);
++    return adaptive ? 1 : stock_result;
++}
++
++extern "C" int audio_start_stream_api(tSESSION_TYPE type) {
++    if (const auto* bridge = GetBridge(type); bridge != nullptr && bridge->is_ready()) {
++        return bridge->start();
++    }
++    return CallStock(__func__, kFailure, type);
++}
++
++extern "C" int audio_stop_stream_api(tSESSION_TYPE type) {
++    if (const auto* bridge = GetBridge(type); bridge != nullptr && bridge->owns_stream()) {
++        bridge->stop();
++        return 0;
++    }
++    return CallStock(__func__, -ENOSYS, type);
++}
++
++extern "C" int audio_suspend_stream_api(tSESSION_TYPE type) {
++    if (const auto* bridge = GetBridge(type); bridge != nullptr && bridge->owns_stream()) {
++        return bridge->suspend();
++    }
++    return CallStock(__func__, kFailure, type);
++}
++
++extern "C" int audio_check_a2dp_ready_api(tSESSION_TYPE type) {
++    if (const auto* bridge = GetBridge(type); bridge != nullptr && bridge->is_ready()) return 1;
++    return CallStock(__func__, 0, type);
++}
++
++extern "C" void* audio_get_codec_config_api(tSESSION_TYPE type, uint8_t* multicast,
++                                            uint8_t* device_count, audio_format_t* format) {
++    if (const auto* bridge = GetBridge(type); bridge != nullptr && bridge->owns_stream()) {
++        return bridge->get_codec_config(multicast, device_count, format);
++    }
++    return CallStock(__func__, static_cast<void*>(nullptr), type, multicast, device_count, format);
++}
++
++extern "C" uint16_t audio_sink_get_a2dp_latency_api(tSESSION_TYPE type) {
++    if (const auto* bridge = GetBridge(type); bridge != nullptr && bridge->owns_stream()) {
++        return bridge->get_latency_ms();
++    }
++    return CallStock(__func__, uint16_t{0}, type);
++}
++
++extern "C" int audio_stream_get_supported_latency_modes_api(tSESSION_TYPE type, size_t* count,
++                                                            size_t max, uint32_t* modes) {
++    if (const auto* bridge = GetBridge(type); bridge != nullptr && bridge->is_ready()) {
++        return bridge->get_latency_modes(count, max, modes);
++    }
++    return CallStock(__func__, -ENOSYS, type, count, max, modes);
++}
++
++extern "C" int audio_stream_set_latency_mode_api(tSESSION_TYPE type, uint32_t mode) {
++    if (const auto* bridge = GetBridge(type); bridge != nullptr && bridge->is_ready()) {
++        return bridge->set_latency_mode(mode);
++    }
++    return CallStock(__func__, -ENOSYS, type, mode);
++}
++
++// These are the remaining stock entry points resolved by Athens PAL. Keep
++// forwarding them so its non-Adaptive and pre-session paths retain their
++// existing behavior.
++extern "C" void bt_audio_pre_init() {
++    CallStockVoid(__func__);
++}
++
++extern "C" int audio_stream_open() {
++    return CallStock(__func__, kFailure);
++}
++
++extern "C" int audio_stream_close() {
++    return CallStock(__func__, 0);
++}
++
++extern "C" int audio_start_stream() {
++    return CallStock(__func__, kFailure);
++}
++
++extern "C" int audio_stop_stream() {
++    return CallStock(__func__, -ENOSYS);
++}
++
++extern "C" int audio_suspend_stream() {
++    return CallStock(__func__, kFailure);
++}
++
++extern "C" int audio_check_a2dp_ready() {
++    return CallStock(__func__, 0);
++}
++
++extern "C" uint16_t audio_sink_get_a2dp_latency() {
++    return CallStock(__func__, uint16_t{0});
++}
++
++extern "C" void* audio_get_codec_config(uint8_t* multicast, uint8_t* device_count,
++                                        audio_format_t* format) {
++    return CallStock(__func__, static_cast<void*>(nullptr), multicast, device_count, format);
++}
++
++extern "C" bool audio_is_scrambling_enabled() {
++    return CallStock(__func__, false);
++}
++
++extern "C" void audio_handoff_triggered() {
++    CallStockVoid(__func__);
++}
++
++extern "C" void clear_a2dpsuspend_flag() {
++    CallStockVoid(__func__);
++}
++
++extern "C" void update_metadata(tSESSION_TYPE type, void* metadata) {
++    CallStockVoid(__func__, type, metadata);
++}
+diff --git a/compat/aptx_adaptive_stock/Android.bp b/compat/aptx_adaptive_stock/Android.bp
+new file mode 100644
+index 0000000000000000000000000000000000000000..faa9cf52e5f49bb6eb0491179e27ed7c99334184
+--- /dev/null
++++ b/compat/aptx_adaptive_stock/Android.bp
+@@ -0,0 +1,25 @@
++// SPDX-License-Identifier: Apache-2.0
++
++cc_prebuilt_library_shared {
++    name: "btaudio_offload_if_stock",
++    defaults: ["//device/xiaomi/sm8850-common:xiaomi_btaudio_offload_blob_defaults"],
++    enabled: select(soong_config_variable("athens_bluetooth", "aptx_adaptive"), {
++        true: true,
++        default: false,
++    }),
++    target: {
++        android_arm64: {
++            srcs: ["//vendor/xiaomi/athens:athens_btaudio_offload_if_stock"],
++        },
++    },
++}
++
++vintf_fragment {
++    name: "athens_aptx_adaptive_manifest",
++    enabled: select(soong_config_variable("athens_bluetooth", "aptx_adaptive"), {
++        true: true,
++        default: false,
++    }),
++    soc_specific: true,
++    src: "aptx_adaptive.xml",
++}
+diff --git a/compat/aptx_adaptive_stock/aptx_adaptive.xml b/compat/aptx_adaptive_stock/aptx_adaptive.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..fa8857a1a8ad73f621225a461d43ed714e88ea06
+--- /dev/null
++++ b/compat/aptx_adaptive_stock/aptx_adaptive.xml
+@@ -0,0 +1,7 @@
++<manifest version="9.0" type="device">
++    <hal format="aidl">
++        <name>android.hardware.bluetooth.audio</name>
++        <version>6</version>
++        <fqname>IBluetoothAudioProviderFactory/aptx_adaptive</fqname>
++    </hal>
++</manifest>
+diff --git a/compat/aptx_adaptive_stock/compatibility_matrix.aptx_adaptive.xml b/compat/aptx_adaptive_stock/compatibility_matrix.aptx_adaptive.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..d2c831e0ecb5bc626854656919fc554c86508e28
+--- /dev/null
++++ b/compat/aptx_adaptive_stock/compatibility_matrix.aptx_adaptive.xml
+@@ -0,0 +1,11 @@
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<compatibility-matrix version="7.0" type="framework">
++    <hal format="aidl" optional="true">
++        <name>android.hardware.bluetooth.audio</name>
++        <version>6</version>
++        <interface>
++            <name>IBluetoothAudioProviderFactory</name>
++            <instance>aptx_adaptive</instance>
++        </interface>
++    </hal>
++</compatibility-matrix>
+diff --git a/compat/aptx_adaptive_stock/vendor_audio_interfaces.xml b/compat/aptx_adaptive_stock/vendor_audio_interfaces.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..3e2d8478b5a42edbc528089b2b150215379a580e
+--- /dev/null
++++ b/compat/aptx_adaptive_stock/vendor_audio_interfaces.xml
+@@ -0,0 +1,52 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
++ SPDX-License-Identifier: BSD-3-Clause-Clear
++-->
++<libraries>
++    <!--
++    The purpose of this audio interface file is to enable modular and independent service
++    registration. This allows services to be enabled or disabled based on target-specific
++    requirements.
++
++    Example:
++    <library name="ExampleService" libraryName="libexampleService.so"
++            method="registerExampleService" mandatory="true"/>
++    ExampleService is a standalone and independent module.
++    The "registerExampleService" method must follow the API signature:
++    int32_t <function_name>()
++
++    Notes:
++    - Authors are encouraged to provide a detailed description of the service and its purpose.
++    - Services are registered in a defined sequence, from top to bottom.
++    If any mandatory service fails to register, the process will retry. If it fails on the final
++    attempt, the process will crash and automatically restart.
++    - A return value of "0" indicates successful registration.
++    Any non-zero return value indicates a failure in service registration.
++    - If the author of a new service is unsure about its position in the registration order,
++    the entry should be added at the end.
++    -->
++    <!-- Load the V6 Adaptive factory before the stock audio modules introduce V5 AIDL symbols. -->
++    <library name="btaudio_aptx_adaptive" libraryName="android.hardware.bluetooth.audio-impl.so"
++            method="createAptxAdaptiveBluetoothAudioProviderFactory" mandatory="false"/>
++    <library name = "agmservice" libraryName="libagmipcservice.so"
++            method="registerService" mandatory="true"/>
++    <library name = "audiohal-qti" libraryName="libaudiocorehal.qti.so"
++            method="registerServices" mandatory="true"/>
++    <library name = "audiohal-default" libraryName="libaudiocorehal.default.so"
++            method="registerServices" mandatory="true"/>
++    <library name = "palservice" libraryName="libpalipcservice.so"
++            method="registerService" mandatory="true"/>
++    <library name = "paleventnotifierservice" libraryName="libpaleventnotifier.so"
++            method="registerPalNotifierService" mandatory="false"/>
++    <library name = "listenSoundModel" libraryName="liblistensoundmodelaidl.so"
++            method="registerService" mandatory="false"/>
++    <library name = "audioeffecthal" libraryName="libaudioeffecthal.qti.so"
++            method="registerService" mandatory="true"/>
++    <library name = "sthal" libraryName="libsoundtriggerhal.qti.so"
++            method="createISoundTriggerFactory" mandatory="true" />
++    <library name="btaudio_sw" libraryName="android.hardware.bluetooth.audio_sw.so"
++            method="registerIModuleBluetoothSWQti" mandatory="false" />
++    <library name = "asr" libraryName="libqasr.so"
++            method="registerService" mandatory="false" />
++</libraries>
 diff --git a/custom_athens.mk b/custom_athens.mk
-index c3a6036329fb93f518de1a4069f095f83830750a..4ee6422ce4c79edf0156ce39184470d722c24903 100644
+index c3a6036329fb93f518de1a4069f095f83830750a..41613f8dcf3ac40b46098d736844d1f4cd7b111a 100644
 --- a/custom_athens.mk
 +++ b/custom_athens.mk
-@@ -16,6 +16,9 @@ $(call inherit-product, vendor/custom/config/common_full_phone.mk)
+@@ -16,6 +16,21 @@ $(call inherit-product, vendor/custom/config/common_full_phone.mk)
  
  $(call inherit-product, device/xiaomi/athens/device.mk)
  
++# Use the 406 Qualcomm Adaptive bridge in opt-in validation builds.
++ifeq ($(ATHENS_APTX_ADAPTIVE_TEST_BUILD),true)
++$(call soong_config_set_bool,athens_bluetooth,aptx_adaptive,true)
++PRODUCT_PACKAGES += \
++    athens_aptx_adaptive_manifest \
++    athens_btaudio_offload_if \
++    btaudio_offload_if_stock \
++    libathens_aptx_adaptive_v6
++PRODUCT_SYSTEM_EXT_PROPERTIES += ro.bluetooth.a2dp_aptx_adaptive_offload.supported=true
++PRODUCT_VENDOR_PROPERTIES += persist.vendor.qcom.bluetooth.aptxadaptiver2_2_support=true
++endif
++
 +# Athens panel cap for app window brightness requests.
 +PRODUCT_PACKAGES += AthensAppWindowBrightness
 +
@@ -49,3 +721,17 @@ index 0000000000000000000000000000000000000000..fdb528481b7fdb5acd7e3fecb2a60839
 +    <!-- Stock SDR-to-HBM transition: 850 nits on the Athens panel calibration. -->
 +    <item name="config_appWindowBrightnessOverrideCap" format="float" type="dimen">0.411976560</item>
 +</resources>
+diff --git a/proprietary-files.txt b/proprietary-files.txt
+index 27bc631e0d3bd7afca925fc78c1d4e64f01cfac9..e3b04f2b4e18bd0239ac748149cb0cae79b63bc6 100644
+--- a/proprietary-files.txt
++++ b/proprietary-files.txt
+@@ -1878,6 +1878,9 @@ odm/lib64/libtical.so
+ # SIA91xx speaker amp firmware required at kernel driver probe.
+ odm/firmware/sipa.bin
+ 
++# Original Bluetooth audio IPC for the opt-in Adaptive bridge.
++vendor/lib64/btaudio_offload_if.so:vendor/lib64/btaudio_offload_if_stock.so;EXTRACT_ONLY;FILEGROUP=athens_btaudio_offload_if_stock;FIX_SONAME
++
+ # MiSys - Xiaomi Camera watermark resource synchronization
+ vendor/bin/hypsys_vendor
+ vendor/bin/hw/vendor.xiaomi.hardware.misys.core-service

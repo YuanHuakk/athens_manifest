@@ -1,0 +1,36 @@
+diff --git a/build/soong/service_fuzzer_bindings.go b/build/soong/service_fuzzer_bindings.go
+index dd83ae0e8049597982bb50bed63d4eebb14c7f48..811485578e64c50fac576f3cbfba40e383cd035d 100644
+--- a/build/soong/service_fuzzer_bindings.go
++++ b/build/soong/service_fuzzer_bindings.go
+@@ -50,6 +50,7 @@ var (
+ 		"android.hardware.biometrics.fingerprint.IFingerprint/virtual":                       EXCEPTION_NO_FUZZER,
+ 		"android.hardware.biometrics.fingerprint.virtualhal.IVirtualHal/virtual":             EXCEPTION_NO_FUZZER,
+ 		"android.hardware.bluetooth.audio.IBluetoothAudioProviderFactory/default":            EXCEPTION_NO_FUZZER,
++		"android.hardware.bluetooth.audio.IBluetoothAudioProviderFactory/aptx_adaptive":      EXCEPTION_NO_FUZZER,
+ 		"android.hardware.broadcastradio.IBroadcastRadio/amfm":                               []string{"android.hardware.broadcastradio-service.default_fuzzer"},
+ 		"android.hardware.broadcastradio.IBroadcastRadio/dab":                                []string{"android.hardware.broadcastradio-service.default_fuzzer"},
+ 		"android.hardware.bluetooth.IBluetoothHci/default":                                   EXCEPTION_NO_FUZZER,
+diff --git a/private/property_contexts b/private/property_contexts
+index 38f3fea1e83db3634cdb174eb6c5f6339a660b0e..6167708cf013df6ba5b8daff0943efc3c53165d6 100644
+--- a/private/property_contexts
++++ b/private/property_contexts
+@@ -656,6 +656,7 @@ persist.bluetooth.a2dp_offload.cap                          u:object_r:bluetooth
+ persist.bluetooth.a2dp_offload.disabled                     u:object_r:bluetooth_a2dp_offload_prop:s0 exact bool
+ persist.bluetooth.leaudio_offload.disabled                  u:object_r:bluetooth_a2dp_offload_prop:s0 exact bool
+ persist.bluetooth.bluetooth_audio_hal.disabled              u:object_r:bluetooth_audio_hal_prop:s0 exact bool
++ro.bluetooth.a2dp_aptx_adaptive_offload.supported              u:object_r:bluetooth_audio_hal_prop:s0 exact bool
+ persist.bluetooth.btsnoopenable                             u:object_r:exported_bluetooth_prop:s0 exact bool
+ persist.bluetooth.btsnoopdefaultmode                        u:object_r:bluetooth_prop:s0 exact enum empty disabled filtered full
+ persist.bluetooth.btsnooplogmode                            u:object_r:bluetooth_prop:s0 exact enum empty disabled filtered full
+diff --git a/private/service_contexts b/private/service_contexts
+index de000430b6b1c7c18fa1e51ff0fe27dcda8da0d5..a4afd7ab964a4347ae185d6369c88c02bd5e02a0 100644
+--- a/private/service_contexts
++++ b/private/service_contexts
+@@ -43,6 +43,7 @@ is_flag_enabled(RELEASE_HARDWARE_BLUETOOTH_RANGING_SERVICE, `
+ ')
+ android.hardware.bluetooth.lmp_event.IBluetoothLmpEvent/default      u:object_r:hal_bluetooth_service:s0
+ android.hardware.bluetooth.audio.IBluetoothAudioProviderFactory/default u:object_r:hal_audio_service:s0
++android.hardware.bluetooth.audio.IBluetoothAudioProviderFactory/aptx_adaptive u:object_r:hal_audio_service:s0
+ android.hardware.bluetooth.socket.IBluetoothSocket/default           u:object_r:hal_bluetooth_service:s0
+ android.hardware.bluetooth.socket.IBluetoothSocket/lpp               u:object_r:hal_bluetooth_lpp_service:s0
+ android.hardware.bluetooth.gatt.IBluetoothGatt/default               u:object_r:hal_bluetooth_lpp_service:s0
