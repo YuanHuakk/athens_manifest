@@ -237,3 +237,84 @@ index 8442288ebd2c10f104f1db971bd26ce88491c822..439ff2c0a790bf9e8b1f593b7f2866fe
                      maxHeight = panelMaxHeight,
                  )
              }
+diff --git a/app/src/main/java/io/chaldeaprjkt/gamespace/settings/SettingsFragment.kt b/app/src/main/java/io/chaldeaprjkt/gamespace/settings/SettingsFragment.kt
+index 32fd3392165fc42b2d29ae46e58c92120ccf0356..043f71f0dccb70a2e8d073b7637c2b0377288e1b 100644
+--- a/app/src/main/java/io/chaldeaprjkt/gamespace/settings/SettingsFragment.kt
++++ b/app/src/main/java/io/chaldeaprjkt/gamespace/settings/SettingsFragment.kt
+@@ -20,6 +20,7 @@ import android.os.Build
+ import android.os.Bundle
+ import android.os.SystemProperties
+ import android.os.Vibrator
++import android.provider.Settings
+ import android.view.View
+ import androidx.activity.result.contract.ActivityResultContracts
+ import androidx.preference.Preference
+@@ -77,6 +78,17 @@ class SettingsFragment : Hilt_SettingsFragment(),
+     }
+ 
+     private fun updatePreferences() {
++        findPreference<SwitchPreferenceCompat>(GAME_HDR_SETTING)?.apply {
++            isVisible = Build.DEVICE == "athens"
++            if (isVisible) {
++                val resolver = requireContext().contentResolver
++                isChecked = Settings.Secure.getInt(resolver, GAME_HDR_SETTING, 0) == 1
++                setOnPreferenceChangeListener { _, enabled ->
++                    Settings.Secure.putInt(resolver, GAME_HDR_SETTING, if (enabled == true) 1 else 0)
++                }
++            }
++        }
++
+         val isBypassSupported =
+             Build.MANUFACTURER.equals("Google", ignoreCase = true) ||
+             SystemProperties.getBoolean("persist.sys.battery_bypass_supported", false)
+@@ -174,4 +186,8 @@ class SettingsFragment : Hilt_SettingsFragment(),
+         }
+         return false
+     }
++
++    private companion object {
++        const val GAME_HDR_SETTING = "gamespace_athens_game_hdr"
++    }
+ }
+diff --git a/app/src/main/res/values-zh-rCN/athens_game_hdr_strings.xml b/app/src/main/res/values-zh-rCN/athens_game_hdr_strings.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..1bd497343be855feacf2a94a3a28c3b5c3ed1ce8
+--- /dev/null
++++ b/app/src/main/res/values-zh-rCN/athens_game_hdr_strings.xml
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<resources>
++    <string name="athens_game_hdr_title">游戏 HDR</string>
++    <string name="athens_game_hdr_summary">仅在支持的游戏中，且屏幕刷新率为 60 Hz 或 120 Hz 时生效。</string>
++</resources>
+diff --git a/app/src/main/res/values/athens_game_hdr_strings.xml b/app/src/main/res/values/athens_game_hdr_strings.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..a721de799c3244117e84ad4fbca08144fb25370f
+--- /dev/null
++++ b/app/src/main/res/values/athens_game_hdr_strings.xml
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<resources>
++    <string name="athens_game_hdr_title">Game HDR</string>
++    <string name="athens_game_hdr_summary">Works only in supported games when the display is running at 60 Hz or 120 Hz.</string>
++</resources>
+diff --git a/app/src/main/res/xml/root_preferences.xml b/app/src/main/res/xml/root_preferences.xml
+index 73e31cfad8c7495c111b5366f7a59ab7c056bba6..a3ea0bdfb9e33b5e207ca5b6cc2bccb8ab1fd2e3 100644
+--- a/app/src/main/res/xml/root_preferences.xml
++++ b/app/src/main/res/xml/root_preferences.xml
+@@ -46,6 +46,13 @@
+         android:key="in_game_preferences"
+         android:title="@string/in_game_preferences_title">
+ 
++        <SwitchPreferenceCompat
++            android:key="gamespace_athens_game_hdr"
++            android:title="@string/athens_game_hdr_title"
++            android:summary="@string/athens_game_hdr_summary"
++            android:defaultValue="false"
++            android:persistent="false" />
++
+         <SwitchPreferenceCompat
+             android:key="gamespace_auto_brightness_disabled"
+             android:title="@string/auto_brightness_disabled_title"

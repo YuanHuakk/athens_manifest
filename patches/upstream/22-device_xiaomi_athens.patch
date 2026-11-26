@@ -691,8 +691,59 @@ index c647be91e8f3c212f085662d8d28e4749c5a96ac..fbe721f68333845856f173454192507d
 +    # init.qcom.rc creates the camera parent first.
 +    mkdir /data/vendor/camera/watermarks 0750 system system
 +    restorecon_recursive /data/vendor/camera/watermarks
+diff --git a/configs/init/vendor.novatek.hardware.visdisplaysrv-service.rc b/configs/init/vendor.novatek.hardware.visdisplaysrv-service.rc
+new file mode 100644
+index 0000000000000000000000000000000000000000..120fb78f3f60113c9560ae3643c86496f24452f6
+--- /dev/null
++++ b/configs/init/vendor.novatek.hardware.visdisplaysrv-service.rc
+@@ -0,0 +1,6 @@
++# SPDX-License-Identifier: Apache-2.0
++
++service hal_visdisplaysrv_default /odm/bin/hw/vendor.novatek.hardware.visdisplaysrv-service
++    class hal
++    user root
++    group root
+diff --git a/configs/properties/odm.prop b/configs/properties/odm.prop
+index adc15d18d307b5703f6d41b5ecb158d02ef98e6e..eb2ede69ab0319c4c25dbc1dbea74c69e21d3216 100644
+--- a/configs/properties/odm.prop
++++ b/configs/properties/odm.prop
+@@ -4,6 +4,9 @@
+ persist.sys.miui_resolution=1156,2510,480
+ # The stock vivid LUT overrides Android's natural color mode on wake.
+ ro.vendor.display.vivid_calibration.enable=0
++# Expose the stock Dual DPU interface used by game HDR.
++ro.vendor.display.dualDPU.support=nt72336
++ro.vendor.display.framemaster.enable=true
+ 
+ # Touch
+ ro.vendor.touchfeature.type=247
+diff --git a/configs/vintf/compatibility_matrix.athens.xml b/configs/vintf/compatibility_matrix.athens.xml
+index 5336aa7106309c13797d044c230b58f78c6bc68c..028b528fb857b4296383dfcd3ce9a2d92c392e13 100644
+--- a/configs/vintf/compatibility_matrix.athens.xml
++++ b/configs/vintf/compatibility_matrix.athens.xml
+@@ -37,4 +37,20 @@
+             <instance>default</instance>
+         </interface>
+     </hal>
++    <hal format="aidl" optional="true">
++        <name>vendor.xiaomi.hardware.framemaster</name>
++        <version>1</version>
++        <interface>
++            <name>IFrameMaster</name>
++            <instance>default</instance>
++        </interface>
++    </hal>
++    <hal format="aidl" optional="true">
++        <name>vendor.novatek.hardware.visdisplaysrv</name>
++        <version>1</version>
++        <interface>
++            <name>IVisdisplaysrv</name>
++            <instance>default</instance>
++        </interface>
++    </hal>
+ </compatibility-matrix>
 diff --git a/device.mk b/device.mk
-index 46f96760535ee5adcc28a006b84d8a18f95a01d5..f226da10d51ddef241991c6a1af58735d5f03f8a 100644
+index 46f96760535ee5adcc28a006b84d8a18f95a01d5..df8d3eb3112dbd7659c9749ad33807676bd356c4 100644
 --- a/device.mk
 +++ b/device.mk
 @@ -25,6 +25,15 @@ PRODUCT_BUILD_PVMFW_IMAGE := false
@@ -711,8 +762,18 @@ index 46f96760535ee5adcc28a006b84d8a18f95a01d5..f226da10d51ddef241991c6a1af58735
  # Match the radio region of the stock HyperOS 4 China build.
  PRODUCT_VENDOR_PROPERTIES += ro.vendor.radio.build_region=cn
  
+@@ -56,7 +65,8 @@ PRODUCT_PACKAGES += \
+ 
+ # Init
+ PRODUCT_COPY_FILES += \
+-    $(LOCAL_PATH)/configs/init/init.athens.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/init.athens.rc
++    $(LOCAL_PATH)/configs/init/init.athens.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/init.athens.rc \
++    $(LOCAL_PATH)/configs/init/vendor.novatek.hardware.visdisplaysrv-service.rc:$(TARGET_COPY_OUT_ODM)/etc/init/vendor.novatek.hardware.visdisplaysrv-service.rc
+ 
+ # Soong namespaces
+ PRODUCT_SOONG_NAMESPACES += \
 diff --git a/extract-files.py b/extract-files.py
-index 38da5a36336289754e79f30e5acb89c9b856643d..3876ca5c118c93c7ee7fb7cef4cbc51b5b6dd9ef 100755
+index 38da5a36336289754e79f30e5acb89c9b856643d..a28e4b33ddf71952fa69c9721e8267a7706b1f79 100755
 --- a/extract-files.py
 +++ b/extract-files.py
 @@ -2,6 +2,7 @@
@@ -723,10 +784,34 @@ index 38da5a36336289754e79f30e5acb89c9b856643d..3876ca5c118c93c7ee7fb7cef4cbc51b
  import re
  import xml.etree.ElementTree as ET
  from pathlib import Path
-@@ -90,6 +91,27 @@ def fixup_aosp_audio_volumes(ctx, file, file_path, *args, **kwargs):
+@@ -90,14 +91,73 @@ def fixup_aosp_audio_volumes(ctx, file, file_path, *args, **kwargs):
      path.write_text(content)
  
  
++def fixup_novatek_touch_scan_log(ctx, file, file_path, *args, **kwargs):
++    """Drop the missing second string argument from the 406 touch-scan error log."""
++    path = Path(file_path)
++    data = path.read_bytes()
++    stock_hash = "9c172c695a2884ffa91ce0ddef3ef6ec46c56a3578e1f9f320cf7655eda7b099"
++    fixed_hash = "fca9d061beab72c7e38f572e8b0c126464c109f7f39078fc00d30579b694151e"
++    source_hash = hashlib.sha256(data).hexdigest()
++    if source_hash == fixed_hash:
++        return
++    if source_hash != stock_hash:
++        raise ValueError(f"{path}: unexpected Novatek daemon SHA-256 {source_hash}")
++
++    original = b"Close TouchInfo Detector(Scan dir failed for %s, %s)\n\0"
++    corrected = b"Close TouchInfo Detector(Scan dir failed for %s)\n\0"
++    if data.count(original) != 1:
++        raise ValueError(f"{path}: expected one Novatek touch-scan error format")
++
++    # Keep the ELF layout intact and leave the failed scan on its normal exit path.
++    fixed = data.replace(original, corrected.ljust(len(original), b"\0"))
++    if hashlib.sha256(fixed).hexdigest() != fixed_hash:
++        raise ValueError(f"{path}: unexpected Novatek daemon SHA-256 after fixup")
++    path.write_bytes(fixed)
++
++
 +def fixup_supernight_raw_protection(ctx, file, file_path, *args, **kwargs):
 +    """Use RW during SuperNight decryption and R afterward."""
 +    path = Path(file_path)
@@ -749,9 +834,12 @@ index 38da5a36336289754e79f30e5acb89c9b856643d..3876ca5c118c93c7ee7fb7cef4cbc51b
 +
 +
  blob_fixups: blob_fixups_user_type = {
++    "odm/bin/hw/vendor.novatek.hardware.visdisplaysrv-service": blob_fixup().call(
++        fixup_novatek_touch_scan_log, need_tmp_dir=False
++    ),
      # Remove private output types unsupported by the AOSP audio HAL.
      "odm/etc/audio/audio_module_config_primary.xml": blob_fixup()
-@@ -97,7 +119,18 @@ blob_fixups: blob_fixups_user_type = {
+     .regex_replace(r'(?s)<mixPort\s+name="virtual_deep_buffer"[^>]*>.*?</mixPort>', "")
      .regex_replace(r"virtual_deep_buffer,\s*|,\s*virtual_deep_buffer", "")
      .regex_replace(r'(?s)<devicePort\s+tagName="Multiroute"[^>]*>.*?</devicePort>', "")
      .regex_replace(r'<route\s+[^>]*sink="Multiroute"[^>]*/>', "")
@@ -771,7 +859,7 @@ index 38da5a36336289754e79f30e5acb89c9b856643d..3876ca5c118c93c7ee7fb7cef4cbc51b
      "odm/etc/audio_policy_engine_stream_volumes_mi.xml": blob_fixup().call(
          fixup_aosp_audio_volumes, need_tmp_dir=False
      ),
-@@ -134,6 +167,12 @@ blob_fixups: blob_fixups_user_type = {
+@@ -134,6 +194,12 @@ blob_fixups: blob_fixups_user_type = {
      .clear_symbol_version("AHardwareBuffer_unlock")
      .clear_symbol_version("AHardwareBuffer_lock")
      .clear_symbol_version("AHardwareBuffer_isSupported"),
@@ -1017,6 +1105,18 @@ index 0000000000000000000000000000000000000000..fdb528481b7fdb5acd7e3fecb2a60839
 +    <!-- Stock SDR-to-HBM transition: 850 nits on the Athens panel calibration. -->
 +    <item name="config_appWindowBrightnessOverrideCap" format="float" type="dimen">0.411976560</item>
 +</resources>
+diff --git a/overlays/FrameworksResAthens/res/values/status_bar_height.xml b/overlays/FrameworksResAthens/res/values/status_bar_height.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..b57b3e22d744b5a7d6bbc8023a79e5a2afb5b457
+--- /dev/null
++++ b/overlays/FrameworksResAthens/res/values/status_bar_height.xml
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <!-- Keep the shade header tall enough for the centered cutout in portrait. -->
++    <dimen name="status_bar_height_portrait">48dp</dimen>
++    <dimen name="status_bar_height_landscape">28dp</dimen>
++</resources>
 diff --git a/payments/Android.mk b/payments/Android.mk
 new file mode 100644
 index 0000000000000000000000000000000000000000..541255ba93bd41f60d070d8e1d4ef278dc421c20
@@ -1055,7 +1155,7 @@ index 0000000000000000000000000000000000000000..541255ba93bd41f60d070d8e1d4ef278
 +
 +athens_uptsm_dir :=
 diff --git a/proprietary-files.txt b/proprietary-files.txt
-index 27bc631e0d3bd7afca925fc78c1d4e64f01cfac9..eb59155bc0fbdcbfff4fca04c107dd720cf24902 100644
+index 27bc631e0d3bd7afca925fc78c1d4e64f01cfac9..bbf7a0db0933f4cc4951bd3df15033430f8afc8e 100644
 --- a/proprietary-files.txt
 +++ b/proprietary-files.txt
 @@ -864,6 +864,14 @@ odm/lib64/camera/plugins/com.xiaomi.plugin.watermark.so
@@ -1073,7 +1173,21 @@ index 27bc631e0d3bd7afca925fc78c1d4e64f01cfac9..eb59155bc0fbdcbfff4fca04c107dd72
  # Camera algorithms missing at bring-up (the video and 200MP graphs need them)
  odm/lib64/camera/dynamicplugins/com.xiaomi.plugin.depurple.so
  odm/lib64/camera/plugins/com.xiaomi.plugin.deflicker2.so
-@@ -1878,6 +1886,35 @@ odm/lib64/libtical.so
+@@ -1360,6 +1368,13 @@ odm/etc/display/B_Com_Gary_Gain.csv
+ odm/etc/display/G_Com_Gary_Gain.csv
+ odm/etc/display/R_Com_Gary_Gain.csv
+ 
++# Stock game HDR
++odm/bin/hw/vendor.novatek.hardware.visdisplaysrv-service
++odm/etc/vintf/manifest/vendor.novatek.hardware.visdisplaysrv.xml
++odm/etc/vintf/manifest/vendor.xiaomi.hardware.framemaster_aidl-service.xml
++odm/etc/display/ui_service_cloud_config.xml
++odm/etc/dqe/ASICScene.xml
++
+ # Athens display panel calibration
+ odm/etc/mdss_dsi_athens_42_0d_0a_dsc_cmd_mi.xml
+ 
+@@ -1878,6 +1893,35 @@ odm/lib64/libtical.so
  # SIA91xx speaker amp firmware required at kernel driver probe.
  odm/firmware/sipa.bin
  
@@ -1119,7 +1233,7 @@ index 1d856dacf1b509316d7c8d73ece9ac8ada82ecb6..0929c34c32532ce5d2bd89973491cd7b
  type vendor_sysfs_ufs_write_booster, fs_type, sysfs_type;
 +type vendor_camera_watermark_file, file_type, data_file_type;
 diff --git a/sepolicy/vendor/file_contexts b/sepolicy/vendor/file_contexts
-index 6f8051262ea222456f301be24c02c5d032208b7b..44f5fe92a46be0adda1354e6f64297859d3afb39 100644
+index 6f8051262ea222456f301be24c02c5d032208b7b..62d55b81cc6e37e10e0546bcdde9aced0b11c28e 100644
 --- a/sepolicy/vendor/file_contexts
 +++ b/sepolicy/vendor/file_contexts
 @@ -16,6 +16,7 @@
@@ -1130,6 +1244,25 @@ index 6f8051262ea222456f301be24c02c5d032208b7b..44f5fe92a46be0adda1354e6f6429785
  /vendor/bin/hypsys_vendor u:object_r:hal_hypsys_vendor_exec:s0
  /vendor/bin/hw/vendor\.xiaomi\.hardware\.misys\.core-service u:object_r:hal_misyscore_athens_exec:s0
  
+@@ -28,3 +29,6 @@
+ /dev/block/by-name/oops u:object_r:vendor_oops_block_device:s0
+ /dev/metis_link u:object_r:migt_dev:s0
+ /dev/ntsync u:object_r:vendor_ntsync_device:s0
++
++/(odm|vendor/odm)/bin/hw/vendor\.novatek\.hardware\.visdisplaysrv-service u:object_r:hal_visdisplaysrv_default_exec:s0
++/dev/vis_display_spidev u:object_r:nvt_device:s0
+diff --git a/sepolicy/vendor/game_hdr.te b/sepolicy/vendor/game_hdr.te
+new file mode 100644
+index 0000000000000000000000000000000000000000..1dac6d5f42e6708f946871981ba434ec9a62821e
+--- /dev/null
++++ b/sepolicy/vendor/game_hdr.te
+@@ -0,0 +1,6 @@
++# Only the system_server controller may look up FrameMaster from Android userspace.
++allow system_server vendor_hal_framemaster_xiaomi_service:service_manager find;
++allow system_server vendor_hal_displayfeature_xiaomi_default:binder call;
++
++# The stock composer registers a FrameMaster callback for Dual DPU transitions.
++allow hal_graphics_composer_default vendor_hal_framemaster_xiaomi_service:service_manager find;
 diff --git a/sepolicy/vendor/hal_camera_default.te b/sepolicy/vendor/hal_camera_default.te
 index 728f5b62bc4ad6a99b8f0e0a750fb501615cb0d3..e38c6d0346493851d473d93e461084c6d0d4cfb3 100644
 --- a/sepolicy/vendor/hal_camera_default.te
@@ -1161,15 +1294,41 @@ index ac7a54164ed110fca29ea7a644cd08bdf0094635..7cc8503182862ceed2993cacd50e7b93
  allow hal_hypsys_vendor vendor_oops_block_device:blk_file getattr;
  allow hal_hypsys_vendor minidump_data_file:file getattr;
  get_prop(hal_hypsys_vendor, debug_prop)
-diff --git a/overlays/FrameworksResAthens/res/values/status_bar_height.xml b/overlays/FrameworksResAthens/res/values/status_bar_height.xml
+diff --git a/sepolicy/vendor/hal_visdisplaysrv_default.te b/sepolicy/vendor/hal_visdisplaysrv_default.te
 new file mode 100644
-index 0000000000000000000000000000000000000000..b57b3e22d744b5a7d6bbc8023a79e5a2afb5b457
+index 0000000000000000000000000000000000000000..034d0e7499e05e4d1102e307af742bc825f4f8f6
 --- /dev/null
-+++ b/overlays/FrameworksResAthens/res/values/status_bar_height.xml
-@@ -0,0 +1,6 @@
-+<?xml version="1.0" encoding="utf-8"?>
-+<resources>
-+    <!-- Keep the shade header tall enough for the centered cutout in portrait. -->
-+    <dimen name="status_bar_height_portrait">48dp</dimen>
-+    <dimen name="status_bar_height_landscape">28dp</dimen>
-+</resources>
++++ b/sepolicy/vendor/hal_visdisplaysrv_default.te
+@@ -0,0 +1,22 @@
++type hal_visdisplaysrv_default, domain;
++type hal_visdisplaysrv_default_exec, exec_type, file_type, vendor_file_type;
++type hal_visdisplaysrv_service, hal_service_type, protected_service, service_manager_type;
++type nvt_device, dev_type;
++
++init_daemon_domain(hal_visdisplaysrv_default)
++binder_use(hal_visdisplaysrv_default)
++add_service(hal_visdisplaysrv_default, hal_visdisplaysrv_service)
++
++# Only the Novatek HAL opens the 0600 SPI node.
++allow hal_visdisplaysrv_default nvt_device:chr_file { getattr ioctl open read write };
++
++# DisplayFeature hosts FrameMaster.
++allow vendor_hal_displayfeature_xiaomi_default hal_visdisplaysrv_service:service_manager find;
++allow hal_visdisplaysrv_default vendor_hal_framemaster_xiaomi_service:service_manager find;
++binder_call(vendor_hal_displayfeature_xiaomi_default, hal_visdisplaysrv_default)
++binder_call(hal_visdisplaysrv_default, vendor_hal_displayfeature_xiaomi_default)
++
++# The composer HAL is the other stock vendor-side Binder peer.
++allow hal_graphics_composer_default hal_visdisplaysrv_service:service_manager find;
++binder_call(hal_graphics_composer_default, hal_visdisplaysrv_default)
++binder_call(hal_visdisplaysrv_default, hal_graphics_composer_default)
+diff --git a/sepolicy/vendor/service_contexts b/sepolicy/vendor/service_contexts
+index ea7c87d19b51e16b40777667e03ed46599c2a7f9..49f4ba87ae62fd30916d438e78d906cc61de40b7 100644
+--- a/sepolicy/vendor/service_contexts
++++ b/sepolicy/vendor/service_contexts
+@@ -5,3 +5,5 @@ vendor.xiaomi.hardware.misys.core.IMiSysCore/default u:object_r:hal_misyscore_at
+ vendor.xiaomi.hardware.misys.common.IMiSysImpl/default u:object_r:hal_hypsys_vendor_service:s0
+ vendor.xiaomi.hardware.blackbox.IBlackboxImpl/default u:object_r:hal_hypsys_vendor_service:s0
+ vendor.xiaomi.hardware.misys.common.IHypSysIntl/default u:object_r:hal_hypsys_vendor_service:s0
++
++vendor.novatek.hardware.visdisplaysrv.IVisdisplaysrv/default u:object_r:hal_visdisplaysrv_service:s0
