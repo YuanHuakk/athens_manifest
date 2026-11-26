@@ -658,8 +658,32 @@ index 0000000000000000000000000000000000000000..3e2d8478b5a42edbc528089b2b150215
 +    <library name = "asr" libraryName="libqasr.so"
 +            method="registerService" mandatory="false" />
 +</libraries>
+diff --git a/extract-files.py b/extract-files.py
+index 38da5a36336289754e79f30e5acb89c9b856643d..20d44ccff60fabcc81b9ddf953e441c421a8d7d2 100755
+--- a/extract-files.py
++++ b/extract-files.py
+@@ -97,7 +97,18 @@ blob_fixups: blob_fixups_user_type = {
+     .regex_replace(r"virtual_deep_buffer,\s*|,\s*virtual_deep_buffer", "")
+     .regex_replace(r'(?s)<devicePort\s+tagName="Multiroute"[^>]*>.*?</devicePort>', "")
+     .regex_replace(r'<route\s+[^>]*sink="Multiroute"[^>]*/>', "")
+-    .regex_replace(r"\s*audio/vnd\.mi\.mihc", ""),
++    .regex_replace(r"\s*audio/vnd\.mi\.mihc", "")
++    # The ODM policy takes precedence. The PAL bit-perfect path uses the USB headset device ID.
++    .regex_replace(
++        r'(?m)^([ \t]*)(<mixPort name="hifi_playback" role="source">\s*</mixPort>)'
++        r'(?!\s*<mixPort name="bit_perfect_playback")',
++        r'\1\2\n\1<mixPort name="bit_perfect_playback" role="source" flags="BIT_PERFECT" />',
++    )
++    .regex_replace(
++        r'(<route type="mix" sink="usb_headset" sources=")(?![^"]*\bbit_perfect_playback\b)'
++        r'([^"]+)("\s*/>)',
++        r'\1\2,bit_perfect_playback\3',
++    ),
+     "odm/etc/audio_policy_engine_stream_volumes_mi.xml": blob_fixup().call(
+         fixup_aosp_audio_volumes, need_tmp_dir=False
+     ),
 diff --git a/lineage_athens.mk b/lineage_athens.mk
-index 144a2a807274ed6941394df92253df9fb0c3439d..97c77a9efb7f039dab50ae2e80798e1998af7bef 100644
+index 2cc83c6bbc29e4aafec7d49ce030b089ea194c98..1786cd1231bc3ffff28c9622bc3e3e687d0d6465 100644
 --- a/lineage_athens.mk
 +++ b/lineage_athens.mk
 @@ -11,6 +11,21 @@ $(call inherit-product, vendor/lineage/config/common_full_phone.mk)
