@@ -90,5 +90,9 @@
   {
     "project": "frameworks/native",
     "patch": "upstream/29-frameworks_native.patch"
+  },
+  {
+    "project": "hardware/qcom-caf/thermal",
+    "patch": "upstream/30-hardware_qcom-caf_thermal.patch"
   }
 ]
