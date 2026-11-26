@@ -80,12 +80,20 @@
     "patch": "upstream/22-device_xiaomi_athens.patch"
   },
   {
+    "project": "packages/apps/GameSpace",
+    "patch": "upstream/24-packages_apps_GameSpace.patch"
+  },
+  {
     "project": "packages/modules/Bluetooth",
     "patch": "upstream/26-packages_modules_Bluetooth.patch"
   },
   {
     "project": "hardware/interfaces",
     "patch": "upstream/27-hardware_interfaces.patch"
+  },
+  {
+    "project": "packages/apps/LMOFreeform",
+    "patch": "upstream/28-packages_apps_LMOFreeform.patch"
   },
   {
     "project": "frameworks/native",
