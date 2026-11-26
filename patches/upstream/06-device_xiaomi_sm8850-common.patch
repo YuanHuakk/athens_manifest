@@ -45,7 +45,7 @@ index 75d249626ecbf8630ce4c0dfe7c81818d51d960e..27697edf9055b1c7f5fdae78a7cdcf21
  
  BOARD_AVB_BOOT_KEY_PATH := external/avb/test/data/testkey_rsa4096.pem
 diff --git a/common.mk b/common.mk
-index 7a2612507a7bde40ec7a28a284291c7e87ea8f29..72035d9662c6ec68c64ca043e35163198fb8ea8a 100644
+index 7a2612507a7bde40ec7a28a284291c7e87ea8f29..c289e84f0e2940900983da1f09ab24da60f32819 100644
 --- a/common.mk
 +++ b/common.mk
 @@ -20,7 +20,9 @@ $(call inherit-product, $(SRC_TARGET_DIR)/product/generic_ramdisk.mk)
@@ -62,7 +62,7 @@ index 7a2612507a7bde40ec7a28a284291c7e87ea8f29..72035d9662c6ec68c64ca043e3516319
  
  AUDIO_HAL_DIR := hardware/qcom-caf/sm8850/audio/primary-hal/configs/canoe
  
-+ifeq ($(TARGET_PRODUCT):$(ATHENS_APTX_ADAPTIVE_TEST_BUILD),lineage_athens:true)
++ifeq ($(TARGET_PRODUCT):$(or $(ATHENS_APTX_ADAPTIVE_TEST_BUILD),true),lineage_athens:true)
 +QTI_AUDIO_INTERFACES_XML := device/xiaomi/athens/compat/aptx_adaptive_stock/vendor_audio_interfaces.xml
 +else
 +QTI_AUDIO_INTERFACES_XML := $(AUDIO_HAL_DIR)/vendor_audio_interfaces.xml
@@ -80,7 +80,7 @@ index 7a2612507a7bde40ec7a28a284291c7e87ea8f29..72035d9662c6ec68c64ca043e3516319
      lib_bt_ble \
      lib_bt_bundle
  
-+ifneq ($(TARGET_PRODUCT):$(ATHENS_APTX_ADAPTIVE_TEST_BUILD),lineage_athens:true)
++ifneq ($(TARGET_PRODUCT):$(or $(ATHENS_APTX_ADAPTIVE_TEST_BUILD),true),lineage_athens:true)
 +PRODUCT_PACKAGES += btaudio_offload_if
 +endif
 +

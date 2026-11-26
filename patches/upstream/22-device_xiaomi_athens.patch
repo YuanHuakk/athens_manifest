@@ -1,12 +1,12 @@
 diff --git a/BoardConfig.mk b/BoardConfig.mk
-index 6ed78245fb24e0267a833e0ac657095511b324ad..04d09eb2a142d441b8a877c774ee3006c31edc12 100644
+index 6ed78245fb24e0267a833e0ac657095511b324ad..ae57c6ce5ece5a0ab3359a11e9a623a507043250 100644
 --- a/BoardConfig.mk
 +++ b/BoardConfig.mk
 @@ -35,6 +35,11 @@ ODM_MANIFEST_FILES := \
  DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE += \
      $(DEVICE_PATH)/configs/vintf/compatibility_matrix.athens.xml
  
-+ifeq ($(TARGET_PRODUCT):$(ATHENS_APTX_ADAPTIVE_TEST_BUILD),lineage_athens:true)
++ifeq ($(TARGET_PRODUCT):$(or $(ATHENS_APTX_ADAPTIVE_TEST_BUILD),true),lineage_athens:true)
 +DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE += \
 +    $(DEVICE_PATH)/compat/aptx_adaptive_stock/compatibility_matrix.aptx_adaptive.xml
 +endif
@@ -671,6 +671,26 @@ index c647be91e8f3c212f085662d8d28e4749c5a96ac..fbe721f68333845856f173454192507d
 +    # init.qcom.rc creates the camera parent first.
 +    mkdir /data/vendor/camera/watermarks 0750 system system
 +    restorecon_recursive /data/vendor/camera/watermarks
+diff --git a/device.mk b/device.mk
+index 46f96760535ee5adcc28a006b84d8a18f95a01d5..f226da10d51ddef241991c6a1af58735d5f03f8a 100644
+--- a/device.mk
++++ b/device.mk
+@@ -25,6 +25,15 @@ PRODUCT_BUILD_PVMFW_IMAGE := false
+ # The stock PAL backend requires A2DP offload for LE Audio as well.
+ PRODUCT_VENDOR_PROPERTIES += persist.bluetooth.a2dp_offload.disabled=false
+ 
++# Expose the stock spatializer with spatial processing enabled by default.
++PRODUCT_VENDOR_PROPERTIES += \
++    ro.audio.spatializer_enabled?=true \
++    ro.audio.spatializer_binaural_enabled_default=true \
++    ro.audio.spatializer_transaural_enabled_default=true
++
++# Restore super-wideband calling for compatible Bluetooth headsets.
++PRODUCT_SYSTEM_EXT_PROPERTIES += bluetooth.hfp.codec_aptx_voice.enabled=true
++
+ # Match the radio region of the stock HyperOS 4 China build.
+ PRODUCT_VENDOR_PROPERTIES += ro.vendor.radio.build_region=cn
+ 
 diff --git a/extract-files.py b/extract-files.py
 index 38da5a36336289754e79f30e5acb89c9b856643d..3876ca5c118c93c7ee7fb7cef4cbc51b5b6dd9ef 100755
 --- a/extract-files.py
@@ -745,24 +765,15 @@ index 38da5a36336289754e79f30e5acb89c9b856643d..3876ca5c118c93c7ee7fb7cef4cbc51b
          "odm/lib64/camera/components/com.qti.node.dewarp.so",
          "odm/lib64/vendor.qti.hardware.camera.offlinecamera-service-impl.so",
 diff --git a/lineage_athens.mk b/lineage_athens.mk
-index 2cc83c6bbc29e4aafec7d49ce030b089ea194c98..d7b5ed4007450669b8c2ad72402e4be81dda4e34 100644
+index 2cc83c6bbc29e4aafec7d49ce030b089ea194c98..3295125322b8b031fb8bddde7d09a6279afd1c08 100644
 --- a/lineage_athens.mk
 +++ b/lineage_athens.mk
-@@ -4,6 +4,8 @@
- # SPDX-License-Identifier: Apache-2.0
- #
- 
-+ATHENS_APTX_ADAPTIVE_TEST_BUILD ?= true
-+
- $(call inherit-product, $(SRC_TARGET_DIR)/product/core_64_bit_only.mk)
- $(call inherit-product, $(SRC_TARGET_DIR)/product/full_base_telephony.mk)
- 
-@@ -11,6 +13,21 @@ $(call inherit-product, vendor/lineage/config/common_full_phone.mk)
+@@ -11,6 +11,21 @@ $(call inherit-product, vendor/lineage/config/common_full_phone.mk)
  
  $(call inherit-product, device/xiaomi/athens/device.mk)
  
-+# Install the 406 Qualcomm Adaptive offload stack.
-+ifeq ($(ATHENS_APTX_ADAPTIVE_TEST_BUILD),true)
++# Use the 406 Qualcomm Adaptive bridge by default.
++ifeq ($(or $(ATHENS_APTX_ADAPTIVE_TEST_BUILD),true),true)
 +$(call soong_config_set_bool,athens_bluetooth,aptx_adaptive,true)
 +PRODUCT_PACKAGES += \
 +    athens_aptx_adaptive_manifest \
