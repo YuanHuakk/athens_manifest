@@ -286,10 +286,10 @@ index 4c89e1c1492b08b592c4ada548e661453bca2818..d5983f545388a951d82dc53f613d69ef
 +                            view.isInvisible = !isVisible
                          }
 diff --git a/packages/SystemUI/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySection.kt b/packages/SystemUI/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySection.kt
-index ec03b45dd33039dc587bf50f8e7c1ecbd34fe5d7..e12160b51dccbe7f9934508fb6d8e1e6fc278cf8 100644
+index bb8fddb7d4a9bca68a7fe6b831554dbf4e4b64ce..2e363f3e534bd6390f2b3b06fb91481bb30f78cc 100644
 --- a/packages/SystemUI/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySection.kt
 +++ b/packages/SystemUI/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySection.kt
-@@ -26,6 +26,7 @@ import androidx.annotation.VisibleForTesting
+@@ -28,6 +28,7 @@ import androidx.annotation.VisibleForTesting
  import androidx.constraintlayout.widget.ConstraintLayout
  import androidx.constraintlayout.widget.ConstraintSet
  import com.android.systemui.biometrics.AuthController
@@ -297,7 +297,7 @@ index ec03b45dd33039dc587bf50f8e7c1ecbd34fe5d7..e12160b51dccbe7f9934508fb6d8e1e6
  import com.android.systemui.customization.clocks.R as clocksR
  import com.android.systemui.dagger.qualifiers.Application
  import com.android.systemui.dagger.qualifiers.Main
-@@ -62,6 +63,7 @@ constructor(
+@@ -65,6 +66,7 @@ constructor(
      @Application private val applicationScope: CoroutineScope,
      @Main private val mainDispatcher: CoroutineDispatcher,
      private val authController: AuthController,
@@ -305,7 +305,7 @@ index ec03b45dd33039dc587bf50f8e7c1ecbd34fe5d7..e12160b51dccbe7f9934508fb6d8e1e6
      private val windowManager: WindowManager,
      private val windowRootViewBlurInteractor: WindowRootViewBlurInteractor,
      @ShadeDisplayAware private val context: Context,
-@@ -112,7 +114,7 @@ constructor(
+@@ -118,7 +120,7 @@ constructor(
      }
  
      override fun applyConstraints(constraintSet: ConstraintSet) {
@@ -314,12 +314,13 @@ index ec03b45dd33039dc587bf50f8e7c1ecbd34fe5d7..e12160b51dccbe7f9934508fb6d8e1e6
          blueprintLogger.d({ "isUdfpsSupported=$bool1" }) { bool1 = isUdfpsSupported }
  
          val scaleFactor: Float = authController.scaleFactor
-@@ -133,7 +135,7 @@ constructor(
+@@ -139,7 +141,8 @@ constructor(
          val iconRadiusPx = (defaultDensity * 36).toInt()
  
          if (isUdfpsSupported) {
 -            deviceEntryIconViewModel.get().udfpsLocation.value?.let { udfpsLocation ->
-+            fingerprintPropertyInteractor.sensorLocation.value.let { udfpsLocation ->
++            val udfpsLocation = fingerprintPropertyInteractor.sensorLocation.value
++            if (udfpsLocation.radius > 0f) {
                  blueprintLogger.d({
                      "udfpsLocation=$str1, scaledLocation=$str2, unusedAuthController=$str3"
                  }) {
@@ -398,10 +399,21 @@ index 3ca7dc26d45615ffea6a94d21222988c87570621..8001a3b050590ff9b83a8e979746a343
      }
  
 diff --git a/packages/SystemUI/tests/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySectionTest.kt b/packages/SystemUI/tests/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySectionTest.kt
-index 76e3b996b5d14350cdc82588429bb8ac0cb3ea9a..0e05db468557b36cbe8e9dc47db875c7050ea010 100644
+index 76e3b996b5d14350cdc82588429bb8ac0cb3ea9a..b49415219a3e0de4ce19db23250e35e8a80b6294 100644
 --- a/packages/SystemUI/tests/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySectionTest.kt
 +++ b/packages/SystemUI/tests/src/com/android/systemui/keyguard/ui/view/layout/sections/DefaultDeviceEntrySectionTest.kt
-@@ -25,6 +25,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
+@@ -17,7 +17,10 @@
+ 
+ package com.android.systemui.keyguard.ui.view.layout.sections
+ 
++import android.content.ContextWrapper
+ import android.graphics.Point
++import android.view.Display
++import android.view.Surface
+ import android.view.WindowManager
+ import androidx.constraintlayout.widget.ConstraintLayout
+ import androidx.constraintlayout.widget.ConstraintSet
+@@ -25,6 +28,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
  import androidx.test.filters.SmallTest
  import com.android.systemui.SysuiTestCase
  import com.android.systemui.biometrics.AuthController
@@ -409,15 +421,18 @@ index 76e3b996b5d14350cdc82588429bb8ac0cb3ea9a..0e05db468557b36cbe8e9dc47db875c7
  import com.android.systemui.flags.FakeFeatureFlags
  import com.android.systemui.flags.FakeFeatureFlagsClassic
  import com.android.systemui.flags.Flags
-@@ -36,6 +37,7 @@ import com.android.systemui.log.logcatLogBuffer
+@@ -36,8 +40,10 @@ import com.android.systemui.log.logcatLogBuffer
  import com.android.systemui.plugins.FalsingManager
  import com.android.systemui.res.R
  import com.android.systemui.shade.NotificationPanelView
 +import com.android.systemui.shared.customization.data.SensorLocation
  import com.android.systemui.statusbar.VibratorHelper
  import com.android.systemui.testKosmos
++import com.android.systemui.tuner.TunerService
  import com.android.systemui.util.mockito.whenever
-@@ -56,6 +58,7 @@ import org.mockito.MockitoAnnotations
+ import com.android.systemui.window.domain.interactor.WindowRootViewBlurInteractor
+ import com.google.android.msdl.domain.MSDLPlayer
+@@ -56,6 +62,7 @@ import org.mockito.MockitoAnnotations
  @SmallTest
  class DefaultDeviceEntrySectionTest : SysuiTestCase() {
      @Mock private lateinit var authController: AuthController
@@ -425,15 +440,38 @@ index 76e3b996b5d14350cdc82588429bb8ac0cb3ea9a..0e05db468557b36cbe8e9dc47db875c7
      @Mock(answer = Answers.RETURNS_DEEP_STUBS) private lateinit var windowManager: WindowManager
      @Mock private lateinit var windowRootViewBlurInteractor: WindowRootViewBlurInteractor
      @Mock private lateinit var notificationPanelView: NotificationPanelView
-@@ -76,6 +79,7 @@ class DefaultDeviceEntrySectionTest : SysuiTestCase() {
+@@ -71,14 +78,21 @@ class DefaultDeviceEntrySectionTest : SysuiTestCase() {
+ 
+         featureFlags =
+             FakeFeatureFlagsClassic().apply { set(Flags.LOCKSCREEN_ENABLE_LANDSCAPE, false) }
++        val display = mock(Display::class.java)
++        whenever(display.rotation).thenReturn(Surface.ROTATION_0)
++        val layoutContext =
++            object : ContextWrapper(context) {
++                override fun getDisplay(): Display = display
++            }
+         underTest =
+             DefaultDeviceEntrySection(
                  TestScope().backgroundScope,
                  testKosmos().testDispatcher,
                  authController,
 +                fingerprintPropertyInteractor,
                  windowManager,
                  windowRootViewBlurInteractor,
-                 context,
-@@ -101,7 +105,7 @@ class DefaultDeviceEntrySectionTest : SysuiTestCase() {
+-                context,
++                layoutContext,
+                 notificationPanelView,
+                 featureFlags,
+                 { deviceEntryIconViewModel },
+@@ -89,6 +103,7 @@ class DefaultDeviceEntrySectionTest : SysuiTestCase() {
+                 { msdlPlayer },
+                 logcatLogBuffer(),
+                 logcatLogBuffer("blueprints"),
++                mock(TunerService::class.java),
+             )
+     }
+ 
+@@ -101,7 +116,7 @@ class DefaultDeviceEntrySectionTest : SysuiTestCase() {
  
      @Test
      fun applyConstraints() {
@@ -442,7 +480,7 @@ index 76e3b996b5d14350cdc82588429bb8ac0cb3ea9a..0e05db468557b36cbe8e9dc47db875c7
          val cs = ConstraintSet()
          underTest.applyConstraints(cs)
  
-@@ -111,6 +115,21 @@ class DefaultDeviceEntrySectionTest : SysuiTestCase() {
+@@ -111,6 +126,46 @@ class DefaultDeviceEntrySectionTest : SysuiTestCase() {
          assertThat(constraint.layout.startToStart).isEqualTo(ConstraintSet.PARENT_ID)
      }
  
@@ -459,6 +497,31 @@ index 76e3b996b5d14350cdc82588429bb8ac0cb3ea9a..0e05db468557b36cbe8e9dc47db875c7
 +        assertThat(constraint.layout.startMargin).isEqualTo(499)
 +        assertThat(constraint.layout.mWidth).isEqualTo(158)
 +        assertThat(constraint.layout.mHeight).isEqualTo(158)
++    }
++
++    @Test
++    fun applyConstraints_ignoresUninitializedSensorLocation() {
++        whenever(fingerprintPropertyInteractor.isUdfps).thenReturn(MutableStateFlow(true))
++        val location = MutableStateFlow(SensorLocation(0, 0, 0, 1f))
++        whenever(fingerprintPropertyInteractor.sensorLocation).thenReturn(location)
++        val cs = ConstraintSet()
++        underTest.centerIcon(Point(578, 1905), 79f, cs)
++
++        underTest.applyConstraints(cs)
++
++        val constraint = cs.getConstraint(R.id.device_entry_icon_view)
++        assertThat(constraint.layout.topMargin).isEqualTo(1826)
++        assertThat(constraint.layout.startMargin).isEqualTo(499)
++        assertThat(constraint.layout.mWidth).isEqualTo(158)
++        assertThat(constraint.layout.mHeight).isEqualTo(158)
++
++        location.value = SensorLocation(468, 1543, 63, 1f)
++        underTest.applyConstraints(cs)
++
++        assertThat(constraint.layout.topMargin).isEqualTo(1480)
++        assertThat(constraint.layout.startMargin).isEqualTo(405)
++        assertThat(constraint.layout.mWidth).isEqualTo(126)
++        assertThat(constraint.layout.mHeight).isEqualTo(126)
 +    }
 +
      @Test
