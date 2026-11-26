@@ -1161,3 +1161,15 @@ index ac7a54164ed110fca29ea7a644cd08bdf0094635..7cc8503182862ceed2993cacd50e7b93
  allow hal_hypsys_vendor vendor_oops_block_device:blk_file getattr;
  allow hal_hypsys_vendor minidump_data_file:file getattr;
  get_prop(hal_hypsys_vendor, debug_prop)
+diff --git a/overlays/FrameworksResAthens/res/values/status_bar_height.xml b/overlays/FrameworksResAthens/res/values/status_bar_height.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..b57b3e22d744b5a7d6bbc8023a79e5a2afb5b457
+--- /dev/null
++++ b/overlays/FrameworksResAthens/res/values/status_bar_height.xml
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <!-- Keep the shade header tall enough for the centered cutout in portrait. -->
++    <dimen name="status_bar_height_portrait">48dp</dimen>
++    <dimen name="status_bar_height_landscape">28dp</dimen>
++</resources>
