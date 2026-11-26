@@ -37,3 +37,18 @@ index 237f7aa17a..9f9e9a5ba5 100644
      vendor_available: true,
      recovery_available: true,
  }
+diff --git a/config/common.mk b/config/common.mk
+index 8a3592a407a9395d98e1e6c8eed430c2b0221830..76f6b0708af37d9d3b03f1937e8cb3e925c83e06 100644
+--- a/config/common.mk
++++ b/config/common.mk
+@@ -252,8 +252,10 @@ PRODUCT_ARTIFACT_PATH_REQUIREMENT_ALLOWED_LIST += \
+ endif
+ 
+ # Root
++ifneq ($(filter userdebug eng,$(TARGET_BUILD_VARIANT)),)
+ PRODUCT_PACKAGES += \
+     adb_root
++endif
+ ifneq ($(TARGET_BUILD_VARIANT),user)
+ ifeq ($(WITH_SU),true)
+ PRODUCT_PACKAGES += \
