@@ -14,6 +14,26 @@ index 6ed78245fb24e0267a833e0ac657095511b324ad..299b2c34a70b0f88428fe06e646f65af
  # SELinux policy
  BOARD_VENDOR_SEPOLICY_DIRS += $(DEVICE_PATH)/sepolicy/vendor
  SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS += $(DEVICE_PATH)/sepolicy/private
+diff --git a/calculator/Android.bp b/calculator/Android.bp
+new file mode 100644
+index 0000000000000000000000000000000000000000..c8e9d7ef01fbd16d22b3a313f16dbb4baec3aea5
+--- /dev/null
++++ b/calculator/Android.bp
+@@ -0,0 +1,14 @@
++// SPDX-License-Identifier: Apache-2.0
++
++android_app_import {
++    name: "MIUICalculator",
++    apk: "//vendor/xiaomi/athens:athens_miui_calculator_apk",
++    optional_uses_libs: ["androidx.window.extensions", "androidx.window.sidecar"],
++    overrides: ["CalculatorGooglePrebuilt_85006267", "ExactCalculator"],
++    product_specific: true,
++    presigned: true,
++    preprocessed: true,
++    dex_preopt: {
++        enabled: false,
++    },
++}
 diff --git a/compat/aptx_adaptive/Android.bp b/compat/aptx_adaptive/Android.bp
 new file mode 100644
 index 0000000000000000000000000000000000000000..d3e6fc3e83f75a216dddcddeee59fba116829f41
@@ -672,13 +692,17 @@ index c647be91e8f3c212f085662d8d28e4749c5a96ac..fbe721f68333845856f173454192507d
 +    mkdir /data/vendor/camera/watermarks 0750 system system
 +    restorecon_recursive /data/vendor/camera/watermarks
 diff --git a/custom_athens.mk b/custom_athens.mk
-index 9c8a230b57b36fcfd49167557cffd18c8954a12e..0c5817f2ca9d0e850968ff9d5da8b714087730af 100644
+index 9c8a230b57b36fcfd49167557cffd18c8954a12e..7740531487d234d7ed0608eb4d2a2e8372279a6a 100644
 --- a/custom_athens.mk
 +++ b/custom_athens.mk
-@@ -16,6 +16,21 @@ $(call inherit-product, vendor/custom/config/common_full_phone.mk)
+@@ -16,6 +16,25 @@ $(call inherit-product, vendor/custom/config/common_full_phone.mk)
  
  $(call inherit-product, device/xiaomi/athens/device.mk)
  
++PRODUCT_PACKAGES += \
++    MIUICalculator \
++    UPTsmService
++
 +# Use the 406 Qualcomm Adaptive bridge by default.
 +ifeq ($(or $(ATHENS_APTX_ADAPTIVE_TEST_BUILD),true),true)
 +$(call soong_config_set_bool,athens_bluetooth,aptx_adaptive,true)
@@ -827,8 +851,45 @@ index 0000000000000000000000000000000000000000..fdb528481b7fdb5acd7e3fecb2a60839
 +    <!-- Stock SDR-to-HBM transition: 850 nits on the Athens panel calibration. -->
 +    <item name="config_appWindowBrightnessOverrideCap" format="float" type="dimen">0.411976560</item>
 +</resources>
+diff --git a/payments/Android.mk b/payments/Android.mk
+new file mode 100644
+index 0000000000000000000000000000000000000000..541255ba93bd41f60d070d8e1d4ef278dc421c20
+--- /dev/null
++++ b/payments/Android.mk
+@@ -0,0 +1,31 @@
++# SPDX-License-Identifier: Apache-2.0
++
++LOCAL_PATH := $(call my-dir)
++
++include $(CLEAR_VARS)
++LOCAL_MODULE := UPTsmService
++LOCAL_MODULE_CLASS := APPS
++LOCAL_MODULE_SUFFIX := $(COMMON_ANDROID_PACKAGE_SUFFIX)
++LOCAL_PRODUCT_MODULE := true
++LOCAL_MULTILIB := 64
++LOCAL_CERTIFICATE := PRESIGNED
++LOCAL_DEX_PREOPT := false
++LOCAL_OPTIONAL_USES_LIBRARIES := org.apache.http.legacy
++
++athens_uptsm_dir := vendor/xiaomi/athens/proprietary/product/app/UPTsmService
++LOCAL_PREBUILT_MODULE_FILE := $(athens_uptsm_dir)/UPTsmService.apk
++# Preserve the APK's v2 signature and install its compressed JNI separately, as on stock.
++LOCAL_REPLACE_PREBUILT_APK_INSTALLED := $(LOCAL_PREBUILT_MODULE_FILE)
++LOCAL_PREBUILT_JNI_LIBS_arm64 := $(addprefix ../../../../$(athens_uptsm_dir)/lib/arm64/, \
++    libDeepNetV2.so \
++    libcwlive.so \
++    libenlic.so \
++    libentryexpro.so \
++    libupbio_net.so \
++    libupliveness.so \
++    libuptsmaddonmi.so \
++    libuptsmservice.so \
++    libxdjacrypto.so)
++include $(BUILD_PREBUILT)
++
++athens_uptsm_dir :=
 diff --git a/proprietary-files.txt b/proprietary-files.txt
-index 27bc631e0d3bd7afca925fc78c1d4e64f01cfac9..98a18ef5406ced7fdb11a98abdf2e768f6db6c63 100644
+index 27bc631e0d3bd7afca925fc78c1d4e64f01cfac9..7d59c25207eb274f7babdc99384cac88865d5dda 100644
 --- a/proprietary-files.txt
 +++ b/proprietary-files.txt
 @@ -864,6 +864,14 @@ odm/lib64/camera/plugins/com.xiaomi.plugin.watermark.so
@@ -846,10 +907,25 @@ index 27bc631e0d3bd7afca925fc78c1d4e64f01cfac9..98a18ef5406ced7fdb11a98abdf2e768
  # Camera algorithms missing at bring-up (the video and 200MP graphs need them)
  odm/lib64/camera/dynamicplugins/com.xiaomi.plugin.depurple.so
  odm/lib64/camera/plugins/com.xiaomi.plugin.deflicker2.so
-@@ -1878,6 +1886,9 @@ odm/lib64/libtical.so
+@@ -1878,6 +1886,24 @@ odm/lib64/libtical.so
  # SIA91xx speaker amp firmware required at kernel driver probe.
  odm/firmware/sipa.bin
  
++# HyperOS 406 Calculator
++product/data-app/MIUICalculator/MIUICalculator.apk;EXTRACT_ONLY;FILEGROUP=athens_miui_calculator_apk|30f71f7f58747a313c89b9587b8543399e01a85e
++
++# UnionPay trusted service and its app-private JNI libraries.
++product/app/UPTsmService/UPTsmService.apk;EXTRACT_ONLY
++product/app/UPTsmService/lib/arm64/libDeepNetV2.so;EXTRACT_ONLY
++product/app/UPTsmService/lib/arm64/libcwlive.so;EXTRACT_ONLY
++product/app/UPTsmService/lib/arm64/libenlic.so;EXTRACT_ONLY
++product/app/UPTsmService/lib/arm64/libentryexpro.so;EXTRACT_ONLY
++product/app/UPTsmService/lib/arm64/libupbio_net.so;EXTRACT_ONLY
++product/app/UPTsmService/lib/arm64/libupliveness.so;EXTRACT_ONLY
++product/app/UPTsmService/lib/arm64/libuptsmaddonmi.so;EXTRACT_ONLY
++product/app/UPTsmService/lib/arm64/libuptsmservice.so;EXTRACT_ONLY
++product/app/UPTsmService/lib/arm64/libxdjacrypto.so;EXTRACT_ONLY
++
 +# Original Bluetooth audio IPC for the opt-in Adaptive bridge.
 +vendor/lib64/btaudio_offload_if.so:vendor/lib64/btaudio_offload_if_stock.so;EXTRACT_ONLY;FILEGROUP=athens_btaudio_offload_if_stock;FIX_SONAME
 +
