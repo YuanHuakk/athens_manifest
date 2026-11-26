@@ -326,6 +326,20 @@ index f7eb2078112af6a4d89d9940dff68b5092ce8d28..cb5698e1afbdebc5d69889b546cf04d6
 -    utils.run()
 \ No newline at end of file
 +    utils.run()
+diff --git a/parts/res/values-zh-rCN/strings.xml b/parts/res/values-zh-rCN/strings.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..33358fafc6808bf4868e4dfed41ee7d7c9fa3db4
+--- /dev/null
++++ b/parts/res/values-zh-rCN/strings.xml
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<resources>
++    <string name="app_name">小米设备设置</string>
++    <string name="touch_title">触控采样率</string>
++    <string name="touch_high_sampling_rate_title">高触控采样率</string>
++    <string name="touch_high_sampling_rate_footer">提高触摸屏的采样率</string>
++</resources>
 diff --git a/proprietary-files.txt b/proprietary-files.txt
 index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..b14d3db02fa6537b82c35fba62ae8c5a71aa58fb 100644
 --- a/proprietary-files.txt

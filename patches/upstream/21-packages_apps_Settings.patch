@@ -223,3 +223,56 @@ index 0000000000000000000000000000000000000000..cdcb09afb96ed3c01f2219ee0185b35f
 +        return R.string.menu_key_sound;
 +    }
 +}
+diff --git a/res/values-zh-rCN/athens_settings_strings.xml b/res/values-zh-rCN/athens_settings_strings.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..490946f6b7940104c421dda6fdfb6fd1281475ec
+--- /dev/null
++++ b/res/values-zh-rCN/athens_settings_strings.xml
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
++    <string name="personal_context_title">个人情境管理器</string>
++    <string name="platform_compat_target_sdk_title">目标 SDK 版本为 <xliff:g id="number" example="29">%d</xliff:g> 或更高时启用</string>
++</resources>
+diff --git a/res/xml/bluetooth_development_settings.xml b/res/xml/bluetooth_development_settings.xml
+index 7e700f2946db27abaf5a768def9f16e5fcb23e9c..3fc356418d6d508bed96357963bf17ffd60ef564 100644
+--- a/res/xml/bluetooth_development_settings.xml
++++ b/res/xml/bluetooth_development_settings.xml
+@@ -69,7 +69,7 @@
+ 
+     <PreferenceCategory
+         android:key="bluetooth_general_category"
+-        android:title="General"
++        android:title="@string/general_category_title"
+         android:order="200">
+ 
+         <SwitchPreferenceCompat
+@@ -99,7 +99,7 @@
+ 
+     <PreferenceCategory
+         android:key="bluetooth_audio_category"
+-        android:title="Audio"
++        android:title="@string/audio_category_title"
+         android:order="300">
+ 
+         <ListPreference
+diff --git a/res/xml/ethernet_interface_details.xml b/res/xml/ethernet_interface_details.xml
+index 1bf2e2a96d330bf104d13d713871a9cd9c18a778..74c016c77ba11cafd81a893fee4de4fdfdfa1d71 100644
+--- a/res/xml/ethernet_interface_details.xml
++++ b/res/xml/ethernet_interface_details.xml
+@@ -42,12 +42,12 @@
+                settings:enableCopying="true"/>
+         <Preference
+                android:key="ethernet_gateway"
+-               android:title="Gateway"
++               android:title="@string/ethernet_gateway"
+                android:selectable="false"
+                settings:enableCopying="true"/>
+        <Preference
+                android:key="ethernet_dns"
+-               android:title="DNS"
++               android:title="@string/wifi_details_dns"
+                android:selectable="false"
+                settings:enableCopying="true"/>
+        <Preference
