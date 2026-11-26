@@ -1976,7 +1976,7 @@ index 0000000000000000000000000000000000000000..8f8da4c525fe303ba339b0e0e845d3aa
 +app/res/youqu.android.todesk.png — parules
 +app/res/zb.s20190614095159591.png — inprivateme
 diff --git a/packages/SystemUI/multivalentTests/src/com/android/systemui/statusbar/StatusBarIconViewTest.java b/packages/SystemUI/multivalentTests/src/com/android/systemui/statusbar/StatusBarIconViewTest.java
-index 199e6038c16298dcb89cc1ed3def82c69f406c42..4dfcc804ef05e969fcf945abe088aa65a6f33654 100644
+index 199e6038c16298dcb89cc1ed3def82c69f406c42..84081c3306e102ffedf31b7946d4528c4dbe4c79 100644
 --- a/packages/SystemUI/multivalentTests/src/com/android/systemui/statusbar/StatusBarIconViewTest.java
 +++ b/packages/SystemUI/multivalentTests/src/com/android/systemui/statusbar/StatusBarIconViewTest.java
 @@ -40,10 +40,13 @@ import android.content.pm.PackageManager;
@@ -2001,7 +2001,7 @@ index 199e6038c16298dcb89cc1ed3def82c69f406c42..4dfcc804ef05e969fcf945abe088aa65
  
  import org.junit.Before;
  import org.junit.Rule;
-@@ -106,6 +110,86 @@ public class StatusBarIconViewTest extends SysuiTestCase {
+@@ -106,6 +110,118 @@ public class StatusBarIconViewTest extends SysuiTestCase {
                  StatusBarIcon.Type.SystemIcon);
      }
  
@@ -2083,6 +2083,38 @@ index 199e6038c16298dcb89cc1ed3def82c69f406c42..4dfcc804ef05e969fcf945abe088aa65
 +        icon.setBounds(0, 0, 16, 16);
 +        icon.draw(new Canvas(bitmap));
 +        return bitmap.getPixel(8, 8);
++    }
++
++    @Test
++    public void testOnlySystemMarkedMiPushRecordsCanReplaceTargetLauncherIcon() {
++        final String target = "com.example.target";
++        final StatusBarNotification notification = getMockSbn();
++        when(notification.getPackageName()).thenReturn(target);
++        when(notification.getOpPkg()).thenReturn("com.xiaomi.xmsf");
++        final ApplicationInfo app = new ApplicationInfo();
++        app.packageName = target;
++        app.icon = 0x7f010001;
++        app.logo = 0x7f010002;
++        final Context packageContext = mock(Context.class);
++        when(packageContext.getApplicationInfo()).thenReturn(app);
++
++        final StatusBarIcon icon = new StatusBarIcon(UserHandle.SYSTEM, target,
++                Icon.createWithResource(target, app.icon), 0, 0, "",
++                StatusBarIcon.Type.NotifSmallIcon);
++        assertFalse(StatusBarIconView.isMiPushAppIcon(packageContext, notification, icon));
++        when(notification.getTag()).thenReturn("com.android.server.notification.MiPushForwarded");
++        assertTrue(StatusBarIconView.isMiPushAppIcon(packageContext, notification, icon));
++
++        icon.icon = Icon.createWithResource(target, app.logo);
++        assertTrue(StatusBarIconView.isMiPushAppIcon(packageContext, notification, icon));
++        icon.icon = Icon.createWithResource(target, 0x7f010003);
++        assertFalse(StatusBarIconView.isMiPushAppIcon(packageContext, notification, icon));
++        icon.icon = Icon.createWithResource("com.example.other", app.icon);
++        assertFalse(StatusBarIconView.isMiPushAppIcon(packageContext, notification, icon));
++
++        icon.icon = Icon.createWithResource(target, app.icon);
++        when(notification.getOpPkg()).thenReturn(target);
++        assertFalse(StatusBarIconView.isMiPushAppIcon(packageContext, notification, icon));
 +    }
 +
      @Test
@@ -41765,13 +41797,14 @@ index 0000000000000000000000000000000000000000..3ba440daafff52405af004bcd796fc12
 +    <icon package="zb.s20190614095159591" android:icon="@drawable/anip_zb_s20190614095159591" />
 +</notification-small-icons>
 diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/StatusBarIconView.java b/packages/SystemUI/src/com/android/systemui/statusbar/StatusBarIconView.java
-index cbf26cf754221ba81066b50bd279dd61259f6d8c..f0026c690e5c73c049931c0caf2ef785512420fe 100644
+index cbf26cf754221ba81066b50bd279dd61259f6d8c..0db9bf25c5f97c8410d23d5e560dc26c26d43cb4 100644
 --- a/packages/SystemUI/src/com/android/systemui/statusbar/StatusBarIconView.java
 +++ b/packages/SystemUI/src/com/android/systemui/statusbar/StatusBarIconView.java
-@@ -26,17 +26,22 @@ import android.annotation.IntDef;
+@@ -26,17 +26,23 @@ import android.annotation.IntDef;
  import android.app.Notification;
  import android.content.Context;
  import android.content.pm.ActivityInfo;
++import android.content.pm.ApplicationInfo;
 +import android.content.pm.PackageManager;
  import android.content.res.ColorStateList;
  import android.content.res.Configuration;
@@ -41791,7 +41824,7 @@ index cbf26cf754221ba81066b50bd279dd61259f6d8c..f0026c690e5c73c049931c0caf2ef785
  import android.os.Trace;
  import android.os.UserHandle;
  import android.service.notification.StatusBarNotification;
-@@ -65,6 +70,7 @@ import com.android.systemui.statusbar.notification.NotificationContentDescriptio
+@@ -65,6 +71,7 @@ import com.android.systemui.statusbar.notification.NotificationContentDescriptio
  import com.android.systemui.statusbar.notification.NotificationDozeHelper;
  import com.android.systemui.statusbar.notification.NotificationUtils;
  import com.android.systemui.statusbar.notification.collection.BundleEntry;
@@ -41799,7 +41832,16 @@ index cbf26cf754221ba81066b50bd279dd61259f6d8c..f0026c690e5c73c049931c0caf2ef785
  import com.android.systemui.util.drawable.DrawableSize;
  
  import java.lang.annotation.Retention;
-@@ -485,6 +491,9 @@ public class StatusBarIconView extends AnimatedImageView implements StatusIconDi
+@@ -94,6 +101,8 @@ public class StatusBarIconView extends AnimatedImageView implements StatusIconDi
+     public static final int STATE_ICON = 0;
+     public static final int STATE_DOT = 1;
+     public static final int STATE_HIDDEN = 2;
++    private static final String MIPUSH_BROKER = "com.xiaomi.xmsf";
++    private static final String MIPUSH_FORWARDED_TAG = "com.android.server.notification.MiPushForwarded";
+ 
+     @Retention(RetentionPolicy.SOURCE)
+     @IntDef({STATE_ICON, STATE_DOT, STATE_HIDDEN})
+@@ -485,6 +494,9 @@ public class StatusBarIconView extends AnimatedImageView implements StatusIconDi
      private Drawable getIcon(Context sysuiContext,
              Context context, StatusBarIcon statusBarIcon) {
          Drawable icon = loadDrawable(context, statusBarIcon);
@@ -41809,19 +41851,21 @@ index cbf26cf754221ba81066b50bd279dd61259f6d8c..f0026c690e5c73c049931c0caf2ef785
  
          TypedValue typedValue = new TypedValue();
          sysuiContext.getResources().getValue(R.dimen.status_bar_icon_scale_factor,
-@@ -509,6 +518,73 @@ public class StatusBarIconView extends AnimatedImageView implements StatusIconDi
+@@ -509,6 +521,91 @@ public class StatusBarIconView extends AnimatedImageView implements StatusIconDi
          return new ScalingDrawableWrapper(icon, scaleFactor);
      }
  
 +    private Drawable normalizeNotificationSmallIcon(Context sysuiContext, Context packageContext,
 +            StatusBarIcon statusBarIcon, @Nullable Drawable drawable) {
 +        final String packageName = statusBarIcon.pkg;
-+        if (drawable instanceof AdaptiveIconDrawable adaptive) {
-+            final Drawable monochrome = adaptive.getMonochrome();
-+            drawable = monochrome != null ? monochrome : adaptive.getForeground();
-+        }
-+        if (drawable != null && hasNotificationIconContour(drawable)) {
-+            return drawable;
++        if (!isMiPushAppIcon(packageContext, mNotification, statusBarIcon)) {
++            if (drawable instanceof AdaptiveIconDrawable adaptive) {
++                final Drawable monochrome = adaptive.getMonochrome();
++                drawable = monochrome != null ? monochrome : adaptive.getForeground();
++            }
++            if (drawable != null && hasNotificationIconContour(drawable)) {
++                return drawable;
++            }
 +        }
 +
 +        final Drawable libraryIcon = NotificationSmallIconLibrary.getDrawable(
@@ -41843,6 +41887,22 @@ index cbf26cf754221ba81066b50bd279dd61259f6d8c..f0026c690e5c73c049931c0caf2ef785
 +            // A notification can outlive its posting app during package removal.
 +        }
 +        return sysuiContext.getDrawable(R.drawable.ic_notification_small_fallback);
++    }
++
++    @VisibleForTesting
++    static boolean isMiPushAppIcon(Context packageContext,
++            @Nullable StatusBarNotification notification, StatusBarIcon statusBarIcon) {
++        final String target = statusBarIcon.pkg;
++        final Icon icon = statusBarIcon.icon;
++        if (notification == null || !MIPUSH_FORWARDED_TAG.equals(notification.getTag())
++                || !MIPUSH_BROKER.equals(notification.getOpPkg()) || MIPUSH_BROKER.equals(target)
++                || !target.equals(notification.getPackageName()) || icon == null
++                || icon.getType() != Icon.TYPE_RESOURCE || !target.equals(icon.getResPackage())) {
++            return false;
++        }
++        final ApplicationInfo app = packageContext.getApplicationInfo();
++        final int resId = icon.getResId();
++        return target.equals(app.packageName) && resId != 0 && (resId == app.icon || resId == app.logo);
 +    }
 +
 +    @VisibleForTesting
