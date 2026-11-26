@@ -659,14 +659,23 @@ index 0000000000000000000000000000000000000000..3e2d8478b5a42edbc528089b2b150215
 +            method="registerService" mandatory="false" />
 +</libraries>
 diff --git a/custom_athens.mk b/custom_athens.mk
-index 9c8a230b57b36fcfd49167557cffd18c8954a12e..cb65d4be0a4214e5f9ce93298f112ae926cb1744 100644
+index 9c8a230b57b36fcfd49167557cffd18c8954a12e..3a0d9f96b216c5df6c6a933b76a1da7ee7751cf4 100644
 --- a/custom_athens.mk
 +++ b/custom_athens.mk
-@@ -16,6 +16,21 @@ $(call inherit-product, vendor/custom/config/common_full_phone.mk)
+@@ -8,6 +8,8 @@
+ TARGET_SCREEN_WIDTH := 1156
+ TARGET_SCREEN_HEIGHT := 2510
+ 
++ATHENS_APTX_ADAPTIVE_TEST_BUILD ?= true
++
+ # Product configuration
+ $(call inherit-product, $(SRC_TARGET_DIR)/product/core_64_bit_only.mk)
+ $(call inherit-product, $(SRC_TARGET_DIR)/product/full_base_telephony.mk)
+@@ -16,6 +18,21 @@ $(call inherit-product, vendor/custom/config/common_full_phone.mk)
  
  $(call inherit-product, device/xiaomi/athens/device.mk)
  
-+# Use the 406 Qualcomm Adaptive bridge in opt-in validation builds.
++# Install the 406 Qualcomm Adaptive offload stack.
 +ifeq ($(ATHENS_APTX_ADAPTIVE_TEST_BUILD),true)
 +$(call soong_config_set_bool,athens_bluetooth,aptx_adaptive,true)
 +PRODUCT_PACKAGES += \
