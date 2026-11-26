@@ -549,10 +549,26 @@ index 784b43a47ef318ebbd15c55ab9a1de214a4afdb3..9b25011f854e13f624ac59dddbe626df
          sceneInteractor = { sceneInteractor },
      )
 diff --git a/core/java/android/hardware/display/DisplayManagerInternal.java b/core/java/android/hardware/display/DisplayManagerInternal.java
-index 8ae295dd72274919bb2f86f1c2ba6cbd4ace8318..a57b3ae60211847ac19adc04781beecca8b8bf62 100644
+index 8ae295dd72274919bb2f86f1c2ba6cbd4ace8318..c8d75b6140709e60f69f099de4e9f19d9c49005e 100644
 --- a/core/java/android/hardware/display/DisplayManagerInternal.java
 +++ b/core/java/android/hardware/display/DisplayManagerInternal.java
-@@ -592,6 +592,9 @@ public abstract class DisplayManagerInternal {
+@@ -161,6 +161,15 @@ public abstract class DisplayManagerInternal {
+      */
+     public abstract DisplayInfo getDisplayInfo(int displayId);
+ 
++    /** A snapshot of paired panel luminance and normalized brightness. */
++    public record BrightnessToNitsMapping(float[] nits, float[] brightness) {}
++
++    /** Returns the configured panel mapping, or null when it is unavailable. */
++    @Nullable
++    public BrightnessToNitsMapping getBrightnessToNitsMapping(int displayId) {
++        return null;
++    }
++
+     /**
+      * Returns information about all the logical displays. In case there is an ongoing mode update
+      * process it returns the cached info for that display.
+@@ -592,6 +601,9 @@ public abstract class DisplayManagerInternal {
          // Set to PowerManager.BRIGHTNESS_INVALID if there's no override.
          public float brightness = PowerManager.BRIGHTNESS_INVALID_FLOAT;
  
@@ -42898,3 +42914,448 @@ index e173619dd6fcf37c96ad07cef13377bbb56f6f1e..169905326187cc86be567622e0797b45
      @Test
      public void testCreateChannel_defaultChannelId() throws Exception {
          try {
+diff --git a/services/core/java/com/android/server/app/AthensGameHdrController.java b/services/core/java/com/android/server/app/AthensGameHdrController.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..6b6150d99f522ac6551c4f87a0d285a49f6d8c46
+--- /dev/null
++++ b/services/core/java/com/android/server/app/AthensGameHdrController.java
+@@ -0,0 +1,400 @@
++/*
++ * Copyright (C) 2026 The Android Open Source Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.server.app;
++
++import static android.app.WindowConfiguration.WINDOWING_MODE_FULLSCREEN;
++import static android.hardware.display.DisplayManager.EVENT_TYPE_DISPLAY_ADDED;
++import static android.hardware.display.DisplayManager.EVENT_TYPE_DISPLAY_CHANGED;
++import static android.hardware.display.DisplayManager.EVENT_TYPE_DISPLAY_REFRESH_RATE;
++import static android.hardware.display.DisplayManager.EVENT_TYPE_DISPLAY_REMOVED;
++import static android.hardware.display.DisplayManager.EVENT_TYPE_DISPLAY_STATE;
++import static android.view.Display.DEFAULT_DISPLAY;
++
++import android.app.ActivityManager;
++import android.app.ActivityTaskManager;
++import android.app.KeyguardManager;
++import android.app.TaskStackListener;
++import android.content.BroadcastReceiver;
++import android.content.Context;
++import android.content.Intent;
++import android.content.IntentFilter;
++import android.database.ContentObserver;
++import android.hardware.display.DisplayManager;
++import android.hardware.display.DisplayManagerInternal;
++import android.hardware.display.DisplayManagerInternal.BrightnessToNitsMapping;
++import android.os.Build;
++import android.os.Handler;
++import android.os.IBinder;
++import android.os.Parcel;
++import android.os.PowerManager;
++import android.os.RemoteException;
++import android.os.ServiceManager;
++import android.os.UserHandle;
++import android.provider.Settings;
++import android.util.ArrayMap;
++import android.util.Slog;
++import android.util.Xml;
++import android.view.Display;
++
++import com.android.server.LocalServices;
++
++import org.json.JSONArray;
++import org.json.JSONException;
++import org.json.JSONObject;
++import org.xmlpull.v1.XmlPullParser;
++import org.xmlpull.v1.XmlPullParserException;
++
++import java.io.FileInputStream;
++import java.io.IOException;
++import java.util.Map;
++import java.util.regex.Pattern;
++
++/** Applies the Athens stock Game HDR profiles when enabled by the foreground user. */
++final class AthensGameHdrController {
++    private static final String TAG = "AthensGameHdr";
++    private static final String SETTING = "gamespace_athens_game_hdr";
++    private static final String PROFILE_PATH = "/odm/etc/display/ui_service_cloud_config.xml";
++    private static final String FRAME_MASTER_DESCRIPTOR =
++            "vendor.xiaomi.hardware.framemaster.IFrameMaster";
++    private static final String FRAME_MASTER_SERVICE = FRAME_MASTER_DESCRIPTOR + "/default";
++    // IFrameMaster v1 setParameter is the first transaction in the stock 406 interface.
++    private static final int SET_PARAMETER_TRANSACTION = IBinder.FIRST_CALL_TRANSACTION;
++    private static final int GAME_HDR_CASE_ID = 0;
++    private static final int NOTIFY_NITS_BRIGHTNESS_ARRAY_TRANSACTION =
++            IBinder.FIRST_CALL_TRANSACTION + 5;
++    private static final long TRANSITION_DELAY_MS = 400;
++    private static final long RESET_RETRY_MS = 1000;
++    private static final int MAX_RESET_RETRIES = 3;
++    private static final Pattern PACKAGE_NAME =
++            Pattern.compile("[a-zA-Z][a-zA-Z0-9_]*(?:\\.[a-zA-Z][a-zA-Z0-9_]*)+");
++    private static final Pattern PROFILE =
++            Pattern.compile("LightPlus:1,LightPlusMode:0x[0-9a-fA-F]+"
++                    + "(?:,SDR2HDR:1,SDR2HDRMode:0x[0-9a-fA-F]+)?");
++
++    private final Context mContext;
++    private final Handler mHandler;
++    private final DisplayManager mDisplayManager;
++    private final PowerManager mPowerManager;
++    private final KeyguardManager mKeyguardManager;
++    private final Map<String, String> mProfiles;
++    private final Runnable mUpdate = this::update;
++    private final Runnable mEnable = this::enableIfCurrent;
++    private GameHdrRequest mPendingRequest;
++    private GameHdrRequest mActiveRequest;
++    private int mResetRetries;
++
++    private record GameHdrRequest(int userId, String packageName, String profile, int refreshRate) {
++        String disableProfile() {
++            return profile.contains(",SDR2HDR:1,") ? "LightPlus:0,SDR2HDR:0" : "LightPlus:0";
++        }
++    }
++
++    static void start(Context context, Handler handler) {
++        if (!"athens".equals(Build.DEVICE)) {
++            return;
++        }
++        handler.post(() -> {
++            try {
++                final Map<String, String> profiles = readStockProfiles();
++                if (!profiles.isEmpty()) {
++                    new AthensGameHdrController(context, handler, profiles).register();
++                }
++            } catch (IOException | XmlPullParserException | JSONException | RuntimeException e) {
++                Slog.w(TAG, "Cannot load the Game HDR profiles", e);
++            }
++        });
++    }
++
++    private AthensGameHdrController(Context context, Handler handler, Map<String, String> profiles) {
++        mContext = context;
++        mHandler = handler;
++        mProfiles = profiles;
++        mDisplayManager = context.getSystemService(DisplayManager.class);
++        mPowerManager = context.getSystemService(PowerManager.class);
++        mKeyguardManager = context.getSystemService(KeyguardManager.class);
++    }
++
++    private void register() {
++        mPowerManager.addThermalStatusListener(mHandler::post, status -> update());
++        ActivityTaskManager.getInstance().registerTaskStackListener(new TaskStackListener() {
++            @Override
++            public void onTaskStackChanged() {
++                mHandler.post(mUpdate);
++            }
++
++            @Override
++            public void onTaskFocusChanged(int taskId, boolean focused) {
++                mHandler.post(mUpdate);
++            }
++        });
++        mDisplayManager.registerDisplayListener(new DisplayManager.DisplayListener() {
++            @Override
++            public void onDisplayAdded(int displayId) {
++                if (displayId == DEFAULT_DISPLAY) {
++                    update();
++                }
++            }
++
++            @Override
++            public void onDisplayRemoved(int displayId) {
++                if (displayId == DEFAULT_DISPLAY) {
++                    update();
++                }
++            }
++
++            @Override
++            public void onDisplayChanged(int displayId) {
++                if (displayId == DEFAULT_DISPLAY) {
++                    update();
++                }
++            }
++        }, mHandler, EVENT_TYPE_DISPLAY_ADDED | EVENT_TYPE_DISPLAY_REMOVED
++                | EVENT_TYPE_DISPLAY_CHANGED | EVENT_TYPE_DISPLAY_REFRESH_RATE
++                | EVENT_TYPE_DISPLAY_STATE);
++        IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_OFF);
++        filter.addAction(Intent.ACTION_SCREEN_ON);
++        filter.addAction(Intent.ACTION_USER_PRESENT);
++        filter.addAction(Intent.ACTION_USER_SWITCHED);
++        filter.addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED);
++        mContext.registerReceiver(new BroadcastReceiver() {
++            @Override
++            public void onReceive(Context context, Intent intent) {
++                update();
++            }
++        }, filter, null, mHandler, Context.RECEIVER_NOT_EXPORTED);
++        final ContentObserver settingsObserver = new ContentObserver(mHandler) {
++            @Override
++            public void onChange(boolean selfChange) {
++                update();
++            }
++        };
++        mContext.getContentResolver().registerContentObserver(Settings.Secure.getUriFor(SETTING),
++                false, settingsObserver, UserHandle.USER_ALL);
++        update();
++    }
++
++    private void update() {
++        final GameHdrRequest request =
++                getEligibleRequest(mDisplayManager.getDisplay(DEFAULT_DISPLAY));
++        if (request != null && (request.equals(mPendingRequest)
++                || (request.equals(mActiveRequest) && mResetRetries == 0))) {
++            return;
++        }
++
++        mHandler.removeCallbacks(mUpdate);
++        mHandler.removeCallbacks(mEnable);
++        mPendingRequest = null;
++        if (mActiveRequest != null && !reset()) {
++            if (mResetRetries < MAX_RESET_RETRIES) {
++                mResetRetries++;
++                mHandler.postDelayed(mUpdate, RESET_RETRY_MS);
++            }
++            return;
++        }
++
++        if (request != null) {
++            mPendingRequest = request;
++            mHandler.postDelayed(mEnable, TRANSITION_DELAY_MS);
++        }
++    }
++
++    private void enableIfCurrent() {
++        final GameHdrRequest request = mPendingRequest;
++        mPendingRequest = null;
++        if (request == null || mActiveRequest != null) {
++            return;
++        }
++        if (!request.equals(getEligibleRequest(mDisplayManager.getDisplay(DEFAULT_DISPLAY)))) {
++            update();
++            return;
++        }
++        if (setParameter(true, request.refreshRate(), request.profile())) {
++            mActiveRequest = request;
++        }
++    }
++
++    private boolean reset() {
++        final GameHdrRequest request = mActiveRequest;
++        // Clear the same FrameMaster refresh key used to enable the previous session.
++        if (!setParameter(false, request.refreshRate(), request.disableProfile())) {
++            return false;
++        }
++        mActiveRequest = null;
++        mResetRetries = 0;
++        return true;
++    }
++
++    private GameHdrRequest getEligibleRequest(Display display) {
++        try {
++            if (display == null) {
++                return null;
++            }
++            // This is the active physical mode. Per-app render-rate overrides do not qualify.
++            final Display.Mode mode = display.getMode();
++            final int refreshRate = mode == null || mode.isSynthetic()
++                    ? 0 : Math.round(mode.getRefreshRate());
++            if (refreshRate != 60 && refreshRate != 120) {
++                return null;
++            }
++            final ActivityTaskManager.RootTaskInfo task = getEligibleTask(display);
++            if (task == null || Settings.Secure.getIntForUser(mContext.getContentResolver(),
++                    SETTING, 0, task.userId) != 1) {
++                return null;
++            }
++            final String packageName = task.topActivity.getPackageName();
++            final String profile = mProfiles.get(packageName);
++            return profile == null ? null
++                    : new GameHdrRequest(task.userId, packageName, profile, refreshRate);
++        } catch (RuntimeException e) {
++            Slog.w(TAG, "Cannot evaluate the Game HDR session", e);
++            return null;
++        }
++    }
++
++    private ActivityTaskManager.RootTaskInfo getEligibleTask(Display display) {
++        try {
++            if (display.getState() != Display.STATE_ON || !mPowerManager.isInteractive()
++                    || mKeyguardManager.isKeyguardLocked() || mPowerManager.isPowerSaveMode()
++                    || mPowerManager.getCurrentThermalStatus()
++                            >= PowerManager.THERMAL_STATUS_MODERATE) {
++                return null;
++            }
++            ActivityTaskManager.RootTaskInfo task =
++                    ActivityTaskManager.getService().getFocusedRootTaskInfo();
++            if (task == null || task.displayId != DEFAULT_DISPLAY || task.topActivity == null
++                    || !task.isVisible || task.userId != ActivityManager.getCurrentUser()
++                    || task.configuration.windowConfiguration.getWindowingMode()
++                            != WINDOWING_MODE_FULLSCREEN) {
++                return null;
++            }
++            return task;
++        } catch (RemoteException | RuntimeException e) {
++            Slog.w(TAG, "Cannot read the foreground game", e);
++            return null;
++        }
++    }
++
++    private static boolean setParameter(boolean enabled, int refreshRate, String profile) {
++        try {
++            IBinder service = ServiceManager.checkService(FRAME_MASTER_SERVICE);
++            if (service == null || !isFrameMasterVersionOne(service)
++                    || (enabled && !sendBrightnessMapping(service))) {
++                return false;
++            }
++            Parcel data = Parcel.obtain(service);
++            try {
++                data.writeInterfaceToken(FRAME_MASTER_DESCRIPTOR);
++                data.writeInt(GAME_HDR_CASE_ID);
++                data.writeInt(enabled ? 1 : 0);
++                data.writeInt(refreshRate);
++                data.writeString("\"" + profile + "\"");
++                data.writeString("null");
++                boolean sent = service.transact(SET_PARAMETER_TRANSACTION, data, null,
++                        IBinder.FLAG_ONEWAY);
++                Slog.i(TAG, "Game HDR request enabled=" + enabled + " sent=" + sent);
++                return sent;
++            } finally {
++                data.recycle();
++            }
++        } catch (RemoteException | RuntimeException e) {
++            Slog.w(TAG, "Cannot send the Game HDR request", e);
++            return false;
++        }
++    }
++
++    private static boolean sendBrightnessMapping(IBinder service) throws RemoteException {
++        final DisplayManagerInternal displayManager =
++                LocalServices.getService(DisplayManagerInternal.class);
++        final BrightnessToNitsMapping mapping = displayManager == null ? null
++                : displayManager.getBrightnessToNitsMapping(DEFAULT_DISPLAY);
++        if (mapping == null) {
++            return false;
++        }
++        final float[] nits = mapping.nits();
++        final float[] brightness = mapping.brightness();
++        if (nits == null || brightness == null || nits.length < 2 || nits.length != brightness.length) {
++            return false;
++        }
++        for (int i = 0; i < nits.length; i++) {
++            if (!Float.isFinite(nits[i]) || nits[i] < 0f
++                    || !Float.isFinite(brightness[i]) || brightness[i] < 0f || brightness[i] > 1f
++                    || (i > 0 && (nits[i] < nits[i - 1] || brightness[i] <= brightness[i - 1]))) {
++                return false;
++            }
++        }
++        final Parcel data = Parcel.obtain(service);
++        try {
++            // FrameMaster v1 queues this mapping before the request on the same Binder.
++            data.writeInterfaceToken(FRAME_MASTER_DESCRIPTOR);
++            data.writeFloatArray(nits);
++            data.writeFloatArray(brightness);
++            return service.transact(NOTIFY_NITS_BRIGHTNESS_ARRAY_TRANSACTION, data, null,
++                    IBinder.FLAG_ONEWAY);
++        } finally {
++            data.recycle();
++        }
++    }
++
++    private static boolean isFrameMasterVersionOne(IBinder service) throws RemoteException {
++        Parcel data = Parcel.obtain(service);
++        Parcel reply = Parcel.obtain();
++        try {
++            data.writeInterfaceToken(FRAME_MASTER_DESCRIPTOR);
++            if (!service.transact(IBinder.LAST_CALL_TRANSACTION, data, reply, 0)) {
++                return false;
++            }
++            reply.readException();
++            return reply.readInt() == 1;
++        } finally {
++            reply.recycle();
++            data.recycle();
++        }
++    }
++
++    private static Map<String, String> readStockProfiles()
++            throws IOException, XmlPullParserException, JSONException {
++        try (FileInputStream stream = new FileInputStream(PROFILE_PATH)) {
++            XmlPullParser parser = Xml.newPullParser();
++            parser.setInput(stream, "UTF-8");
++            while (parser.next() != XmlPullParser.END_DOCUMENT) {
++                if (parser.getEventType() == XmlPullParser.START_TAG
++                        && "cloud-data-item".equals(parser.getName())
++                        && "gamehdr".equals(parser.getAttributeValue(null, "moduleName"))) {
++                    return readGameHdrList(parser.getAttributeValue(null, "moduleString"));
++                }
++            }
++        }
++        return Map.of();
++    }
++
++    private static Map<String, String> readGameHdrList(String value) throws JSONException {
++        JSONArray entries = new JSONObject(value).getJSONArray("mWhitePackageList");
++        Map<String, String> profiles = new ArrayMap<>();
++        if (entries.length() == 0 || !"switch on".equals(entries.getString(0))) {
++            return profiles;
++        }
++
++        for (int i = 1; i < entries.length(); i++) {
++            String[] entry = entries.getString(i).trim().split("#", -1);
++            if ((entry.length == 3 || entry.length == 4)
++                    && PACKAGE_NAME.matcher(entry[0]).matches() && PROFILE.matcher(entry[1]).matches()) {
++                profiles.putIfAbsent(entry[0], entry[1]);
++            }
++        }
++        return profiles;
++    }
++}
+diff --git a/services/core/java/com/android/server/app/GameManagerService.java b/services/core/java/com/android/server/app/GameManagerService.java
+index d6ea4d2368c8fc06f9bcd9ac9b537261aee03401..1c545e6ba7b12d4132cd0723569efc140d9f3192 100644
+--- a/services/core/java/com/android/server/app/GameManagerService.java
++++ b/services/core/java/com/android/server/app/GameManagerService.java
+@@ -991,6 +991,7 @@ public final class GameManagerService extends IGameManagerService.Stub {
+             if (phase == PHASE_BOOT_COMPLETED) {
+                 mService.onBootCompleted();
+                 mService.registerStatsCallbacks();
++                AthensGameHdrController.start(getContext(), mService.mHandler);
+             }
+         }
+ 
+diff --git a/services/core/java/com/android/server/display/DisplayManagerService.java b/services/core/java/com/android/server/display/DisplayManagerService.java
+index e2bb1996aba4653be26945c79f9c7058b2639698..ab1904f3bc40354f596be97c184e9bc99943a440 100644
+--- a/services/core/java/com/android/server/display/DisplayManagerService.java
++++ b/services/core/java/com/android/server/display/DisplayManagerService.java
+@@ -6681,6 +6681,22 @@ public final class DisplayManagerService extends SystemService {
+             return getDisplayInfoInternal(displayId, Process.myUid());
+         }
+ 
++        @Override
++        @Nullable
++        public BrightnessToNitsMapping getBrightnessToNitsMapping(int displayId) {
++            final DisplayDeviceConfig config =
++                    mDisplayDeviceConfigProvider.getDisplayDeviceConfig(displayId);
++            if (config == null) {
++                return null;
++            }
++            final float[] nits = config.getNits();
++            final float[] brightness = config.getBrightness();
++            if (nits == null || brightness == null) {
++                return null;
++            }
++            return new BrightnessToNitsMapping(nits.clone(), brightness.clone());
++        }
++
+         @Override
+         public DisplayInfos getNonOverrideDisplayInfos() {
+             return getNonOverrideDisplayInfosInternal();
