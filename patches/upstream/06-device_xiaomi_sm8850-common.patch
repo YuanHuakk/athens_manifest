@@ -243,13 +243,46 @@ index 618f7d6b831ac7336bca45d5466b592f0e31c9ad..0a435663d0a654ed59390a335124a0b7
  # Secureprocessor
  vendor.secureprocessor.service_start=1
 diff --git a/extract-files.py b/extract-files.py
-index f7eb2078112af6a4d89d9940dff68b5092ce8d28..cb5698e1afbdebc5d69889b546cf04d6511f9d20 100755
+index f7eb2078112af6a4d89d9940dff68b5092ce8d28..978ef7c54d89d982f998c824dbaf7eb1ebab5bc6 100755
 --- a/extract-files.py
 +++ b/extract-files.py
-@@ -47,7 +47,43 @@ lib_fixups: lib_fixups_user_type = {
+@@ -47,7 +47,78 @@ lib_fixups: lib_fixups_user_type = {
      ): lib_fixup_remove,
  }
  
++def fixup_qti_le_audio_paths(ctx, file, file_path, *args, **kwargs):
++    # The QTI loader and the AOSP provider have incompatible FlatBuffers layouts.
++    # Redirect the QTI loader's exact paths without moving any ELF data.
++    stock_dir = b'/vendor/etc/aidl/le_audio/'
++    qti_dir = b'/vendor/etc/aidl/bt_audio/'
++    filenames = (
++        b'aidl_audio_set_configurations.bfbs',
++        b'aidl_audio_set_configurations.json',
++        b'aidl_audio_set_scenarios.bfbs',
++        b'aidl_audio_set_scenarios.json',
++        b'aidl_default_audio_set_configurations_qti.json',
++        b'aidl_default_audio_set_scenarios_qti.json',
++        b'aidl_default_vendor_audio_set_scenarios_qti.json',
++    )
++    with open(file_path, 'rb') as stream:
++        data = stream.read()
++
++    if stock_dir not in data and data.count(qti_dir) == len(filenames) and all(
++        data.count(qti_dir + name + b'\0') == 1 for name in filenames
++    ):
++        return
++    if (
++        len(stock_dir) != len(qti_dir)
++        or qti_dir in data
++        or data.count(stock_dir) != len(filenames)
++        or any(data.count(stock_dir + name + b'\0') != 1 for name in filenames)
++    ):
++        raise ValueError('Unexpected QTI LE Audio configuration paths')
++
++    with open(file_path, 'wb') as stream:
++        stream.write(data.replace(stock_dir, qti_dir))
++
++
 +def fixup_wfd_hdcp_destructors(ctx, file, file_path, *args, **kwargs):
 +    # Register sMutex before sHDCPFactory and sDeathNotifier so it outlives
 +    # their destructors. The stock order locks an already destroyed mutex
@@ -275,6 +308,8 @@ index f7eb2078112af6a4d89d9940dff68b5092ce8d28..cb5698e1afbdebc5d69889b546cf04d6
 +
 +
  blob_fixups: blob_fixups_user_type = {
++    'vendor/lib64/libbluetooth_audio_session_aidl_qti.so': blob_fixup()
++        .call(fixup_qti_le_audio_paths),
 +    'vendor/lib64/libwfdhdcpservice_proprietary.so': blob_fixup()
 +        .call(fixup_wfd_hdcp_destructors),
 +    # init uses no-follow operations; change enable_source, not its parent symlink.
@@ -290,7 +325,7 @@ index f7eb2078112af6a4d89d9940dff68b5092ce8d28..cb5698e1afbdebc5d69889b546cf04d6
      'system_ext/etc/init/qspa_system.rc': blob_fixup()
          .regex_replace(r'\$\{ro\.boot\.vendor\.qspa:-default\}', 'default'),
      'vendor/etc/audio/sku_canoe/audio_effects_config.xml': blob_fixup()
-@@ -71,9 +107,11 @@ blob_fixups: blob_fixups_user_type = {
+@@ -71,9 +142,11 @@ blob_fixups: blob_fixups_user_type = {
          'odm/lib64/libmiXmlParser.so',
          'vendor/bin/hw/audiohalservice.qti',
          'vendor/bin/hw/vendor.qti.hardware.display.composer-service',
@@ -302,7 +337,7 @@ index f7eb2078112af6a4d89d9940dff68b5092ce8d28..cb5698e1afbdebc5d69889b546cf04d6
          'vendor/lib64/libxlog.so',
          'vendor/lib64/soundfx/libquasar.so',
      ): blob_fixup()
-@@ -124,10 +162,14 @@ blob_fixups: blob_fixups_user_type = {
+@@ -124,10 +197,14 @@ blob_fixups: blob_fixups_user_type = {
          'vendor/etc/seccomp_policy/syshealthmon.policy'
      ): blob_fixup()
          .add_line_if_missing('lseek: 1'),
@@ -319,7 +354,7 @@ index f7eb2078112af6a4d89d9940dff68b5092ce8d28..cb5698e1afbdebc5d69889b546cf04d6
          .replace_needed('android.media.audio.common.types-V4-cpp.so', 'android.media.audio.common.types-V5-cpp.so'),
      'vendor/etc/hal_uuid_map_config.xml': blob_fixup()
          .regex_replace(
-@@ -146,4 +188,4 @@ module = ExtractUtilsModule(
+@@ -146,4 +223,4 @@ module = ExtractUtilsModule(
  
  if __name__ == '__main__':
      utils = ExtractUtils.device(module)
@@ -341,7 +376,7 @@ index 0000000000000000000000000000000000000000..33358fafc6808bf4868e4dfed41ee7d7
 +    <string name="touch_high_sampling_rate_footer">提高触摸屏的采样率</string>
 +</resources>
 diff --git a/proprietary-files.txt b/proprietary-files.txt
-index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..b14d3db02fa6537b82c35fba62ae8c5a71aa58fb 100644
+index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..544e8a12ec3f5310caef2d967253d5a2537eafd3 100644
 --- a/proprietary-files.txt
 +++ b/proprietary-files.txt
 @@ -132,7 +132,7 @@ vendor/lib64/libaudioserviceexampleimpl.so;DISABLE_DEPS
@@ -380,8 +415,17 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..b14d3db02fa6537b82c35fba62ae8c5a
  vendor/lib64/hw/android.hardware.bluetooth.audio_sw.so;DISABLE_DEPS
  vendor/lib64/hw/android.hardware.bluetooth.audio-impl-qti.so
  vendor/lib64/hw/android.hardware.bluetooth.lmp_event-impl-qti.so
-@@ -287,16 +287,16 @@ vendor/lib64/vendor.qti.hardware.bttpi-V3-ndk.so
+@@ -285,18 +285,25 @@ vendor/lib64/vendor.qti.hardware.bluetooth.btavsprovider-V1-ndk.so
+ vendor/lib64/vendor.qti.hardware.bluetooth.xpanprovider-V1-ndk.so
+ vendor/lib64/vendor.qti.hardware.bttpi-V3-ndk.so
  
++# Bluetooth LE Audio QTI configuration - from Athens OS4.0.6.0.XPICNXM
++vendor/etc/aidl/le_audio/aidl_audio_set_configurations.bfbs:vendor/etc/aidl/bt_audio/aidl_audio_set_configurations.bfbs
++vendor/etc/aidl/le_audio/aidl_audio_set_scenarios.bfbs:vendor/etc/aidl/bt_audio/aidl_audio_set_scenarios.bfbs
++vendor/etc/aidl/le_audio/aidl_default_audio_set_configurations_qti.json:vendor/etc/aidl/bt_audio/aidl_default_audio_set_configurations_qti.json
++vendor/etc/aidl/le_audio/aidl_default_audio_set_scenarios_qti.json:vendor/etc/aidl/bt_audio/aidl_default_audio_set_scenarios_qti.json
++vendor/etc/aidl/le_audio/aidl_default_vendor_audio_set_scenarios_qti.json:vendor/etc/aidl/bt_audio/aidl_default_vendor_audio_set_scenarios_qti.json
++
  # Camera
  odm/etc/vintf/manifest/misensor_camera.xml
 -vendor/etc/init/vendor.qti.camera.provider-service_64.rc
@@ -405,7 +449,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..b14d3db02fa6537b82c35fba62ae8c5a
  vendor/etc/vintf/manifest/vendor.xiaomi.hardware.quickcamera.xml
  vendor/framework/androidx.camera.extensions.impl.jar
  
-@@ -347,9 +347,9 @@ odm/firmware/CAMERA_ICP.b19
+@@ -347,9 +354,9 @@ odm/firmware/CAMERA_ICP.b19
  odm/firmware/CAMERA_ICP.b20
  odm/firmware/CAMERA_ICP.mbn
  odm/firmware/CAMERA_ICP.mdt
@@ -418,7 +462,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..b14d3db02fa6537b82c35fba62ae8c5a
  
  # CDSP
  vendor/bin/cdsprpcd
-@@ -558,7 +558,7 @@ vendor/etc/displayconfig/display_id_4630947075271898515.xml
+@@ -558,7 +565,7 @@ vendor/etc/displayconfig/display_id_4630947075271898515.xml
  
  # Display (HDR)
  vendor/lib64/libhdr_tm.so
@@ -427,7 +471,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..b14d3db02fa6537b82c35fba62ae8c5a
  vendor/lib64/libhdrdynamic.so
  vendor/lib64/libhdrdynamicootf.so
  vendor/lib64/libhdrvivid.so
-@@ -696,15 +696,21 @@ vendor/lib64/vendor.xiaomi.hardware.displayfeature_aidl-V2-ndk.so
+@@ -696,15 +703,21 @@ vendor/lib64/vendor.xiaomi.hardware.displayfeature_aidl-V2-ndk.so
  
  # Dolby
  vendor/bin/hw/vendor.dolby.dms.service
@@ -454,7 +498,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..b14d3db02fa6537b82c35fba62ae8c5a
  vendor/lib64/libdapparamstorage.so
  vendor/lib64/libdeccfg.so
  vendor/lib64/libdlbdsservice.so
-@@ -724,7 +730,6 @@ system_ext/framework/dpmapi.jar
+@@ -724,7 +737,6 @@ system_ext/framework/dpmapi.jar
  vendor/bin/vendor.dpmd
  vendor/etc/dpm_vndr/vendor.dpm.conf
  vendor/etc/init/vendor.dpmd.rc
@@ -462,7 +506,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..b14d3db02fa6537b82c35fba62ae8c5a
  vendor/lib64/com.qualcomm.qti.dpm.api@1.0.so
  vendor/lib64/vendor.libdpmctmgr.so
  vendor/lib64/vendor.libdpmfdmgr.so
-@@ -762,7 +767,7 @@ vendor/lib64/libfastcrc.so
+@@ -762,7 +774,7 @@ vendor/lib64/libfastcrc.so
  vendor/etc/init/vendor.qti.fastrpc.pd-default-config.rc
  
  # Fingerprint
@@ -471,7 +515,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..b14d3db02fa6537b82c35fba62ae8c5a
  vendor/etc/permissions/qti_fingerprint_interface.xml
  vendor/lib64/vendor.xiaomi.hardware.fx.tunnel-V1-ndk.so
  vendor/lib64/vendor.qti.hardware.fingerprint-V1-ndk.so
-@@ -922,7 +927,7 @@ system_ext/lib64/lib-imsvideocodec.so
+@@ -922,7 +934,7 @@ system_ext/lib64/lib-imsvideocodec.so
  system_ext/lib64/lib-imsvt.so
  system_ext/lib64/lib-imsvtextutils.so
  system_ext/lib64/lib-imsvtutils.so
@@ -480,7 +524,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..b14d3db02fa6537b82c35fba62ae8c5a
  system_ext/lib64/libimsmedia_jni.so;SYMLINK=system_ext/priv-app/ims/lib/arm64/libimsmedia_jni.so
  system_ext/lib64/vendor.qti.ims.datachannelservice-V1-ndk.so
  system_ext/lib64/vendor.qti.ims.datachannelservice-V2-ndk.so
-@@ -1016,7 +1021,6 @@ vendor/lib64/vendor.qti.hardware.ListenSoundModelAidl-V2-ndk.so
+@@ -1016,7 +1028,6 @@ vendor/lib64/vendor.qti.hardware.ListenSoundModelAidl-V2-ndk.so
  
  # Media
  system_ext/lib64/libmmosal.so
@@ -488,7 +532,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..b14d3db02fa6537b82c35fba62ae8c5a
  vendor/bin/hw/qconfigservice
  vendor/bin/hw/vendor.qti.media.c2@1.0-service
  vendor/bin/init.qti.media.sh
-@@ -1041,6 +1045,11 @@ vendor/etc/media_codecs_canoe_v1_vendor.xml
+@@ -1041,6 +1052,11 @@ vendor/etc/media_codecs_canoe_v1_vendor.xml
  vendor/etc/media_codecs_canoe_v1.xml
  vendor/etc/media_codecs_canoe_v2_vendor.xml
  vendor/etc/media_codecs_canoe_v2.xml
@@ -500,7 +544,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..b14d3db02fa6537b82c35fba62ae8c5a
  vendor/etc/media_codecs_performance_canoe_sku1_vendor.xml
  vendor/etc/media_codecs_performance_canoe_sku1.xml
  vendor/etc/media_codecs_performance_canoe_sku2_vendor.xml
-@@ -1051,6 +1060,7 @@ vendor/etc/media_codecs_performance_canoe_v1_vendor.xml
+@@ -1051,6 +1067,7 @@ vendor/etc/media_codecs_performance_canoe_v1_vendor.xml
  vendor/etc/media_codecs_performance_canoe_v1.xml
  vendor/etc/media_codecs_performance_canoe_v2_vendor.xml
  vendor/etc/media_codecs_performance_canoe_v2.xml
@@ -508,7 +552,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..b14d3db02fa6537b82c35fba62ae8c5a
  vendor/etc/media_codecs.xml
  vendor/etc/media_profiles_canoe_sku1.xml
  vendor/etc/media_profiles_canoe_sku2.xml
-@@ -1118,33 +1128,33 @@ vendor/lib64/vendor.xiaomi.hardware.mlipay-V1-ndk.so
+@@ -1118,33 +1135,33 @@ vendor/lib64/vendor.xiaomi.hardware.mlipay-V1-ndk.so
  vendor/etc/public.libraries.txt
  
  # Neural networks
@@ -569,7 +613,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..b14d3db02fa6537b82c35fba62ae8c5a
  
  # NFC
  odm/etc/libnfc-nci.conf:vendor/etc/libnfc-nci.conf
-@@ -1243,7 +1253,6 @@ system_ext/lib64/vendor.qti.qccsyshal_aidl-V1-ndk.so
+@@ -1243,7 +1260,6 @@ system_ext/lib64/vendor.qti.qccsyshal_aidl-V1-ndk.so
  system_ext/lib64/vendor.qti.qccvndhal_aidl-V1-ndk.so
  vendor/bin/qcc-vendor
  vendor/etc/init/init.qccvendor.rc
@@ -577,7 +621,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..b14d3db02fa6537b82c35fba62ae8c5a
  vendor/lib64/libqcc_file_agent.so
  vendor/lib64/libqcc_sdk.so
  vendor/lib64/vendor.qti.qccsyshal_aidl-V1-ndk.so;MODULE_SUFFIX=_vendor
-@@ -1313,15 +1322,15 @@ vendor/lib64/libspl.so
+@@ -1313,15 +1329,15 @@ vendor/lib64/libspl.so
  vendor/lib64/vendor.qti.hardware.qseecom-V1-ndk.so
  
  # QSN
@@ -602,7 +646,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..b14d3db02fa6537b82c35fba62ae8c5a
  
  # QSPA
  system_ext/etc/init/qspa_system.rc
-@@ -1361,8 +1370,7 @@ product/framework/uimremoteclientlibrary.jar
+@@ -1361,8 +1377,7 @@ product/framework/uimremoteclientlibrary.jar
  product/framework/uimremoteserverlibrary.jar
  product/framework/uimservicelibrary.jar
  product/lib64/vendor.qti.hardware.radio.internal.deviceinfo@1.0.so
@@ -612,7 +656,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..b14d3db02fa6537b82c35fba62ae8c5a
  system_ext/etc/permissions/qcrilhook.xml
  system_ext/etc/permissions/qti_libpermissions.xml
  system_ext/etc/permissions/qti_permissions.xml
-@@ -1638,7 +1646,7 @@ vendor/lib64/vendor.qti.snapdragonServices-V2-ndk.so
+@@ -1638,7 +1653,7 @@ vendor/lib64/vendor.qti.snapdragonServices-V2-ndk.so
  vendor/lib64/vendor.qti.snapdragonServices.qape-V1-ndk.so
  
  # Soter
@@ -621,7 +665,7 @@ index 7066076acb9e8a1af5d5ad517b2286c1b4df85da..b14d3db02fa6537b82c35fba62ae8c5a
  vendor/bin/hw/vendor.qti.hardware.soter-service
  vendor/bin/vendor.qti.hardware.soter-provision
  vendor/etc/init/vendor.qti.hardware.soter-service.rc
-@@ -1761,34 +1769,36 @@ vendor/etc/wifi/wpa_supplicant_overlay.conf
+@@ -1761,34 +1776,36 @@ vendor/etc/wifi/wpa_supplicant_overlay.conf
  vendor/lib64/libWlanServiceJni.so
  
  # WiFi Display (system) - from CPH2745_11_C_OTA_1020_all_Qyq7GC_00011011
