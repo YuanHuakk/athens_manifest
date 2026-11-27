@@ -20,6 +20,10 @@
     "patch": "upstream/06-device_xiaomi_sm8850-common.patch"
   },
   {
+    "project": "device/xiaomi/sm8850-common",
+    "patch": "upstream/38-device_xiaomi_sm8850-common_parts_i18n.patch"
+  },
+  {
     "project": "external/dng_sdk",
     "patch": "upstream/07-external_dng_sdk.patch"
   },
@@ -30,6 +34,10 @@
   {
     "project": "frameworks/base",
     "patch": "upstream/09-frameworks_base.patch"
+  },
+  {
+    "project": "frameworks/base",
+    "patch": "upstream/35-frameworks_base_i18n_remaining.patch"
   },
   {
     "project": "hardware/qcom-caf/sm8850/data-ipa-cfg-mgr",
@@ -76,12 +84,20 @@
     "patch": "upstream/21-packages_apps_Settings.patch"
   },
   {
+    "project": "packages/apps/Settings",
+    "patch": "upstream/37-packages_apps_Settings_i18n_followup.patch"
+  },
+  {
     "project": "device/xiaomi/athens",
     "patch": "upstream/22-device_xiaomi_athens.patch"
   },
   {
     "project": "packages/apps/GameSpace",
     "patch": "upstream/24-packages_apps_GameSpace.patch"
+  },
+  {
+    "project": "packages/apps/GameSpace",
+    "patch": "upstream/39-packages_apps_GameSpace_i18n.patch"
   },
   {
     "project": "packages/modules/Bluetooth",
@@ -106,5 +122,9 @@
   {
     "project": "packages/apps/LineageParts",
     "patch": "upstream/31-packages_apps_LineageParts.patch"
+  },
+  {
+    "project": "packages/apps/ThemeStore",
+    "patch": "upstream/36-packages_apps_ThemeStore_i18n.patch"
   }
 ]
