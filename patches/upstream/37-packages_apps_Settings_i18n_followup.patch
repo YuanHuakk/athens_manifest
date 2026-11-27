@@ -1,0 +1,56 @@
+diff --git a/res/values-zh-rCN/arrays.xml b/res/values-zh-rCN/arrays.xml
+index ba3c3659095..408582ec4d5 100644
+--- a/res/values-zh-rCN/arrays.xml
++++ b/res/values-zh-rCN/arrays.xml
+@@ -401,6 +401,11 @@
+     <item msgid="91222619458919148">"使用随机分配的 MAC"</item>
+     <item msgid="741680937828608749">"使用设备 MAC"</item>
+   </string-array>
++  <string-array name="wifi_privacy_entries_ext">
++    <item>使用按连接随机分配的 MAC（默认）</item>
++    <item>使用按网络随机分配的 MAC</item>
++    <item>使用设备 MAC</item>
++  </string-array>
+   <string-array name="wifi_dhcp_entries">
+     <item msgid="2532836996945493932">"将设备名称发送到网络"</item>
+     <item msgid="7928900271137707489">"不要将设备名称发送到网络"</item>
+diff --git a/res/values/evolution_strings.xml b/res/values/evolution_strings.xml
+--- a/res/values/evolution_strings.xml
++++ b/res/values/evolution_strings.xml
+@@ -385,6 +385,8 @@
+     <!-- Override Mock Location restriction -->
+     <string name="override_mock_location_title">Override mock location restriction</string>
+     <string name="override_mock_location_summary">When enabled, apps cannot detect mock locations</string>
++    <string name="override_mock_location_summary_on">Mock locations are hidden from apps</string>
++    <string name="override_mock_location_summary_off">Apps can detect mock locations</string>
+ 
+     <!-- AOD Schedule -->
+     <string name="always_on_display_schedule_title">Always on display schedule</string>
+diff --git a/res/values-zh-rCN/evolution_strings.xml b/res/values-zh-rCN/evolution_strings.xml
+index 6d11e3906e5..97632839033 100644
+--- a/res/values-zh-rCN/evolution_strings.xml
++++ b/res/values-zh-rCN/evolution_strings.xml
+@@ -224,6 +224,8 @@
+     <string name="radio_info_title">无线电信息</string>
+     <string name="override_mock_location_title">屏蔽模拟位置检测</string>
+     <string name="override_mock_location_summary">启用后，应用无法检测到模拟位置</string>
++    <string name="override_mock_location_summary_on">模拟位置已对应用隐藏</string>
++    <string name="override_mock_location_summary_off">应用可以检测到模拟位置</string>
+     <string name="always_on_display_schedule_title">常亮显示时间表</string>
+     <string name="string_disabled">已关闭</string>
+     <string name="always_on_display_schedule_sunset">日落</string>
+diff --git a/res/xml/location_settings.xml b/res/xml/location_settings.xml
+index 50066e0f5e8..0d61aa0163c 100644
+--- a/res/xml/location_settings.xml
++++ b/res/xml/location_settings.xml
+@@ -58,8 +58,8 @@
+     <SwitchPreferenceCompat
+         android:key="override_mock_location"
+         android:title="@string/override_mock_location_title"
+-        android:summaryOn="Mock locations are hidden from apps"
+-        android:summaryOff="Apps can detect mock locations"
++        android:summaryOn="@string/override_mock_location_summary_on"
++        android:summaryOff="@string/override_mock_location_summary_off"
+         android:defaultValue="false"
+         settings:controller="com.android.settings.location.OverrideMockLocationPreferenceController" />
+ 

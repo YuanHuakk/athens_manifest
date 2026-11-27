@@ -1,0 +1,14 @@
+diff --git a/parts/res/values-zh-rCN/strings.xml b/parts/res/values-zh-rCN/strings.xml
+new file mode 100644
+index 0000000..33358fa
+--- /dev/null
++++ b/parts/res/values-zh-rCN/strings.xml
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<resources>
++    <string name="app_name">小米设备设置</string>
++    <string name="touch_title">触控采样率</string>
++    <string name="touch_high_sampling_rate_title">高触控采样率</string>
++    <string name="touch_high_sampling_rate_footer">提高触摸屏的采样率</string>
++</resources>
