@@ -32,6 +32,10 @@
     "patch": "upstream/09-frameworks_base.patch"
   },
   {
+    "project": "frameworks/base",
+    "patch": "upstream/33-frameworks_base_usb_i18n.patch"
+  },
+  {
     "project": "hardware/qcom-caf/sm8850/data-ipa-cfg-mgr",
     "patch": "upstream/10-hardware_qcom-caf_sm8850_data-ipa-cfg-mgr.patch"
   },
@@ -102,6 +106,10 @@
   {
     "project": "hardware/qcom-caf/thermal",
     "patch": "upstream/30-hardware_qcom-caf_thermal.patch"
+  },
+  {
+    "project": "packages/apps/Updater",
+    "patch": "upstream/34-packages_apps_Updater.patch"
   },
   {
     "project": "packages/apps/LineageParts",
