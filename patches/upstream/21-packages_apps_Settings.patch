@@ -291,10 +291,10 @@ index c18a9aa49082bb8dd1029bf9f08dbd518cac62f5..84659391a75702fa1b011775bde3029c
  </resources>
 diff --git a/res/values-zh-rCN/evolution_strings.xml b/res/values-zh-rCN/evolution_strings.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..6d11e3906e522516d06bd7c677a3baeae03fa7dd
+index 0000000000000000000000000000000000000000..073f6858cb13787365894dcf994d114925d82697
 --- /dev/null
 +++ b/res/values-zh-rCN/evolution_strings.xml
-@@ -0,0 +1,283 @@
+@@ -0,0 +1,278 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
 +    <string name="evolution_license_title">Evolution X 法律信息</string>
@@ -553,11 +553,6 @@ index 0000000000000000000000000000000000000000..6d11e3906e522516d06bd7c677a3baea
 +    <string name="lockscreen_display_timeout_5m">5 分钟</string>
 +    <string name="lockscreen_display_timeout_10m">10 分钟</string>
 +    <string name="lockscreen_display_timeout_30m">30 分钟</string>
-+    <string name="security_settings_face_enroll_finish_description_with_bp">现在你可以使用面部解锁手机或验证身份，例如登录应用或确认购买时</string>
-+    <string name="proximity_wake_title">防止误唤醒</string>
-+    <string name="proximity_wake_summary">唤醒屏幕前检查距离传感器</string>
-+    <string name="min_refresh_rate_title">最低刷新率</string>
-+    <string name="max_refresh_rate_title">最高刷新率</string>
 +    <string-array name="app_lock_relock_behavior_entries">
 +        <item>超时后</item>
 +        <item>屏幕关闭时</item>
