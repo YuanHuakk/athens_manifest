@@ -106,5 +106,9 @@
   {
     "project": "packages/apps/LineageParts",
     "patch": "upstream/31-packages_apps_LineageParts.patch"
+  },
+  {
+    "project": "packages/apps/Evolver",
+    "patch": "upstream/32-packages_apps_Evolver.patch"
   }
 ]
