@@ -104,9 +104,7 @@ diff --git a/res/values/axion_strings.xml b/res/values/axion_strings.xml
 index d573d94..7cc3ba0 100644
 --- a/res/values/axion_strings.xml
 +++ b/res/values/axion_strings.xml
-@@ -89,4 +89,8 @@
-     <string name="clear">Clear</string>
- 
+@@ -91,2 +91,6 @@
      <string name="default_ui_style">Default (Axion)</string>
 +
 +    <string name="theme_author">by %s</string>
@@ -117,9 +115,7 @@ diff --git a/src/com/android/axion/axthemestore/ui/ThemeDetailScreen.kt b/src/co
 index 6c350ef..cbdd805 100644
 --- a/src/com/android/axion/axthemestore/ui/ThemeDetailScreen.kt
 +++ b/src/com/android/axion/axthemestore/ui/ThemeDetailScreen.kt
-@@ -150,7 +150,7 @@ fun ThemeDetailScreen(
-                 Spacer(modifier = Modifier.height(4.dp))
-                 
+@@ -152,5 +152,5 @@ fun ThemeDetailScreen(
                  Text(
 -                    text = "by ${theme.author}",
 +                    text = stringResource(R.string.theme_author, theme.author),

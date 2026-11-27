@@ -1,0 +1,698 @@
+diff --git a/res/values-zh-rCN/evolution_arrays.xml b/res/values-zh-rCN/evolution_arrays.xml
+new file mode 100755
+index 0000000..4cacee1
+--- /dev/null
++++ b/res/values-zh-rCN/evolution_arrays.xml
+@@ -0,0 +1,231 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!--
++     SPDX-FileCopyrightText: Evolution X
++     SPDX-License-Identifier: Apache-2.0
++-->
++<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
++
++    <string-array name="themes_boot_animation_entries">
++        <item>Evolution X</item>
++        <item>AOKP</item>
++        <item>CyanogenMod</item>
++        <item>ctOS</item>
++        <item>Cyberpunk</item>
++        <item>Dirty Unicorns</item>
++        <item>Google</item>
++        <item>PAC-ROM</item>
++        <item>Prism (Evolution X)</item>
++        <item>Dynamic Prism (Evolution X)</item>
++        <item>Resurrection Remix</item>
++        <item>SlimRoms</item>
++        <item>Valorant</item>
++        <item>自定义</item>
++    </string-array>
++
++    <string-array name="themes_lock_unlock_sounds_entries">
++        <item>@string/default_value</item>
++        <item>Amazon Fire</item>
++        <item>Asus Zenfone Max</item>
++        <item>Essential PH-1</item>
++        <item>HTC M8</item>
++        <item>Huawei</item>
++        <item>Hyper OS</item>
++        <item>Iqoo</item>
++        <item>LG G3</item>
++        <item>Minecraft 门</item>
++        <item>MIUI 10</item>
++        <item>MIUI 11</item>
++        <item>Nextbit</item>
++        <item>Nokia X</item>
++        <item>经典 iOS</item>
++        <item>One UI</item>
++        <item>OOS 14</item>
++        <item>Razer Phone</item>
++        <item>Soong</item>
++        <item>Windows 设备</item>
++        <item>Windows 错误</item>
++    </string-array>
++
++    <string-array name="wallpaper_effect_entries">
++        <item>无</item>
++        <item>模糊颗粒</item>
++        <item>色差</item>
++        <item>暗角</item>
++        <item>像素化</item>
++        <item>饱和度</item>
++        <item>深褐色</item>
++        <item>锐化</item>
++        <item>灰度</item>
++        <item>负片</item>
++        <item>径向模糊</item>
++        <item>色调分离</item>
++    </string-array>
++
++    <string-array name="nowplaying_icon_style_entries">
++        <item>关闭</item>
++        <item>应用图标</item>
++        <item>音符图标</item>
++    </string-array>
++
++    <string-array name="nowplaying_color_mode_entries">
++        <item>白色</item>
++        <item>强调色</item>
++        <item>专辑封面</item>
++    </string-array>
++
++    <string-array name="charging_animation_style_entries">
++        <item>气泡流</item>
++        <item>霓虹光雾</item>
++        <item>光束效果</item>
++        <item>等离子效果</item>
++        <item>量子火花</item>
++        <item>星云扩散</item>
++        <item>数字矩阵</item>
++        <item>几何流动</item>
++    </string-array>
++
++    <string-array name="charging_plug_animation_entries">
++        <item>@string/default_value</item>
++        <item>One UI 胶囊</item>
++        <item>HyperOS 气泡</item>
++        <item>OriginOS 球体</item>
++        <item>SuperCharge 闪电</item>
++    </string-array>
++
++    <string-array name="charging_color_mode_entries">
++        <item>默认绿色</item>
++        <item>强调色</item>
++        <item>彩虹</item>
++    </string-array>
++
++    <string-array name="perapp_spoof_profile_labels">
++        <item>黑鲨 4（中国）</item>
++        <item>Poco F5</item>
++        <item>三星 Galaxy S25 Ultra</item>
++        <item>三星 Galaxy Z Fold 5</item>
++        <item>荣耀 Magic V2 RSR</item>
++        <item>联想拯救者 Y700</item>
++        <item>小米 11T Pro</item>
++        <item>小米 13</item>
++        <item>小米 13 Pro</item>
++        <item>小米 14 Pro</item>
++        <item>一加 12</item>
++        <item>一加 13</item>
++        <item>Pixel 11 Pro XL</item>
++        <item>红魔 9 Pro</item>
++        <item>红魔 10 Pro</item>
++        <item>真我 15 Pro 5G</item>
++        <item>ROG 手机 9 Pro</item>
++        <item>无</item>
++    </string-array>
++
++    <string-array name="qs_style_preview_labels">
++        <item>互联网</item>
++        <item>蓝牙</item>
++        <item>手电筒</item>
++        <item>勿扰</item>
++        <item>自动旋转</item>
++        <item>深色主题</item>
++        <item>热点</item>
++        <item>飞行模式</item>
++        <item>流量节省</item>
++        <item>NFC</item>
++        <item>同步</item>
++        <item>扫描二维码</item>
++    </string-array>
++
++    <string-array name="qs_remix_style_summaries">
++        <item>保持当前构建的磁贴样式不变</item>
++        <item>强调色卡片中的亮度。磁贴填充强调色渐变</item>
++        <item>更短的磁贴，一屏可显示更多</item>
++        <item>透明描边磁贴，开启时以强调色发光</item>
++        <item>带标签的圆形开关。宽磁贴变为卡片</item>
++        <item>裸图标加标签，每行五个，细滑块</item>
++        <item>大卡片，名称下方显示状态，每行三个</item>
++        <item>描边磁贴，开启时以强调色发光</item>
++        <item>用强调色填充的大圆角块，小磁贴下方带标签</item>
++        <item>开启时会长出叶瓣的圆形开关，每行五个</item>
++        <item>细线描边和等宽大写字母</item>
++        <item>分体磁贴。图标一半亮起并切换</item>
++        <item>凸起磁贴，开启时按下</item>
++    </string-array>
++
++    <string-array name="cutout_progress_finish_style_entries">
++        <item>弹出</item>
++        <item>分段层叠</item>
++        <item>瞬间吸附</item>
++    </string-array>
++
++    <string-array name="cutout_progress_easing_entries">
++        <item>线性</item>
++        <item>加速</item>
++        <item>减速</item>
++        <item>缓入缓出</item>
++    </string-array>
++
++    <string-array name="cutout_progress_position_entries">
++        <item>右</item>
++        <item>左</item>
++        <item>上</item>
++        <item>下</item>
++        <item>右上</item>
++        <item>左上</item>
++        <item>右下</item>
++        <item>左下</item>
++    </string-array>
++
++    <string-array name="cutout_progress_truncate_entries">
++        <item>中间</item>
++        <item>开头</item>
++        <item>结尾</item>
++    </string-array>
++
++    <string-array name="lock_glymps_source_entries">
++        <item>随机壁纸（Picsum）</item>
++        <item>自定义 URL 列表</item>
++        <item>本地文件夹</item>
++    </string-array>
++
++    <string-array name="lock_glymps_cache_size_entries">
++        <item>3 张壁纸（约 30MB）</item>
++        <item>5 张壁纸（约 50MB）</item>
++        <item>10 张壁纸（约 100MB）</item>
++    </string-array>
++
++    <string-array name="lock_glymps_change_on_entries">
++        <item>屏幕亮起时</item>
++        <item>屏幕关闭时（推荐）</item>
++        <item>按计时器</item>
++    </string-array>
++
++    <string-array name="lock_glymps_timer_entries">
++        <item>5 分钟</item>
++        <item>10 分钟</item>
++        <item>15 分钟</item>
++        <item>30 分钟</item>
++        <item>1 小时</item>
++        <item>2 小时</item>
++        <item>3 小时</item>
++        <item>6 小时</item>
++        <item>12 小时</item>
++        <item>24 小时</item>
++    </string-array>
++
++    <string-array name="quick_settings_data_usage_window_entries">
++        <item>每日</item>
++        <item>每周</item>
++    </string-array>
++
++    <string-array name="font_online_weight_names">
++        <item>细体</item>
++        <item>超细</item>
++        <item>细</item>
++        <item>常规</item>
++        <item>中等</item>
++        <item>半粗</item>
++        <item>粗体</item>
++        <item>超粗</item>
++        <item>黑体</item>
++    </string-array>
++
++</resources>
+diff --git a/res/values-zh-rCN/evolution_plurals.xml b/res/values-zh-rCN/evolution_plurals.xml
+new file mode 100755
+index 0000000..9b57d9c
+--- /dev/null
++++ b/res/values-zh-rCN/evolution_plurals.xml
+@@ -0,0 +1,11 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!--
++     SPDX-FileCopyrightText: Evolution X
++     SPDX-License-Identifier: Apache-2.0
++-->
++<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
++    <plurals name="ts_added_installed_count">
++        <item quantity="one">已将 %d 个应用添加到目标列表</item>
++        <item quantity="other">已将 %d 个应用添加到目标列表</item>
++    </plurals>
++</resources>
+diff --git a/res/values-zh-rCN/evolution_strings.xml b/res/values-zh-rCN/evolution_strings.xml
+index 1d2fa4f..7874ae9 100644
+--- a/res/values-zh-rCN/evolution_strings.xml
++++ b/res/values-zh-rCN/evolution_strings.xml
+@@ -1321,4 +1321,439 @@
+     <!-- Wallpaper zoom -->
+     <string name="wallpaper_zoom_title">壁纸缩放</string>
+     <string name="wallpaper_zoom_summary">关闭以显示壁纸而不需要额外缩放</string>
++    <string name="screen_off_animation_title">息屏动画</string>
++    <string name="screen_off_animation_colorfade">色彩渐变</string>
++    <string name="screen_off_animation_crt">显像管</string>
++    <string name="screen_off_animation_scale">缩放</string>
++    <string name="screen_off_animation_iris">光圈</string>
++    <string name="screen_off_animation_desaturate">去饱和</string>
++    <string name="screen_off_animation_shutter">快门</string>
++    <string name="dialog_blur_title">对话框和提示框模糊</string>
++    <string name="dialog_blur_summary">模糊系统对话框和提示框的背景</string>
++    <string name="boot_animation_style_unknown">未知</string>
++    <string name="boot_animation_custom_pick">选择开机动画压缩包</string>
++    <string name="boot_animation_custom_replace">点按选择其他压缩包</string>
++    <string name="boot_animation_download_size">下载 · %1$s</string>
++    <string name="boot_animation_downloaded_size">已下载 · %1$s</string>
++    <string name="boot_animation_downloading">正在下载 · %1$d%%</string>
++    <string name="boot_animation_delete_download">删除下载</string>
++    <string name="boot_animation_catalog_retry">重试</string>
++    <string name="boot_animation_catalog_error">无法加载在线开机动画。请检查网络连接。</string>
++    <string name="boot_animation_error_download">无法下载开机动画。请检查网络连接后重试。</string>
++    <string name="boot_animation_error_checksum">下载的开机动画与预期文件不匹配。请稍后重试。</string>
++    <string name="face_unlock_animation_title">人脸解锁动画</string>
++    <string name="face_unlock_animation_summary">使用人脸解锁时，在锁屏上显示扫描、成功和失败动画</string>
++    <string name="lockscreen_custom_clock_browse_all_clocks">浏览所有时钟</string>
++    <string name="lockscreen_custom_clock_applied">已应用 <xliff:g id="clock_name" example="OnePlus Clock">%1$s</xliff:g></string>
++    <string name="lockscreen_custom_clock_dynamic_size_title">动态时钟大小</string>
++    <string name="lockscreen_custom_clock_dynamic_size_summary">锁屏上没有通知或媒体时放大时钟。超大时钟样式保持原大小</string>
++    <string name="ls_media_art_status_bar_above_title">状态栏位于封面图上</string>
++    <string name="ls_media_art_status_bar_above_summary">在封面图上方保持电池、信号和时钟可见</string>
++    <string name="nowplaying_on_demand_title">按需快捷方式</string>
++    <string name="nowplaying_on_demand_summary">在锁屏上显示搜索图标。长按开始搜索。</string>
++    <string name="nowplaying_saved_title">已保存的歌曲</string>
++    <string name="nowplaying_saved_summary">你在锁屏上通过爱心保存的歌曲</string>
++    <string name="nowplaying_saved_empty_title">还没有已保存的歌曲</string>
++    <string name="nowplaying_saved_empty_summary">点按已识别歌曲上的爱心即可保存到这里</string>
++    <string name="nowplaying_saved_remove">移除</string>
++    <string name="nowplaying_saved_no_music_app">未找到可播放此歌曲的音乐应用</string>
++    <string name="nowplaying_pixel_native_summary">此设备已通过 Pixel 的环境指示原生提供“正在播放”</string>
++    <string name="lockscreen_smartspace_custom_clock_info">启用自定义时钟样式时不可用</string>
++    <string name="depthwall_spatial_effect_title">空间效果</string>
++    <string name="depthwall_spatial_effect_summary">倾斜设备时，为锁屏景深壁纸添加 3D 空间效果。</string>
++    <string name="depthwall_spatial_sensitivity_title">空间灵敏度</string>
++    <string name="depthwall_spatial_sensitivity_summary">调整 3D 空间效果的运动灵敏度</string>
++    <string name="status_bar_triple_tap_freeform_title">三击以在自由窗口打开</string>
++    <string name="status_bar_triple_tap_freeform_summary">三击状态栏，以自由窗口打开当前应用</string>
++    <string name="status_bar_clock_period_separator_title">句点分隔符</string>
++    <string name="status_bar_clock_period_separator_summary">使用句点而不是冒号显示时间（10.45 而不是 10:45）</string>
++    <string name="status_bar_clock_bold_title">粗体时钟</string>
++    <string name="status_bar_clock_bold_summary">以粗体显示状态栏时钟</string>
++    <string name="status_bar_logo_add">添加标志</string>
++    <string name="dynamic_bar_haptics">点按触感</string>
++    <string name="dynamic_bar_haptics_summary">点按芯片时轻微振动</string>
++    <string name="dynamic_bar_chip_morph">形变动画</string>
++    <string name="dynamic_bar_chip_morph_summary">展开芯片时显示其面板，关闭时缩回</string>
++    <string name="dynamic_bar_event_call">通话中</string>
++    <string name="dynamic_bar_event_call_summary">来电和正在进行的通话</string>
++    <string name="dynamic_bar_demo_running">运行中</string>
++    <string name="dynamic_bar_demo_add_minute">+1 分钟</string>
++    <string name="qs_style_preview_on">开启</string>
++    <string name="qs_style_preview_off">关闭</string>
++    <string name="qs_remix_style_title">Remix 样式</string>
++    <string name="qs_coloros_media_art_fill_title">用封面填充媒体卡片</string>
++    <string name="qs_coloros_media_art_fill_summary">在整张媒体卡片上显示专辑封面，而不是缩略图</string>
++    <string name="qs_nothing_color_style_title">Nothing 配色样式</string>
++    <string name="qs_nothing_color_style_flat">Nothing OS 5.0，扁平</string>
++    <string name="qs_nothing_color_style_translucent">Nothing OS 5.0，半透明</string>
++    <string name="qs_nothing_color_style_classic">经典深色</string>
++    <string name="qs_header_preview_title">顶部预览</string>
++    <string name="qs_header_preview_summary">双指缩放、拖动调整位置，或使用滑块。更改会立即应用到快捷设置。</string>
++    <string name="qs_header_preview_empty">导入图片或从 OmniStyle 选择静态顶部图片以调整裁剪。</string>
++    <string name="qs_header_preview_zoom_value">缩放：%1$d%%</string>
++    <string name="qs_header_preview_horizontal_value">水平位置：%1$d%%</string>
++    <string name="qs_header_preview_vertical_value">垂直位置：%1$d%%</string>
++    <string name="qs_header_preview_reset">重置</string>
++    <string name="quick_settings_header_file_failed">无法加载所选图片</string>
++    <string name="notification_heads_up_timeout_title">超时</string>
++    <string name="notification_heads_up_timeout_summary">悬浮通知显示时长</string>
++    <string name="edge_light_display_mode_title">显示模式</string>
++    <string name="edge_light_trigger_unlock_only_title">仅解锁时触发边缘光</string>
++    <string name="edge_light_trigger_unlock_only_description">开启后，边缘光仅在设备解锁时触发，不会为通知触发</string>
++    <string name="edge_light_display_mode_lockscreen">仅锁屏</string>
++    <string name="edge_light_display_mode_unlocked">仅解锁设备</string>
++    <string name="edge_light_display_mode_both">两者</string>
++    <string name="edge_light_design_chase_around">环绕追逐</string>
++    <string name="edge_light_design_mirror_rain">镜像雨</string>
++    <string name="edge_light_design_corner_out">角落扩散</string>
++    <string name="edge_light_design_fire_dance">火焰舞动</string>
++    <string name="edge_light_design_side_ripples">侧边涟漪</string>
++    <string name="edge_light_design_flat_ripples">平面涟漪</string>
++    <string name="edge_light_design_flat_bars">平面光条</string>
++    <string name="edge_light_design_side_bars">侧边光条</string>
++    <string name="edge_light_design_flat_streaks">平面流光</string>
++    <string name="edge_light_design_side_streaks">侧边流光</string>
++    <string name="edge_light_design_side_flutter">侧边飘动</string>
++    <string name="edge_light_design_flat_flutter">平面飘动</string>
++    <string name="edge_light_design_flat_waves">平面波浪</string>
++    <string name="edge_light_design_side_waves">侧边波浪</string>
++    <string name="edge_light_design_waves_around">环绕波浪</string>
++    <string name="edge_light_design_lights_around">环绕灯光</string>
++    <string name="edge_light_design_bars_around">环绕光条</string>
++    <string name="edge_light_design_side_braids">侧边编织</string>
++    <string name="edge_light_design_side_lights">侧边灯光</string>
++    <string name="edge_light_design_serial_lights">序列灯光</string>
++    <string name="edge_light_design_serials_around">环绕序列</string>
++    <string name="edge_light_design_snow_particles">雪花粒子</string>
++    <string name="edge_light_design_bubble_particles">气泡粒子</string>
++    <string name="edge_light_design_dot_particles">圆点粒子</string>
++    <string name="edge_light_design_strings_around">环绕线条</string>
++    <string name="edge_light_animation_speed_title">动画速度</string>
++    <string name="edge_light_animation_speed_summary">边缘图案移动的快慢</string>
++    <string name="edge_light_design_length_title">图案长度</string>
++    <string name="edge_light_design_length_summary">拖尾长度和粒子到达范围</string>
++    <string name="edge_light_design_size_title">图案大小</string>
++    <string name="edge_light_design_size_summary">光条和波浪的高度，或粒子的大小</string>
++    <string name="edge_light_design_density_title">图案密度</string>
++    <string name="edge_light_design_density_summary">灯光、光条、波浪或粒子的数量</string>
++    <string name="edge_light_animation_direction_title">动画方向</string>
++    <string name="edge_light_direction_normal">正常</string>
++    <string name="edge_light_direction_reversed">反向</string>
++    <string name="tensor_spoof_timed_title">临时（1 小时）</string>
++    <string name="tensor_spoof_timed_summary_off">保持开启，直到你手动关闭</string>
++    <string name="tensor_spoof_timed_remaining">剩余 %1$d 分钟</string>
++    <string name="spoof_choice_select">选择</string>
++    <string name="pif_device_suggested">%1$s · 推荐</string>
++    <string name="pif_vending_finger_custom_summary">自定义指纹：%1$s</string>
++    <string name="pif_spoof_build_title">伪装构建字段</string>
++    <string name="pif_spoof_build_summary">向 DroidGuard 提供指纹的构建字段（型号、设备、指纹等）</string>
++    <string name="pif_spoof_props_title">伪装系统属性</string>
++    <string name="pif_spoof_props_summary">向 DroidGuard 提供指纹的 build id、安全补丁、API 级别和产品标识</string>
++    <string name="pif_spoof_provider_title">伪装密钥库提供程序</string>
++    <string name="pif_spoof_provider_summary">让 DroidGuard 的证书链请求失败。这会绕过 keybox 认证，因此使用 keybox 时请保持关闭</string>
++    <string name="pif_spoof_signature_title">伪装 ROM 签名</string>
++    <string name="pif_spoof_signature_summary">实验性。绕过 DroidGuard 对测试密钥 ROM 的封禁</string>
++    <string name="pif_reset_advanced_title">重置高级伪装</string>
++    <string name="pif_reset_advanced_message">将所有高级伪装选项重置为默认值？当前指纹会保留。</string>
++    <string name="pif_fingerprint_spoofing">伪装中</string>
++    <string name="pif_active_model">当前：%1$s</string>
++    <string name="pif_canary_fingerprint">Canary 指纹</string>
++    <string name="pif_patch_age">补丁 %1$s · 已过 %2$d 天</string>
++    <string name="pif_days_left">剩余 %1$d 天</string>
++    <string name="pif_expired">已过期</string>
++    <string name="pif_vending_finger_custom_clear_hint">点按关闭</string>
++    <string name="ts_keybox_exported">已保存 keybox</string>
++    <string name="ts_keybox_extract_failed">无法从该文件读取 keybox：%s</string>
++    <string name="ts_wipe_playstore_message">Play 商店会缓存完整性判定。现在清除其数据，让新 keybox 立即生效？这会退出登录并清除其本地缓存和下载队列。</string>
++    <string name="ts_auto_target">自动添加新应用</string>
++    <string name="ts_auto_target_summary">自动将新安装的应用添加到目标列表。商店、Root 和系统工具以及代理客户端始终跳过。</string>
++    <string name="ts_target_list_invalid">目标列表被拒绝，位置：%s</string>
++    <string name="ts_verification_skip_count">跳过 %1$d 次</string>
++    <string name="ts_chip_valid">有效</string>
++    <string name="ts_chip_expiring">即将过期</string>
++    <string name="ts_chip_invalid">证书链无效</string>
++    <string name="ts_chip_unknown_root">未知根证书</string>
++    <string name="ts_chip_checking">检查中</string>
++    <string name="ts_chip_unchecked">未检查</string>
++    <string name="lock_glymps_folder_dialog_title">本地壁纸文件夹</string>
++    <string name="lock_glymps_folder_missing_message">文件夹尚不存在。\n\n位置：%1$s\n\n要创建它吗？</string>
++    <string name="lock_glymps_folder_create">创建文件夹</string>
++    <string name="lock_glymps_folder_created">文件夹已创建：%1$s</string>
++    <string name="lock_glymps_folder_create_failed">创建文件夹失败</string>
++    <string name="lock_glymps_folder_info_message">文件夹位置：%1$s\n\n找到壁纸：%2$d\n\n支持的格式：JPG、PNG、WEBP\n\n将壁纸图片放入此文件夹，它们将被随机使用。</string>
++    <string name="lock_glymps_custom_urls_dialog_title">自定义壁纸 URL</string>
++    <string name="lock_glymps_custom_urls_dialog_message">输入直接图片 URL，每行一个</string>
++    <string name="lock_glymps_custom_urls_hint">https://example.com/image1.jpg\nhttps://example.com/image2.png</string>
++    <string name="lock_glymps_custom_urls_saved">自定义 URL 已保存</string>
++    <string name="lock_glymps_clear_cache_dialog_title">清除缓存</string>
++    <string name="lock_glymps_clear_cache_dialog_message">这会删除所有缓存的壁纸，之后将重新下载。继续？</string>
++    <string name="lock_glymps_clear_cache_confirm">清除</string>
++    <string name="lock_glymps_cache_cleared">缓存已清除。新壁纸将被下载。</string>
++    <string name="custom_gradient_angle_title">渐变角度</string>
++    <string name="custom_gradient_angle_summary">逆时针旋转渐变。0° 时从起点流向终点，沿滑块的填充方向</string>
++    <string name="liquid_glass_title">液态玻璃</string>
++    <string name="liquid_glass_summary">将模糊表面绘制为带亮边的玻璃</string>
++    <string name="liquid_glass_use_title">使用液态玻璃</string>
++    <string name="liquid_glass_use_summary">将系统磨砂表面（例如灵动岛卡片）变为玻璃</string>
++    <string name="liquid_glass_style_title">样式</string>
++    <string name="liquid_glass_style_ios">iOS</string>
++    <string name="liquid_glass_style_coloros">ColorOS</string>
++    <string name="liquid_glass_refraction_title">折射</string>
++    <string name="liquid_glass_refraction_summary">玻璃边缘对周围内容的弯曲程度</string>
++    <string name="liquid_glass_shade_category">通知栏</string>
++    <string name="liquid_glass_dual_tone_title">双色调通知栏</string>
++    <string name="liquid_glass_dual_tone_summary">在通知后方加一层淡色，让通知与快捷设置区分开</string>
++    <string name="liquid_glass_tab_bars_category">应用内</string>
++    <string name="liquid_glass_tab_bars_title">玻璃标签栏</string>
++    <string name="liquid_glass_tab_bars_summary">将应用底部栏浮为 iOS 风格的玻璃胶囊</string>
++    <string name="liquid_glass_tab_bars_apps_title">选择应用</string>
++    <string name="liquid_glass_tab_bars_apps_summary">为某个应用关闭玻璃效果，或让其内容延伸到栏下方</string>
++    <string name="liquid_glass_tab_bar_mode_off">关闭</string>
++    <string name="liquid_glass_tab_bar_mode_glass">玻璃</string>
++    <string name="liquid_glass_tab_bar_mode_float">浮动</string>
++    <string name="font_applied">已应用</string>
++    <string name="font_applying">正在应用…</string>
++    <string name="font_tab_emoji">表情符号</string>
++    <string name="font_filter_all">全部</string>
++    <string name="font_filter_sans">无衬线</string>
++    <string name="font_filter_serif">衬线</string>
++    <string name="font_filter_display">展示</string>
++    <string name="font_filter_script">手写体</string>
++    <string name="font_filter_mono">等宽</string>
++    <string name="font_filter_handwriting">手写</string>
++    <string name="font_online_title">Google 字体</string>
++    <string name="font_online_search">搜索字体</string>
++    <string name="font_online_loading">正在加载字体…</string>
++    <string name="font_online_error">无法加载字体列表。请检查网络连接。</string>
++    <string name="font_online_retry">重试</string>
++    <string name="font_online_empty">没有符合搜索条件的字体</string>
++    <string name="font_filter_saved">已保存</string>
++    <string name="font_online_sort_popular">热门</string>
++    <string name="font_online_sort_az">A–Z</string>
++    <string name="font_online_save">保存以供离线使用</string>
++    <string name="font_online_unsave">从已保存中移除</string>
++    <string name="font_online_save_failed">无法保存字体</string>
++    <string name="font_online_saved_marker">已保存</string>
++    <string name="font_online_saved_empty">还没有保存任何字体。选择一款字体并点按“保存以供离线使用”，即可在此设备上保留该样式。</string>
++    <string name="font_online_progress">%1$d%%</string>
++    <string name="font_online_style_italic">%1$s 斜体</string>
++    <string name="font_sample_glyphs">Aa</string>
++    <string name="font_sample_hint">试试你自己的文本</string>
++    <string name="font_sample_clear">清除文本</string>
++    <string name="font_default">默认</string>
++    <string name="font_install_message">在你选择其他字体之前，此字体会用于系统和应用文本。仅安装该文件的样式，因此粗体和斜体文本会基于它生成。字体样式会恢复为“默认”，并且需要重启才能在所有位置生效。</string>
++    <string name="font_error_updater_disabled">此设备不支持自定义字体。需要内核和数据分区支持 fs-verity。</string>
++    <string name="font_error_invalid_file">此文件不是系统可用的字体。仅支持最大 %1$d MB 的 .ttf 和 .otf 字体。</string>
++    <string name="font_error_invalid_name">此字体没有 PostScript 名称，系统无法注册它。</string>
++    <string name="font_error_downgrading">系统中已有此字体的较新版本。</string>
++    <string name="font_error_verification">系统无法使用 fs-verity 保护字体文件，因此未安装。</string>
++    <string name="font_error_storage">系统无法保存字体。请检查可用存储空间后重试。</string>
++    <string name="font_error_unreadable">无法读取此字体文件。字体必须是最大 %1$d MB 的 .ttf 或 .otf 文件。</string>
++    <string name="font_install_failed">无法安装字体（错误 %1$d）</string>
++    <string name="font_apply_systemui_message">应用会立即切换到 %1$s。状态栏、锁屏和快捷设置会在 SystemUI 重启后切换。</string>
++    <string name="font_apply_reboot_message">这会移除你的自定义字体并切换到 %1$s。需要重启后所有应用才会使用新字体。</string>
++    <string name="font_apply_restart_now">应用并重启 SystemUI</string>
++    <string name="font_apply_restart_later">应用，稍后重启</string>
++    <string name="font_apply_reboot_now">应用并重启</string>
++    <string name="font_apply_reboot_later">应用，稍后重启</string>
++    <string name="font_pending_systemui_title">重启 SystemUI 以完成</string>
++    <string name="font_pending_reboot_title">重启以完成</string>
++    <string name="font_pending_systemui_body">应用已使用 %1$s。状态栏、锁屏和快捷设置会在 SystemUI 重启后切换。</string>
++    <string name="font_pending_reboot_body">重启后，所有位置都会使用 %1$s。</string>
++    <string name="font_pending_systemui_action">重启 SystemUI</string>
++    <string name="font_summary_pending_systemui">%1$s · 等待重启 SystemUI</string>
++    <string name="font_summary_pending_reboot">%1$s · 等待重启</string>
++    <string name="font_replace">替换字体</string>
++    <string name="font_remove">移除字体</string>
++    <string name="sound_preview_play">播放预览</string>
++    <string name="sound_preview_stop">停止预览</string>
++    <string name="add_emoji_font">添加表情符号字体</string>
++    <string name="emoji_preview_dialog_title">表情符号预览</string>
++    <string name="emoji_preview_coverage">此字体中最新表情符号（Unicode 15 和 16）：%1$d / %2$d</string>
++    <string name="toast_failed_apply_emoji">应用表情符号字体失败</string>
++    <string name="toast_emoji_updater_disabled">此设备已禁用字体更新</string>
++    <string name="toast_invalid_emoji_file">表情符号字体文件无效</string>
++    <string name="toast_emoji_not_installed">请先添加自定义表情符号字体</string>
++    <string name="toast_emoji_busy">另一项表情符号更改仍在进行</string>
++    <string name="emoji_restart_title">重启以应用表情符号</string>
++    <string name="emoji_restart_message">这些表情符号会替换使用系统字体的所有应用中的系统表情符号。现在重启会重启 SystemUI 并关闭所有正在运行的应用，以便它们使用新表情符号。如果稍后重启，每个应用会在下次启动时切换。</string>
++    <string name="emoji_restart_now">立即重启</string>
++    <string name="emoji_pending_title">重启以应用表情符号</string>
++    <string name="emoji_pending_body">%1$s 会替换 SystemUI 以及各应用重启后的系统表情符号。现在重启会关闭所有正在运行的应用。</string>
++    <string name="emoji_apps_reset">重置第三方应用</string>
++    <string name="emoji_apps_reset_short">重置应用</string>
++    <string name="emoji_apps_confirm">这会将你的表情符号字体复制到应用数据中存储的所有表情符号字体，阻止 Facebook 和 Messenger 下载各自的字体，清除这些应用和 Gboard 的缓存，并关闭 Google Play 服务的字体提供程序。受影响的应用会被强制停止。这些应用更新后，请再次运行此操作。</string>
++    <string name="emoji_apps_reset_button">重置</string>
++    <string name="emoji_apps_restore">恢复第三方应用</string>
++    <string name="emoji_apps_restore_short">恢复应用</string>
++    <string name="emoji_apps_restore_confirm">如果 Gboard、Facebook 或 Messenger 等应用仍显示已移除字体中的表情符号，这会删除应用数据中存储的所有表情符号字体，让每个应用重新获取自己的字体。它会允许 Facebook 和 Messenger 重新下载各自字体，清除这些应用和 Gboard 的缓存，并重新开启 Google Play 服务的字体提供程序。受影响的应用会被强制停止。</string>
++    <string name="emoji_apps_restore_button">恢复</string>
++    <string name="emoji_apps_restored">曾复制表情符号字体的应用现在会重新获取自己的字体。</string>
++    <string name="color_picker_reset">重置为默认</string>
++    <string name="color_picker_apply">应用</string>
++    <string name="color_picker_clock_title">时钟颜色</string>
++    <string name="color_picker_tab_preset">预设</string>
++    <string name="color_picker_tab_image">图片</string>
++    <string name="color_picker_tab_custom">自定义</string>
++    <string name="color_picker_import_gallery">从图库导入</string>
++    <string name="color_picker_import_image">导入图片</string>
++    <string name="color_picker_selected_color">已选颜色</string>
++    <string name="color_picker_title_image">从图片选取颜色</string>
++    <string name="color_picker_title_wallpaper">从壁纸选取颜色</string>
++    <string name="color_picker_wallpaper_error">无法加载壁纸</string>
++    <string name="color_picker_hint_image">点按图片选取颜色</string>
++    <string name="color_picker_hint_wallpaper">点按壁纸选取颜色</string>
++    <string name="action_import">导入</string>
++    <string name="action_export">导出</string>
++    <string name="action_deselect_unnecessary">取消选择不需要的</string>
++    <string name="charging_plug_animation_category_title">插入动画</string>
++    <string name="charging_plug_animation_title">插入动画</string>
++    <string name="charging_preview_mode_lock">锁屏</string>
++    <string name="charging_preview_mode_plug">插入</string>
++    <string name="charging_plug_default_hint">默认插入动画会在锁屏播放，此处不预览</string>
++    <string name="charging_plug_preview_label">充电中</string>
++    <string name="charging_show_on_lockscreen_title">在锁屏显示</string>
++    <string name="charging_show_on_aod_title">在息屏显示</string>
++    <string name="emoji_custom_label">自定义：%1$s</string>
++    <string name="emoji_download_size">下载 · %1$s</string>
++    <string name="emoji_downloaded_size">已下载 · %1$s</string>
++    <string name="emoji_delete_download">删除下载</string>
++    <string name="emoji_catalog_error">无法加载在线表情符号样式。请检查网络连接。</string>
++    <string name="emoji_catalog_retry">重试</string>
++    <string name="emoji_picker_footer">表情符号样式从 Evolution X 主题仓库下载并保存在设备上，因此无需再次下载即可切换。你也可以添加自己的 .ttf 表情符号字体，最大 128 MB，例如来自表情符号 Magisk 模块（system/fonts/NotoColorEmoji.ttf）。字体缺少的任何表情符号仍会来自系统表情符号。</string>
++    <string name="font_picker_footer">系统提供的字体样式列在前面。要使用自己的字体，请点按“添加字体”并选择最大 64 MB 的 .ttf 或 .otf 文件，或从 Google 字体下载。自定义字体会用于所有使用标准 UI 字体的系统和应用文本，需要重启才能在所有位置生效。</string>
++    <string name="online_fonts_footer">字体来自 Google 字体，可免费使用。点按一款字体下载并预览，使用芯片选择其他样式，然后点按“应用”。仅安装所选样式，需要重启才能在所有位置生效。</string>
++    <string name="emoji_error_download">无法下载表情符号字体。请检查网络连接后重试。</string>
++    <string name="emoji_error_checksum">下载的表情符号字体与预期文件不匹配。请稍后重试。</string>
++    <string name="qs_show_volume_slider_below">音量滑块位于亮度滑块下方</string>
++    <string name="hide_screen_capture_status_title">隐藏屏幕捕获状态</string>
++    <string name="hide_screen_capture_status_summary">对应用隐藏屏幕捕获/录制状态，并允许捕获受保护内容。这很有用，但可能带来隐私风险。</string>
++    <string name="status_bar_dynamic_island_title">灵动岛</string>
++    <string name="status_bar_dynamic_island_summary">配置灵动岛并选择可显示的功能</string>
++    <string name="dynamic_island_footer_title">关于灵动岛</string>
++    <string name="dynamic_island_intro">开启灵动岛，并选择要在居中芯片中显示的功能。</string>
++    <string name="dynamic_island_features_title">功能</string>
++    <string name="dynamic_island_media_controls_title">媒体控制</string>
++    <string name="dynamic_island_media_controls_summary">在灵动岛中显示播放控制和封面图</string>
++    <string name="dynamic_island_screen_recording_title">屏幕录制</string>
++    <string name="dynamic_island_screen_recording_summary">在灵动岛中显示录制计时器和控制</string>
++    <string name="dynamic_island_alarms_title">闹钟</string>
++    <string name="dynamic_island_alarms_summary">在灵动岛中显示下一个闹钟或正在响铃的闹钟通知</string>
++    <string name="dynamic_island_charging_title">充电</string>
++    <string name="dynamic_island_charging_summary">连接充电器时在灵动岛中显示电量，点按可查看充电详情</string>
++    <string name="dynamic_island_bluetooth_title">蓝牙设备</string>
++    <string name="dynamic_island_bluetooth_summary">在灵动岛中显示已连接的蓝牙设备，点按可查看其电量</string>
++    <string name="dynamic_island_hotspot_title">热点</string>
++    <string name="dynamic_island_hotspot_summary">在灵动岛中显示连接到热点的设备数量</string>
++    <string name="dynamic_island_vpn_title">VPN</string>
++    <string name="dynamic_island_vpn_summary">VPN 连接时显示灵动岛</string>
++    <string name="dynamic_island_calls_title">通话</string>
++    <string name="dynamic_island_calls_summary">在灵动岛中显示来电和正在进行的通话</string>
++    <string name="dynamic_island_flashlight_title">手电筒</string>
++    <string name="dynamic_island_flashlight_summary">手电筒开启时在灵动岛中显示状态</string>
++    <string name="dynamic_island_stopwatch_title">秒表</string>
++    <string name="dynamic_island_stopwatch_summary">在灵动岛中显示秒表进度和控制</string>
++    <string name="dynamic_island_live_updates_title">实时更新</string>
++    <string name="dynamic_island_live_updates_summary">在灵动岛中显示应用的实时更新，例如计时器、导航和配送</string>
++    <string name="dynamic_island_live_scores_title">实时比分</string>
++    <string name="dynamic_island_live_scores_summary">为提供实时比分通知的应用在灵动岛中显示体育实时比分。</string>
++    <string name="dynamic_island_lyrics_title">显示歌词</string>
++    <string name="dynamic_island_lyrics_summary">在灵动岛中音乐卡片下方的卡片中，为支持的应用显示歌词</string>
++    <string name="dynamic_island_customization_title">灵动岛自定义</string>
++    <string name="dynamic_island_width_scale_title">宽度缩放</string>
++    <string name="dynamic_island_height_scale_title">高度缩放</string>
++    <string name="dynamic_island_offset_x_title">水平偏移</string>
++    <string name="dynamic_island_offset_y_title">垂直偏移</string>
++    <string name="dynamic_island_landscape_top_title">横屏时保持在顶部</string>
++    <string name="dynamic_island_landscape_top_summary">横屏时将灵动岛显示在屏幕顶部，而不是侧面摄像头旁</string>
++    <string name="dynamic_island_coloros_style_title">ColorOS 样式</string>
++    <string name="dynamic_island_coloros_style_summary">让灵动岛从摄像头开孔处展开，并使用 ColorOS 风格卡片</string>
++    <string name="dynamic_island_popup_color_mode_title">弹窗背景</string>
++    <string name="dynamic_island_popup_color_mode_summary">选择展开弹窗的外观：默认、模糊壁纸或纯黑色</string>
++    <string name="dynamic_island_popup_color_mode_entry_default">默认</string>
++    <string name="dynamic_island_popup_color_mode_entry_blur">模糊</string>
++    <string name="dynamic_island_popup_color_mode_entry_solid_black">纯黑</string>
++    <string name="shade_color_style_title">通知栏样式</string>
++    <string name="shade_color_style_summary">选择通知栏和锁屏密码界面的外观</string>
++    <string name="shade_color_style_summary_coloros">选择 ColorOS 快捷设置面板样式时始终为透明</string>
++    <string name="shade_color_style_aosp">原生 Android 配色</string>
++    <string name="shade_color_style_glass">透明磨砂面板，可透出壁纸</string>
++    <string name="shade_color_style_tinted">使用强调色着色的面板，可带或不带模糊</string>
++    <string name="ts_rkp_title">设备 RKP · Duck</string>
++    <string name="ts_rkp_enabled">使用设备 RKP</string>
++    <string name="ts_rkp_enabled_summary">自动生成 keybox 并在到期前续期。导入 keybox 会关闭此功能。</string>
++    <string name="ts_rkp_provision">生成 keybox</string>
++    <string name="ts_rkp_provision_summary">立即请求替换，或重试已暂停的自动配置。需要兼容的高通固件。</string>
++    <string name="ts_rkp_status">配置状态</string>
++    <string name="ts_rkp_owner_only">从设备所有者资料管理设备 RKP</string>
++    <string name="ts_rkp_unavailable">设备 RKP 不可用</string>
++    <string name="ts_rkp_imported">已安装导入的 keybox，功能已禁用</string>
++    <string name="ts_rkp_disabled">关闭。启用设备 RKP 以自动生成并续期 keybox。</string>
++    <string name="ts_rkp_idle">已安排自动生成</string>
++    <string name="ts_rkp_fetching">正在获取配置挑战…</string>
++    <string name="ts_rkp_hardware">正在等待设备的配置服务…</string>
++    <string name="ts_rkp_signing">正在向 Google 请求证书…</string>
++    <string name="ts_rkp_validating">正在验证并保存 keybox…</string>
++    <string name="ts_rkp_ready">生成的 keybox 已生效。到期时间 %1$s。已安排自动续期：%2$s。</string>
++    <string name="ts_rkp_active_subtitle">设备 RKP keybox 已生效</string>
++    <string name="ts_rkp_fetch_disabled">设备 RKP 开启时禁用。将其关闭以使用在线 keybox。</string>
++    <string name="ts_rkp_expired">生成的 keybox 已过期。有网络连接时将自动替换。</string>
++    <string name="ts_rkp_hal_rejected">固件拒绝了请求（代码 %1$d）。没有兼容的配置方法成功。</string>
++    <string name="ts_rkp_http_error">配置服务器拒绝了请求（HTTP %1$d）</string>
++    <string name="ts_rkp_unsupported">设备未提供兼容的配置接口</string>
++    <string name="ts_rkp_network_error">无法连接配置服务器。请检查网络连接。</string>
++    <string name="ts_rkp_submission_unknown">服务器响应丢失。请求可能已处理；未进行自动重试。</string>
++    <string name="ts_rkp_invalid_chain">keybox 证书验证失败。保留了现有 keybox。</string>
++    <string name="ts_rkp_timeout">配置超时。如果设备服务仍忙碌，请重启设备后重试。</string>
++    <string name="ts_rkp_canceled">由于 keybox 配置更改，请求已取消</string>
++    <string name="ts_rkp_save_failed">无法保存生成的 keybox</string>
++    <string name="ts_rkp_action_failed">无法完成 keybox 操作</string>
++    <string name="ts_rkp_waiting_network">正在等待网络连接以生成或续期 keybox</string>
++    <string name="ts_rkp_auto_paused">%1$s 自动配置已暂停。使用“生成 keybox”重试。</string>
++    <string name="ts_rkp_auto_retry">%1$s 下次自动尝试：%2$s。</string>
++    <string name="ts_rkp_native_unavailable">原生配置助手不可用，或与此固件不兼容</string>
++    <string name="ts_rkp_native_transport">原生配置服务意外停止。自动配置已暂停。</string>
++    <string name="ts_rkp_invalid_response">设备返回了无效的配置响应。保留了现有 keybox。</string>
++    <string name="lockscreen_hide_lock_icon_title">隐藏锁图标</string>
++    <string name="lockscreen_hide_lock_icon_summary">隐藏锁屏上的锁定和解锁图标，同时保持指纹图标可见</string>
++    <string name="about_discord_title">Discord</string>
++    <string name="about_founder_1_summary">创始人 / 首席开发者</string>
++    <string name="about_founder_1_title">Joey</string>
++    <string name="about_founder_3_summary">联合创始人 / 项目经理</string>
++    <string name="about_founder_3_title">Akito Mizukito</string>
++    <string name="about_github_title">GitHub</string>
++    <string name="about_member_1_summary">项目经理 / 维护者</string>
++    <string name="about_member_1_title">TechPanelGM</string>
++    <string name="about_member_2_summary">基础设施经理</string>
++    <string name="about_member_2_title">Aidan Warner</string>
++    <string name="about_member_3_summary">维护者关系 / 维护者</string>
++    <string name="about_member_3_title">Onelots</string>
++    <string name="about_member_4_summary">维护者关系 / 维护者</string>
++    <string name="about_member_4_title">Manidweep</string>
++    <string name="about_member_5_summary">维护者（2025–2026）</string>
++    <string name="about_member_5_title">Apelete Seketeli</string>
++    <string name="about_x_title">X</string>
++    <string name="color_picker_argb">ARGB</string>
++    <string name="color_picker_hex">HEX</string>
++    <string name="emoji_preview_sample">😀 🎉 ❤️ 👍🏽 🏳️‍🌈</string>
++    <string name="network_traffic_autohide_kilobytes">KB/s</string>
++    <string name="qs_panel_style_coloros">ColorOS</string>
++    <string name="qs_panel_style_nothingos">NothingOS</string>
++    <string name="qs_panel_style_remix">Remix</string>
++    <string name="qs_remix_style_bento">Bento</string>
++    <string name="qs_remix_style_blueprint">Blueprint</string>
++    <string name="qs_remix_style_cards">卡片</string>
++    <string name="qs_remix_style_circles">圆形</string>
++    <string name="qs_remix_style_classic">经典</string>
++    <string name="qs_remix_style_compact">紧凑</string>
++    <string name="qs_remix_style_duo">双色</string>
++    <string name="qs_remix_style_glass">玻璃</string>
++    <string name="qs_remix_style_neon">霓虹</string>
++    <string name="qs_remix_style_remix">Remix</string>
++    <string name="qs_remix_style_shapes">形状</string>
++    <string name="qs_remix_style_soft">柔和</string>
++    <string name="qs_remix_style_stock">原生</string>
++    <string name="ts_patch_date_hint">例如 2026-07-05、YYYY-MM-05、YYYY-MM-DD、today 或按包块</string>
++    <string name="ts_patch_resolves_to">解析为 %1$s</string>
++    <string name="unit_pixels">dp</string>
+ </resources>

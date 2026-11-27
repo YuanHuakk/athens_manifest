@@ -1,0 +1,55 @@
+diff --git a/app/src/main/res/values-zh-rCN/evolution_strings.xml b/app/src/main/res/values-zh-rCN/evolution_strings.xml
+new file mode 100644
+index 0000000..57156e3
+--- /dev/null
++++ b/app/src/main/res/values-zh-rCN/evolution_strings.xml
+@@ -0,0 +1,16 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!--
++     SPDX-FileCopyrightText: The Evolution X Project
++     SPDX-License-Identifier: Apache-2.0
++-->
++<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
++    <string name="maintainer_name">维护者：<xliff:g id="maintainer" example="Maintainer Name">%1$s</xliff:g></string>
++    <string name="support_forum">论坛</string>
++    <string name="support_firmware">固件</string>
++    <string name="support_donate">捐赠</string>
++    <string name="pref_category_appearance">外观</string>
++    <string name="menu_show_logo">显示标志</string>
++    <string name="menu_show_logo_summary">在主界面显示 Evolution X 标志</string>
++    <string name="menu_show_updater_icon">显示更新程序图标</string>
++    <string name="menu_show_updater_icon_summary">在顶栏显示更新程序图标。关闭后将显示 Evolution X 标志</string>
++</resources>
+diff --git a/app/src/main/res/values-zh-rCN/strings.xml b/app/src/main/res/values-zh-rCN/strings.xml
+index c224e07..d72ffb6 100644
+--- a/app/src/main/res/values-zh-rCN/strings.xml
++++ b/app/src/main/res/values-zh-rCN/strings.xml
+@@ -132,4 +132,28 @@
+     <string name="local_update_import_success_message">构建日期：<xliff:g id="build_date" example="Apr 27">%1$s</xliff:g>\n\n点击已导入的更新以查看可用操作。</string>
+     <string name="local_update_import_failure">导入本地更新失败</string>
+     <string name="local_update_name">本地更新</string>
++
++    <!-- Evolution X updater redesign -->
++    <string name="system_up_to_date_title">系统已是最新版本</string>
++    <string name="update_available_title">有可用的系统更新</string>
++    <string name="checking_for_update_title">正在检查更新…</string>
++    <string name="preparing_update_title">正在准备系统更新…</string>
++    <string name="downloading_update_title">正在下载系统更新…</string>
++    <string name="installing_update_title">正在安装系统更新…</string>
++    <string name="verifying_update_title">正在验证系统更新…</string>
++    <string name="update_paused_title">系统更新已暂停</string>
++    <string name="action_download_install">下载并安装</string>
++    <string name="downloading_installing_caption">正在下载并安装更新</string>
++    <string name="metered_warning_footnote">通过移动网络或按流量计费的 Wi-Fi 下载更新可能会产生额外费用。</string>
++    <string name="changelog_loading">正在加载近期变更…</string>
++    <string name="changelog_failed">近期变更暂时不可用。</string>
++    <string name="changelog_empty">此版本未提供更新日志。</string>
++    <string name="changelog_view_all">查看全部变更</string>
++    <string name="updates_check_failed_title">无法检查更新</string>
++    <string name="check_for_update">检查更新</string>
++    <string name="header_last_check">上次成功检查更新：</string>
++    <string name="header_android_version_full">Android 版本：<xliff:g id="version" example="16">%1$s</xliff:g></string>
++    <string name="header_security_update_full">Android 安全更新：<xliff:g id="date" example="5 July 2026">%1$s</xliff:g></string>
++    <string name="action_back">返回</string>
++    <string name="menu_more_options">更多选项</string>
+ </resources>
