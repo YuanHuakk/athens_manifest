@@ -1,0 +1,20 @@
+diff --git a/packages/SystemUI/res/values-zh-rCN/evolution_strings.xml b/packages/SystemUI/res/values-zh-rCN/evolution_strings.xml
+index 2bec6b5a9a61..a22f9899edd3 100644
+--- a/packages/SystemUI/res/values-zh-rCN/evolution_strings.xml
++++ b/packages/SystemUI/res/values-zh-rCN/evolution_strings.xml
+@@ -85,6 +85,15 @@
+     <string name="usb_use_tethering">USB 网络共享</string>
+     <string name="usb_use_MIDI">MIDI</string>
+     <string name="usb_use">USB 用于</string>
++    <!-- USB mode picker -->
++    <string name="usb_mode_picker_title">选择 USB 模式</string>
++    <string name="usb_mode_file_transfer">文件传输</string>
++    <string name="usb_mode_tethering">USB 网络共享</string>
++    <string name="usb_mode_midi">MIDI</string>
++    <string name="usb_mode_photo_transfer">照片和视频传输</string>
++    <string name="usb_mode_webcam">USB 摄像头</string>
++    <string name="usb_mode_charging_only">仅充电</string>
++    <string name="usb_charging_status">USB 充电中</string>
+     <!-- Text while recognizing face -->
+     <string name="face_unlock_recognizing">正在识别面部...</string>
+     <!-- Name of the roaming status bar icon. -->
