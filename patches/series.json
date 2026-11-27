@@ -114,5 +114,9 @@
   {
     "project": "packages/apps/Evolver",
     "patch": "upstream/32-packages_apps_Evolver.patch"
+  },
+  {
+    "project": "packages/apps/ThemeStore",
+    "patch": "upstream/36-packages_apps_ThemeStore_i18n.patch"
   }
 ]

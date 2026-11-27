@@ -43523,7 +43523,7 @@ index 0000000000000000000000000000000000000000..f2f4ff179cef9ab62a9ead4dfcf421d0
 +    <string name="delete_failed">无法删除此备份，请重试。</string>
 +</resources>
 diff --git a/packages/SystemUI/res/values-zh-rCN/evolution_strings.xml b/packages/SystemUI/res/values-zh-rCN/evolution_strings.xml
-index 2bec6b5a9a61..a22f9899edd3 100644
+index 2bec6b5a9a614135a18315cbcb68b3d639259a59..475facf9e62514a7c2c0e7f86d48faa809ef4a00 100644
 --- a/packages/SystemUI/res/values-zh-rCN/evolution_strings.xml
 +++ b/packages/SystemUI/res/values-zh-rCN/evolution_strings.xml
 @@ -85,6 +85,15 @@
@@ -43542,3 +43542,59 @@ index 2bec6b5a9a61..a22f9899edd3 100644
      <!-- Text while recognizing face -->
      <string name="face_unlock_recognizing">正在识别面部...</string>
      <!-- Name of the roaming status bar icon. -->
+@@ -137,4 +146,35 @@
+     <!-- Smart Pixels QS Tile -->
+     <string name="quick_settings_smart_pixels">智能像素</string>
+     <string name="quick_settings_smart_pixels_on_power_save">自动启用智能像素</string>
++
++    <!-- Media QS Tile -->
++    <string name="qs_media_tile_label">媒体</string>
++    <string name="qs_media_tile_idle">未在播放</string>
++
++    <!-- Volume QS Tile -->
++    <string name="qs_volume_tile_label">音量</string>
++    <string name="qs_volume_tile_muted">已静音</string>
++
++    <!-- Sound mode QS Tile -->
++    <string name="qs_sound_tile_label">声音模式</string>
++    <string name="qs_sound_tile_ring">响铃</string>
++    <string name="qs_sound_tile_vibrate">振动</string>
++    <string name="qs_sound_tile_silent">静音</string>
++
++    <!-- Weather QS Tile -->
++    <string name="omnijaws_label_default">天气</string>
++    <string name="omnijaws_service_error">天气数据加载失败</string>
++
++    <!-- Brightness QS Tile -->
++    <string name="qs_brightness_tile_label">亮度</string>
++    <string name="qs_brightness_tile_auto">自动</string>
++    <string name="qs_brightness_tile_manual">手动</string>
++
++    <!-- Blur QS Tile -->
++    <string name="quick_settings_blur_label">模糊</string>
++
++    <!-- Smart Pixels QS Tile -->
++    <string name="quick_settings_smart_pixels_label">智能像素</string>
++    <string name="quick_settings_smart_pixels_on">开启</string>
++    <string name="quick_settings_smart_pixels_off">关闭</string>
+ </resources>
+diff --git a/packages/overlays/NotchBarKiller/res/values-zh-rCN/strings.xml b/packages/overlays/NotchBarKiller/res/values-zh-rCN/strings.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..cbe42dadc0e89ade438a524c6fd1d702d28351cd
+--- /dev/null
++++ b/packages/overlays/NotchBarKiller/res/values-zh-rCN/strings.xml
+@@ -0,0 +1,4 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
++    <string name="display_cutout_emulation_overlay_notch">隐藏刘海屏</string>
++</resources>
+diff --git a/packages/overlays/NotchBarKillerLeft/res/values-zh-rCN/strings.xml b/packages/overlays/NotchBarKillerLeft/res/values-zh-rCN/strings.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..fdc0b4e3b26f81e23680cc44a4695b183a6a99c2
+--- /dev/null
++++ b/packages/overlays/NotchBarKillerLeft/res/values-zh-rCN/strings.xml
+@@ -0,0 +1,4 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
++    <string name="display_cutout_emulation_overlay_notch">隐藏刘海屏（左）</string>
++</resources>

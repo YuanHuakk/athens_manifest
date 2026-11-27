@@ -1,0 +1,156 @@
+diff --git a/res/values-zh-rCN/axion_strings.xml b/res/values-zh-rCN/axion_strings.xml
+new file mode 100644
+index 0000000..d444e67
+--- /dev/null
++++ b/res/values-zh-rCN/axion_strings.xml
+@@ -0,0 +1,96 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <string name="app_name">主题</string>
++    <string name="see_all">查看全部</string>
++
++    <string name="system_themes_title">系统主题</string>
++    <string name="system_icons_title">系统图标</string>
++    <string name="no_theme_packages">未安装主题包</string>
++    <string name="no_theme_packages_desc">安装主题包以自定义系统图标和界面</string>
++    <string name="theme_applied">已应用</string>
++    <string name="theme_not_applied">未应用</string>
++    <string name="create_theme">创建主题</string>
++    <string name="theme_creator_title">主题创建器</string>
++    <string name="theme_name">主题名称</string>
++    <string name="theme_name_hint">为你的主题命名，方便以后识别</string>
++    <string name="section_wifi_icons">Wi-Fi 图标</string>
++    <string name="section_signal_icons">移动信号图标</string>
++    <string name="wifi_icons_desc">替换状态栏中显示的 5 个 Wi-Fi 信号强度图标</string>
++    <string name="signal_icons_desc">替换状态栏中显示的 5 个移动信号强度图标</string>
++    <string name="current_icons_label">当前</string>
++    <string name="your_icons_label">你的替换图标</string>
++    <string name="import_drawable">导入</string>
++    <string name="save_and_apply">保存并应用</string>
++    <string name="save_and_apply_count">保存并应用（%d 个图标）</string>
++    <string name="creator_guide_title">如何创建系统图标主题</string>
++    <string name="creator_guide_body">用自己的图标替换系统状态栏图标。可导入 PNG 或矢量图（建议 24×24dp、透明背景、白色前景）。系统会自动着色以匹配你的主题。你不需要替换所有图标，只有导入的图标会被覆盖。</string>
++    <string name="advanced_overrides">高级：覆盖任意图形资源</string>
++    <string name="advanced_overrides_desc">按名称搜索并替换任意系统图形资源</string>
++    <string name="search_resource_name">资源名称</string>
++    <string name="search_resource_hint">例如 ic_bluetooth、stat_sys_data、ic_qs_</string>
++    <string name="search_results_count">找到 %d 个资源</string>
++
++    <string name="featured">精选</string>
++    <string name="installed">已安装</string>
++    <string name="themes">主题</string>
++    <string name="search_themes">搜索主题</string>
++    <string name="recent_searches">最近搜索</string>
++    <string name="no_recent_searches">无最近搜索</string>
++    <string name="clear_all">全部清除</string>
++    <string name="no_results_found">未找到结果</string>
++
++    <string name="loading_themes">正在加载主题…</string>
++    <string name="failed_to_load_themes">加载主题失败</string>
++    <string name="no_themes_found">未找到主题</string>
++    <string name="no_themes_available">暂无可用主题</string>
++    <string name="try_different_search">尝试其他搜索词</string>
++    <string name="check_back_later">稍后回来查看新主题</string>
++    <string name="retry">重试</string>
++
++    <string name="installed_components">已安装组件</string>
++    <string name="active_theme_components">当前主题组件</string>
++    <string name="active_theme_components_desc">查看当前已应用到系统的所有组件</string>
++    <string name="ui_style">界面风格</string>
++    <string name="icon_theme_components">图标主题组件</string>
++    <string name="no_icon_themes_installed">未安装图标主题</string>
++    <string name="browse_for_icon_themes">浏览主题商店以安装图标主题</string>
++    <string name="active">已启用</string>
++
++    <string name="app_icon_packs">应用图标包</string>
++    <string name="themed_icons">主题图标</string>
++    <string name="themed_icons_desc">随壁纸颜色变化的单色图标</string>
++    <string name="icon_style">图标风格</string>
++    <string name="axicons">AxIcons</string>
++    <string name="neutral">中性</string>
++    <string name="aosp">AOSP</string>
++    <string name="accent">强调色</string>
++    <string name="default_system_icon_pack">默认系统图标包</string>
++
++    <string name="download">下载</string>
++    <string name="install">安装</string>
++    <string name="apply">应用</string>
++    <string name="apply_changes">应用更改</string>
++    <string name="disable">停用</string>
++    <string name="uninstall">卸载</string>
++    <string name="resume_installation">继续安装</string>
++    <string name="downloading">正在下载 %s…</string>
++    <string name="installing">正在安装…</string>
++    <string name="update_to">更新到 v%s</string>
++    <string name="pending_changes">待应用的更改</string>
++    <string name="components">组件</string>
++    <string name="tags">标签</string>
++    <string name="error_prefix">错误：%s</string>
++    <string name="components_installed">已安装 %1$d/%2$d 个组件</string>
++
++    <string name="back">返回</string>
++    <string name="search">搜索</string>
++    <string name="refresh">刷新</string>
++    <string name="remove">移除</string>
++    <string name="clear">清除</string>
++
++    <string name="default_ui_style">默认（Axion）</string>
++
++    <string name="theme_author">作者：%s</string>
++    <string name="theme_current_source">当前来源：%s</string>
++    <string name="failed_to_load_image">图片加载失败</string>
++</resources>
+diff --git a/res/values/axion_strings.xml b/res/values/axion_strings.xml
+index d573d94..7cc3ba0 100644
+--- a/res/values/axion_strings.xml
++++ b/res/values/axion_strings.xml
+@@ -91,2 +91,6 @@
+     <string name="default_ui_style">Default (Axion)</string>
++
++    <string name="theme_author">by %s</string>
++    <string name="theme_current_source">Currently from: %s</string>
++    <string name="failed_to_load_image">Failed to load image</string>
+ </resources>
+diff --git a/src/com/android/axion/axthemestore/ui/ThemeDetailScreen.kt b/src/com/android/axion/axthemestore/ui/ThemeDetailScreen.kt
+index 6c350ef..cbdd805 100644
+--- a/src/com/android/axion/axthemestore/ui/ThemeDetailScreen.kt
++++ b/src/com/android/axion/axthemestore/ui/ThemeDetailScreen.kt
+@@ -152,5 +152,5 @@ fun ThemeDetailScreen(
+                 Text(
+-                    text = "by ${theme.author}",
++                    text = stringResource(R.string.theme_author, theme.author),
+                     style = MaterialTheme.typography.bodyLarge,
+                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                 )
+@@ -431,7 +431,7 @@ private fun ComponentSelectionItem(
+             )
+             if (currentSource != null) {
+                 Text(
+-                    text = "Currently from: $currentSource",
++                    text = stringResource(R.string.theme_current_source, currentSource),
+                     style = MaterialTheme.typography.bodySmall,
+                     color = MaterialTheme.colorScheme.tertiary
+                 )
+diff --git a/src/com/android/axion/axthemestore/ui/components/AsyncImage.kt b/src/com/android/axion/axthemestore/ui/components/AsyncImage.kt
+index c663468..90b9f3f 100644
+--- a/src/com/android/axion/axthemestore/ui/components/AsyncImage.kt
++++ b/src/com/android/axion/axthemestore/ui/components/AsyncImage.kt
+@@ -34,7 +34,9 @@ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.graphics.Brush
+ import androidx.compose.ui.layout.ContentScale
++import androidx.compose.ui.res.stringResource
+ import androidx.compose.ui.unit.dp
++import com.android.axion.axthemestore.R
+ import com.android.axion.axthemestore.data.ThumbnailPreloader
+ import com.bumptech.glide.integration.compose.ExperimentalGlideComposeApi
+ import com.bumptech.glide.integration.compose.GlideImage
+@@ -76,7 +78,7 @@ fun AsyncNetworkImage(
+                 ) {
+                     Icon(
+                         imageVector = Icons.Default.BrokenImage,
+-                        contentDescription = "Failed to load image",
++                        contentDescription = stringResource(R.string.failed_to_load_image),
+                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                         modifier = Modifier.size(32.dp),
+                     )

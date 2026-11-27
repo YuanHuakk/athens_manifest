@@ -279,10 +279,20 @@ index 1bf2e2a96d330bf104d13d713871a9cd9c18a778..74c016c77ba11cafd81a893fee4de4fd
                 settings:enableCopying="true"/>
         <Preference
 diff --git a/res/values/evolution_strings.xml b/res/values/evolution_strings.xml
-index c18a9aa49082bb8dd1029bf9f08dbd518cac62f5..84659391a75702fa1b011775bde3029ca3d1fc65 100644
+index 868d7bb2512520de5cbe64402cb56b5376efdc85..094741851fe72ce45c16c2e0273622ba126bdac9 100644
 --- a/res/values/evolution_strings.xml
 +++ b/res/values/evolution_strings.xml
-@@ -441,3 +441,6 @@
+@@ -391,6 +391,8 @@
+     <!-- Override Mock Location restriction -->
+     <string name="override_mock_location_title">Override mock location restriction</string>
+     <string name="override_mock_location_summary">When enabled, apps cannot detect mock locations</string>
++    <string name="override_mock_location_summary_on">Mock locations are hidden from apps</string>
++    <string name="override_mock_location_summary_off">Apps can detect mock locations</string>
+
+     <!-- AOD Schedule -->
+     <string name="always_on_display_schedule_title">Always on display schedule</string>
+@@ -442,4 +444,7 @@
+     <string name="lockscreen_display_timeout_5m">5 minutes</string>
      <string name="lockscreen_display_timeout_10m">10 minutes</string>
      <string name="lockscreen_display_timeout_30m">30 minutes</string>
 +    <string name="window_blur_strength_title">Blur Strength</string>
@@ -291,10 +301,10 @@ index c18a9aa49082bb8dd1029bf9f08dbd518cac62f5..84659391a75702fa1b011775bde3029c
  </resources>
 diff --git a/res/values-zh-rCN/evolution_strings.xml b/res/values-zh-rCN/evolution_strings.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..073f6858cb13787365894dcf994d114925d82697
+index 0000000000000000000000000000000000000000..c306bcac0a6a4381997c0589e2ccad019771c7f7
 --- /dev/null
 +++ b/res/values-zh-rCN/evolution_strings.xml
-@@ -0,0 +1,278 @@
+@@ -0,0 +1,280 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
 +    <string name="evolution_license_title">Evolution X 法律信息</string>
@@ -521,6 +531,8 @@ index 0000000000000000000000000000000000000000..073f6858cb13787365894dcf994d1149
 +    <string name="radio_info_title">无线电信息</string>
 +    <string name="override_mock_location_title">屏蔽模拟位置检测</string>
 +    <string name="override_mock_location_summary">启用后，应用无法检测到模拟位置</string>
++    <string name="override_mock_location_summary_on">模拟位置已对应用隐藏</string>
++    <string name="override_mock_location_summary_off">应用可以检测到模拟位置</string>
 +    <string name="always_on_display_schedule_title">常亮显示时间表</string>
 +    <string name="string_disabled">已关闭</string>
 +    <string name="always_on_display_schedule_sunset">日落</string>
@@ -603,3 +615,33 @@ index 9507e2e288847bbba550abf8f0a6017e8ab45227..602f36dbfc00ed8a93f8908da9908d78
 -        return "Off"
 +        return mContext.getString(R.string.window_blur_summary_off)
      }
+diff --git a/res/values-zh-rCN/arrays.xml b/res/values-zh-rCN/arrays.xml
+index ba3c3659095583b536c9f26aef3a5c640260a065..408582ec4d5b82f35bc2316673ca28ac562a342a 100644
+--- a/res/values-zh-rCN/arrays.xml
++++ b/res/values-zh-rCN/arrays.xml
+@@ -401,6 +401,11 @@
+     <item msgid="91222619458919148">"使用随机分配的 MAC"</item>
+     <item msgid="741680937828608749">"使用设备 MAC"</item>
+   </string-array>
++  <string-array name="wifi_privacy_entries_ext">
++    <item>使用按连接随机分配的 MAC（默认）</item>
++    <item>使用按网络随机分配的 MAC</item>
++    <item>使用设备 MAC</item>
++  </string-array>
+   <string-array name="wifi_dhcp_entries">
+     <item msgid="2532836996945493932">"将设备名称发送到网络"</item>
+     <item msgid="7928900271137707489">"不要将设备名称发送到网络"</item>
+diff --git a/res/xml/location_settings.xml b/res/xml/location_settings.xml
+index 50066e0f5e8a9c45d6f0051475f0b6ba5b49f10c..0d61aa0163c226365d0a8fd85e4db60dffa13ac3 100644
+--- a/res/xml/location_settings.xml
++++ b/res/xml/location_settings.xml
+@@ -58,7 +58,7 @@
+     <SwitchPreferenceCompat
+         android:key="override_mock_location"
+         android:title="@string/override_mock_location_title"
+-        android:summaryOn="Mock locations are hidden from apps"
+-        android:summaryOff="Apps can detect mock locations"
++        android:summaryOn="@string/override_mock_location_summary_on"
++        android:summaryOff="@string/override_mock_location_summary_off"
+         android:defaultValue="false"
+         settings:controller="com.android.settings.location.OverrideMockLocationPreferenceController" />
