@@ -70,12 +70,280 @@ diff --git a/services/audioflinger/Effects.cpp b/services/audioflinger/Effects.c
 index 28d4d090e2c6f14ae991877396e901767d3b4499..26f58425ea9252a7c9652ac269d599b6159b244a 100644
 --- a/services/audioflinger/Effects.cpp
 +++ b/services/audioflinger/Effects.cpp
-@@ -3002,6 +3002,8 @@ bool EffectChain::isEffectEligibleForSuspend(const effect_descriptor_t& desc)
+@@ -3002,4 +3002,6 @@ bool EffectChain::isEffectEligibleForSuspend(const effect_descriptor_t& desc)
            (memcmp(&desc.type, SL_IID_VOLUME, sizeof(effect_uuid_t)) == 0) ||
            (memcmp(&desc.type, SL_IID_DAP, sizeof(effect_uuid_t)) == 0) ||
            (memcmp(&desc.type, SL_IID_DAP_SW, sizeof(effect_uuid_t)) == 0) ||
 +          // DAP_offload reports a shared vendor extension type and its own implementation UUID.
 +          (memcmp(&desc.uuid, SL_IID_DAP_SW, sizeof(effect_uuid_t)) == 0) ||
            (memcmp(&desc.type, SL_V4A_RE, sizeof(effect_uuid_t)) == 0) ||
-           (memcmp(&desc.type, SL_IID_DYNAMICSPROCESSING, sizeof(effect_uuid_t)) == 0)))) {
-         return false;
+diff --git a/services/audioflinger/AudioFlinger.cpp b/services/audioflinger/AudioFlinger.cpp
+index 5b4188e4c7c936934b982921dfd52ae25e28e822..1d4e37cdae7afae946add47159764b05a63a8c02 100644
+--- a/services/audioflinger/AudioFlinger.cpp
++++ b/services/audioflinger/AudioFlinger.cpp
+@@ -30,6 +30,7 @@
+ #include <afutils/NBAIO_Tee.h>
+ #include <afutils/PropertyUtils.h>
+ #include <android-base/errors.h>
++#include <android-base/properties.h>
+ #include <android-base/stringprintf.h>
+ #include <android/media/IAudioPolicyService.h>
+ #include <audio_utils/CommandThread.h>
+@@ -54,6 +55,7 @@
+ #include <mediautils/ServiceUtilities.h>
+ #include <mediautils/TimeCheck.h>
+ #include <memunreachable/memunreachable.h>
++#include <private/android_filesystem_config.h>
+ // required for effect matching
+ #include <system/audio_effects/effect_aec.h>
+ #include <system/audio_effects/effect_ns.h>
+@@ -64,6 +66,7 @@
+ // not needed with the includes above, added to prevent transitive include dependency.
+ #include <atomic>
+ #include <chrono>
++#include <cmath>
+ #include <thread>
+ #include <string_view>
+ 
+@@ -1800,6 +1803,85 @@ void AudioFlinger::logFilteredParameters(size_t originalKVPSize, const String8&
+     }
+ }
+ 
++void AudioFlinger::onAthensBoseGameGain(uid_t uid, const AudioStreamOut& output, float gain,
++        bool changed) {
++    const int32_t activeUid = mAthensBoseGameUid.load();
++    if (activeUid < 0 || uid != static_cast<uid_t>(activeUid) || !std::isfinite(gain)) {
++        return;
++    }
++    const sp<DeviceHalInterface> device = output.hwDev();
++    if (device == nullptr) {
++        return;
++    }
++
++    uint64_t generation;
++    {
++        std::lock_guard lock(mAthensBoseGameMutex);
++        if (mAthensBoseGameUid.load() != activeUid) {
++            return;
++        }
++        auto [it, firstGain] = mAthensBoseGameGains.try_emplace(device);
++        auto& update = it->second;
++        if (!firstGain && (!changed || update.gain == gain)) {
++            if (!update.retryAfter || std::chrono::steady_clock::now() < *update.retryAfter) {
++                return;
++            }
++            gain = update.gain;
++        }
++        update.gain = gain;
++        update.retryAfter.reset();
++        if (update.queued) {
++            return;
++        }
++        update.queued = true;
++        generation = mAthensBoseGameGeneration;
++    }
++
++    // The HAL transaction can block. Keep only the latest pending gain per output module.
++    getAsyncCallbackThread().add("AthensBoseGameGain",
++            [weak = wp<AudioFlinger>::fromExisting(this), device, generation] {
++                if (const auto flinger = weak.promote()) {
++                    flinger->sendAthensBoseGameGain(device, generation);
++                }
++            });
++}
++
++void AudioFlinger::sendAthensBoseGameGain(const sp<DeviceHalInterface>& device,
++        uint64_t generation) {
++    // Order the gain write against the stock enable/disable command sent under the same lock.
++    audio_utils::lock_guard hardwareLock(hardwareMutex());
++    float gain;
++    {
++        std::lock_guard lock(mAthensBoseGameMutex);
++        if (generation != mAthensBoseGameGeneration) {
++            return;
++        }
++        const auto update = mAthensBoseGameGains.find(device);
++        if (update == mAthensBoseGameGains.end()) {
++            return;
++        }
++        gain = update->second.gain;
++        update->second.queued = false;
++    }
++    const status_t result = device->setParameters(
++            String8::format("misound_game_effect_volume=%f", gain));
++    ALOGV("Athens Bose game track gain: %f, status: %d", gain, result);
++    if (result != NO_ERROR) {
++        std::lock_guard lock(mAthensBoseGameMutex);
++        const auto update = mAthensBoseGameGains.find(device);
++        if (update != mAthensBoseGameGains.end() && !update->second.queued) {
++            update->second.retryAfter = std::chrono::steady_clock::now() + std::chrono::seconds(1);
++        }
++    }
++}
++
++void AudioFlinger::resetAthensBoseGameGain() {
++    std::lock_guard lock(mAthensBoseGameMutex);
++    mAthensBoseGameUid.store(-1);
++    ++mAthensBoseGameGeneration;
++    mAthensBoseGameGains.clear();
++}
++
+ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8& keyValuePairs)
+ {
+     ALOGV("setParameters(): io %d, keyvalue %s, calling pid %d calling uid %d",
+@@ -1809,8 +1891,35 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8&
+     // check calling permissions
+     VALUE_OR_RETURN_CONVERTED(enforceCallingPermission(MODIFY_AUDIO_SETTINGS));
+ 
++    const uid_t callingUid = IPCThreadState::self()->getCallingUid();
+     String8 filteredKeyValuePairs = keyValuePairs;
+-    filterReservedParameters(filteredKeyValuePairs, IPCThreadState::self()->getCallingUid());
++    filterReservedParameters(filteredKeyValuePairs, callingUid);
++
++    static const String8 gameUidKey("athens_bose_game_uid");
++    AudioParameter param(filteredKeyValuePairs);
++    String8 gameUidValue;
++    const bool hasGameUpdate = param.get(gameUidKey, gameUidValue) == NO_ERROR;
++    int gameUid = -1;
++    if (hasGameUpdate) {
++        if (callingUid != AID_SYSTEM || ioHandle != AUDIO_IO_HANDLE_NONE) {
++            return PERMISSION_DENIED;
++        }
++        static const bool isAthens = base::GetProperty("ro.product.device", "") == "athens";
++        String8 fpsConfig;
++        if (!isAthens || param.getInt(gameUidKey, gameUid) != NO_ERROR
++                || param.get(String8("misound_fps_effect"), fpsConfig) != NO_ERROR) {
++            return BAD_VALUE;
++        }
++        const std::string_view command(fpsConfig.c_str());
++        const bool validCommand = gameUid == -1 ? command == "F-0-0-0-0"
++                : gameUid >= AID_APP_START && command.starts_with("T-");
++        if (!validCommand) {
++            return BAD_VALUE;
++        }
++        // This UID is AudioFlinger's private control state, not a vendor parameter.
++        param.remove(gameUidKey);
++        filteredKeyValuePairs = param.toString();
++    }
+ 
+     ALOGV("%s: filtered keyvalue %s", __func__, filteredKeyValuePairs.c_str());
+ 
+@@ -1822,7 +1931,12 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8&
+         {
+             audio_utils::lock_guard lock(hardwareMutex());
+             mHardwareStatus = AUDIO_HW_SET_PARAMETER;
++            status_t primaryResult = NO_INIT;
++            const auto* primaryDevice = hasGameUpdate ? mPrimaryHardwareDev.load() : nullptr;
+ 
++            if (hasGameUpdate) {
++                resetAthensBoseGameGain();
++            }
+             for (const auto& [_, audioHwDevice] : mAudioHwDevs) {
+                 const sp<DeviceHalInterface>& dev = audioHwDevice->hwDevice();
+                 status_t result = dev->setParameters(filteredKeyValuePairs);
+@@ -1832,11 +1946,20 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8&
+                 if (final_result != NO_ERROR) {
+                     final_result = result;
+                 }
++                if (audioHwDevice == primaryDevice) {
++                    primaryResult = result;
++                }
++            }
++            if (hasGameUpdate) {
++                // Only the primary HAL owns the Athens FPSOP engine.
++                final_result = primaryResult;
++                if (final_result == NO_ERROR) {
++                    mAthensBoseGameUid.store(gameUid);
++                }
+             }
+             mHardwareStatus = AUDIO_HW_IDLE;
+         }
+         // disable AEC and NS if the device is a BT SCO headset supporting those pre processings
+-        AudioParameter param = AudioParameter(filteredKeyValuePairs);
+         String8 value;
+         if (param.get(String8(AudioParameter::keyBtNrec), value) == NO_ERROR) {
+             bool btNrecIsOff = (value == AudioParameter::valueOff);
+@@ -1869,7 +1992,6 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8&
+             }
+         } else if (thread == primaryPlaybackThread_l()) {
+             // indicate output device change to all input threads for pre processing
+-            AudioParameter param = AudioParameter(filteredKeyValuePairs);
+             int value;
+             if ((param.getInt(String8(AudioParameter::keyRouting), value) == NO_ERROR) &&
+                     (value != 0)) {
+diff --git a/services/audioflinger/AudioFlinger.h b/services/audioflinger/AudioFlinger.h
+index 8913ec43bbce0b523a779936cd57d056ab0e9b30..b0e21fd72072db103995a27eab6407a7fe2ec2bd 100644
+--- a/services/audioflinger/AudioFlinger.h
++++ b/services/audioflinger/AudioFlinger.h
+@@ -50,8 +50,10 @@
+ #include <utils/KeyedVector.h>
+ #include <utils/String16.h>
+ #include <atomic>
++#include <chrono>
+ #include <functional>
+ #include <map>
++#include <mutex>
+ #include <optional>
+ #include <set>
+ #include <variant>
+@@ -383,6 +385,9 @@ private:
+ 
+     // ----- begin IAfThreadCallback interface
+ 
++    void onAthensBoseGameGain(uid_t uid, const AudioStreamOut& output, float gain,
++            bool changed) final;
++
+     bool isNonOffloadableGlobalEffectEnabled_l() const final
+             REQUIRES(mutex()) EXCLUDES_ThreadBase_Mutex;
+     bool btNrecIsOff() const final { return mBtNrecIsOff.load(); }
+@@ -685,6 +690,19 @@ private:
+     std::atomic<AudioHwDevice*> mPrimaryHardwareDev = nullptr;
+     std::map<audio_module_handle_t, AudioHwDevice*> mAudioHwDevs GUARDED_BY(hardwareMutex());
+ 
++    void sendAthensBoseGameGain(const sp<DeviceHalInterface>& device, uint64_t generation);
++    void resetAthensBoseGameGain();
++    struct AthensBoseGameGain {
++        float gain = 0.f;
++        bool queued = false;
++        std::optional<std::chrono::steady_clock::time_point> retryAfter;
++    };
++    std::atomic<int32_t> mAthensBoseGameUid{-1};
++    // The playback thread takes only this lock. The worker takes hardwareMutex() first.
++    std::mutex mAthensBoseGameMutex;
++    uint64_t mAthensBoseGameGeneration = 0;
++    std::map<sp<DeviceHalInterface>, AthensBoseGameGain> mAthensBoseGameGains;
++
+     static bool inputBufferSizeDevsCmp(const AudioHwDevice* lhs, const AudioHwDevice* rhs);
+     std::set<AudioHwDevice*, decltype(&inputBufferSizeDevsCmp)>
+             mInputBufferSizeOrderedDevs GUARDED_BY(hardwareMutex()) {inputBufferSizeDevsCmp};
+diff --git a/services/audioflinger/IAfThread.h b/services/audioflinger/IAfThread.h
+index 37af2398a04626ce83620566e0f357486886cca7..971407532c5c2a38d0459a69f0524b2ba3986232 100644
+--- a/services/audioflinger/IAfThread.h
++++ b/services/audioflinger/IAfThread.h
+@@ -133,6 +133,8 @@ public:
+     virtual bool hasAlreadyCaptured(uid_t uid) const = 0;
+ 
+     virtual bool isPrimary(const AudioHwDevice* device) const = 0;
++
++    virtual void onAthensBoseGameGain(uid_t, const AudioStreamOut&, float, bool) {}
+ };
+ 
+ class IAfThreadBase : public virtual RefBase {
+diff --git a/services/audioflinger/Threads.cpp b/services/audioflinger/Threads.cpp
+index c4d9441c5b62824c205bd94e6d1f94bd340865db..d8a686dd42980f6c66d8e6fa493c3d740c37091c 100644
+--- a/services/audioflinger/Threads.cpp
++++ b/services/audioflinger/Threads.cpp
+@@ -5980,7 +5980,13 @@ PlaybackThread::mixer_state MixerThread::prepareTracks_l(
+                     vrf = 0.f;
+                 }
+ 
++                const float previousGain = track->getFinalVolume();
+                 track->setFinalVolume(vlf, vrf);
++                if (mOutput != nullptr && track->streamType() == AUDIO_STREAM_MUSIC) {
++                    const float gain = track->getFinalVolume();
++                    mAfThreadCallback->onAthensBoseGameGain(track->uid(), *mOutput, gain,
++                            gain != previousGain);
++                }
+                 ++fastTracks;
+             } else {
+                 // was it previously active?

@@ -44627,70 +44627,1353 @@ index e14b5acb43840af51b85d7f7be493c6a31fa1817..32316a49cb749c2f97b6c4efb671a62a
              }
          }
  
+diff --git a/services/core/java/com/android/server/audio/AthensBoseController.java b/services/core/java/com/android/server/audio/AthensBoseController.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..33258156ba6d54a562d2a57c8bb5a4700e9bbb58
+--- /dev/null
++++ b/services/core/java/com/android/server/audio/AthensBoseController.java
+@@ -0,0 +1,655 @@
++/*
++ * Copyright (C) 2026 The Android Open Source Project
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.server.audio;
++
++import android.app.ActivityManager;
++import android.app.ActivityTaskManager;
++import android.app.AppGlobals;
++import android.app.TaskStackListener;
++import android.content.ContentResolver;
++import android.database.ContentObserver;
++import android.media.AudioAttributes;
++import android.media.AudioDeviceAttributes;
++import android.media.AudioDeviceInfo;
++import android.media.AudioPlaybackConfiguration;
++import android.media.AudioSystem;
++import android.media.ISpatializerCallback;
++import android.media.audiofx.AudioEffect;
++import android.os.Handler;
++import android.os.Process;
++import android.os.RemoteException;
++import android.os.UserHandle;
++import android.provider.Settings;
++import android.util.Slog;
++
++import java.util.Arrays;
++import java.util.Comparator;
++import java.util.LinkedHashMap;
++import java.util.LinkedHashSet;
++import java.util.List;
++import java.util.Objects;
++import java.util.UUID;
++import java.util.function.IntSupplier;
++
++/** Owns the Athens output-mix effects on AudioService's handler. */
++final class AthensBoseController {
++    private static final String TAG = "AthensBoseController";
++    // Keep these Settings.Secure keys in sync with the Athens sound effects page.
++    private static final String ENABLED = "athens_audio_effect_enabled";
++    private static final String MODE = "athens_audio_effect";
++    private static final String WIRED_MODE = "athens_audio_effect_wired";
++    private static final String BLUETOOTH_MODE = "athens_audio_effect_bluetooth";
++    private static final String PRESET = "athens_audio_preset";
++    private static final String EQUALIZER = "athens_audio_eq";
++    private static final String GAME_AUDIO = "athens_bose_game_audio";
++    private static final String LEGACY_DOLBY = "dolby_atmos_enabled";
++    private static final int UNCONFIGURED = -2;
++    private static final int OFF = -1;
++    private static final int CLASSIC = 0;
++    private static final int BALANCED = 1;
++    private static final int LEGACY_DOLBY_MODE = 2;
++    private static final int DEFAULT = 0;
++    private static final int SURROUND = 1;
++    private static final int CLEAR_VOICE = 2;
++    private static final int CUSTOM = 3;
++    private static final long VOLUME_UPDATE_DELAY_MS = 100;
++    private static final String DEFAULT_SPEAKER_TUNING = "default_internal_speaker";
++    private static final int[] FLAT_GAINS = new int[AthensBoseEffect.BAND_COUNT];
++    private static final AudioAttributes MEDIA =
++            new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build();
++    private static final AudioAttributes GAME =
++            new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_GAME).build();
++
++    private final ContentResolver mResolver;
++    private final AudioSystemAdapter mAudioSystem;
++    private final Handler mHandler;
++    private final SpatializerHelper mSpatializer;
++    private final IntSupplier mSpeakerVolume;
++    private final LinkedHashMap<Integer, Integer> mPlayingDolbyProfiles = new LinkedHashMap<>();
++    private final Runnable mReadForeground = this::readForegroundPackage;
++    private final Runnable mUpdateVolume = this::refresh;
++    private AthensBoseTuning mTuning;
++    private AthensBoseGameTuning mGameTuning;
++    private AudioEffect mDolby;
++    private AudioEffect mMiSound;
++    private int mAppliedMode = UNCONFIGURED;
++    private int mAppliedPreset = UNCONFIGURED;
++    private int mAppliedProfile = UNCONFIGURED;
++    private int mAppliedVolume = UNCONFIGURED;
++    private String mAppliedTuningDevice;
++    private String mAppliedSpatializerDevice;
++    private int mAppliedSpatializerEngine = UNCONFIGURED;
++    private int mAppliedSpatializerRotation = UNCONFIGURED;
++    private int[] mAppliedEqualizer;
++    private int mRotation;
++    private int mPlaybackDolbyProfile = DEFAULT;
++    private String mForegroundPackage;
++    private int mForegroundUid = Process.INVALID_UID;
++    private String mAppliedGameCommand;
++    private List<AudioDeviceAttributes> mAppliedGameRoute = List.of();
++    private boolean mStarted;
++    private boolean mOnSpeaker;
++    private volatile String mState = "not started";
++
++    AthensBoseController(ContentResolver resolver, AudioSystemAdapter audioSystem, Handler handler,
++            SpatializerHelper spatializer, IntSupplier speakerVolume) {
++        mResolver = resolver;
++        mAudioSystem = audioSystem;
++        mHandler = handler;
++        mSpatializer = spatializer;
++        mSpeakerVolume = speakerVolume;
++    }
++
++    void start() {
++        mTuning = AthensBoseTuning.load();
++        mGameTuning = AthensBoseGameTuning.load();
++        mStarted = true;
++        final ContentObserver observer = new ContentObserver(mHandler) {
++            @Override
++            public void onChange(boolean selfChange) {
++                refresh();
++            }
++        };
++        for (String key : List.of(ENABLED, MODE, WIRED_MODE, BLUETOOTH_MODE,
++                PRESET, EQUALIZER, GAME_AUDIO, LEGACY_DOLBY)) {
++            mResolver.registerContentObserver(Settings.Secure.getUriFor(key), false, observer,
++                    UserHandle.USER_ALL);
++        }
++        mSpatializer.registerStateCallback(new ISpatializerCallback.Stub() {
++            @Override
++            public void dispatchSpatializerEnabledChanged(boolean enabled) {
++                mHandler.post(AthensBoseController.this::refresh);
++            }
++
++            @Override
++            public void dispatchSpatializerAvailableChanged(boolean available) {
++                mHandler.post(AthensBoseController.this::refresh);
++            }
++        });
++        if (mGameTuning.hasPresets()) {
++            try {
++                ActivityTaskManager.getService().registerTaskStackListener(new TaskStackListener() {
++                    @Override
++                    public void onTaskStackChanged() {
++                        mHandler.removeCallbacks(mReadForeground);
++                        mHandler.post(mReadForeground);
++                    }
++
++                    @Override
++                    public void onTaskMovedToFront(ActivityManager.RunningTaskInfo taskInfo) {
++                        onTaskStackChanged();
++                    }
++
++                    @Override
++                    public void onTaskFocusChanged(int taskId, boolean focused) {
++                        if (focused) {
++                            onTaskStackChanged();
++                        }
++                    }
++                });
++            } catch (RemoteException e) {
++                Slog.w(TAG, "Unable to observe foreground audio presets", e);
++            }
++            readForegroundPackage();
++        }
++        refresh();
++    }
++
++    private void readForegroundPackage() {
++        try {
++            final ActivityTaskManager.RootTaskInfo task =
++                    ActivityTaskManager.getService().getFocusedRootTaskInfo();
++            final String foreground =
++                    task == null || !task.isVisible || task.topActivity == null ? null
++                            : task.topActivity.getPackageName();
++            int uid = Process.INVALID_UID;
++            if (foreground != null) {
++                uid = task.topActivityInfo != null && task.topActivityInfo.applicationInfo != null
++                        ? task.topActivityInfo.applicationInfo.uid
++                        : AppGlobals.getPackageManager().getPackageUid(foreground, 0, task.userId);
++            }
++            if (!Objects.equals(mForegroundPackage, foreground) || mForegroundUid != uid) {
++                mForegroundPackage = foreground;
++                mForegroundUid = uid;
++                refresh();
++            }
++        } catch (RemoteException e) {
++            Slog.w(TAG, "Unable to read foreground audio profile", e);
++            if (mForegroundPackage != null) {
++                mForegroundPackage = null;
++                mForegroundUid = Process.INVALID_UID;
++                refresh();
++            }
++        }
++    }
++
++    void onAudioServerRestarted() {
++        releaseEffects();
++        mAppliedGameCommand = null;
++        refresh();
++    }
++
++    void onUserSwitched() {
++        mForegroundPackage = null;
++        mForegroundUid = Process.INVALID_UID;
++        refresh();
++        if (mStarted && mGameTuning.hasPresets()) {
++            mHandler.removeCallbacks(mReadForeground);
++            mHandler.post(mReadForeground);
++        }
++    }
++
++    void onSpatializerReset() {
++        mAppliedSpatializerEngine = UNCONFIGURED;
++        mAppliedSpatializerDevice = null;
++        if (isBoseMode(mAppliedMode)) {
++            mAppliedPreset = UNCONFIGURED;
++        }
++        refresh();
++    }
++
++    void onRotationChanged(int rotation) {
++        mRotation = rotation;
++        if (mOnSpeaker && mAppliedPreset == SURROUND) {
++            refresh();
++        }
++    }
++
++    void onVolumeChanged() {
++        if (mOnSpeaker && isBoseMode(mAppliedMode)) {
++            mHandler.removeCallbacks(mUpdateVolume);
++            mHandler.postDelayed(mUpdateVolume, VOLUME_UPDATE_DELAY_MS);
++        }
++    }
++
++    void onPlaybackConfigChange(List<AudioPlaybackConfiguration> configs) {
++        if (!mStarted || !mTuning.usesDolbyAppProfiles()) {
++            return;
++        }
++        final LinkedHashSet<Integer> playingUids = new LinkedHashSet<>();
++        configs.stream()
++                .filter(config -> config.getPlayerState()
++                        == AudioPlaybackConfiguration.PLAYER_STATE_STARTED)
++                .filter(config -> UserHandle.isApp(config.getClientUid()))
++                .filter(config -> AudioAttributes.toLegacyStreamType(config.getAudioAttributes())
++                        == AudioSystem.STREAM_MUSIC)
++                .sorted(Comparator.comparingInt(AudioPlaybackConfiguration::getPlayerInterfaceId))
++                .forEach(config -> playingUids.add(config.getClientUid()));
++
++        // Continue using the earliest app that still has a playing track.
++        mPlayingDolbyProfiles.keySet().retainAll(playingUids);
++        for (int uid : playingUids) {
++            mPlayingDolbyProfiles.computeIfAbsent(uid, this::getDolbyProfileForUid);
++        }
++        if (!mPlayingDolbyProfiles.isEmpty()) {
++            final int profile = mPlayingDolbyProfiles.values().iterator().next();
++            if (profile != mPlaybackDolbyProfile) {
++                mPlaybackDolbyProfile = profile;
++                if (mOnSpeaker && mAppliedMode == CLASSIC && mAppliedPreset != CLEAR_VOICE) {
++                    refresh();
++                }
++            }
++        }
++    }
++
++    private int getDolbyProfileForUid(int uid) {
++        try {
++            final String[] packages = AppGlobals.getPackageManager().getPackagesForUid(uid);
++            return packages == null || packages.length == 0 ? DEFAULT
++                    : mTuning.getDolbyProfile(packages[0]);
++        } catch (RemoteException e) {
++            Slog.w(TAG, "Unable to resolve the playing app for Dolby tuning", e);
++            return DEFAULT;
++        }
++    }
++
++    void refresh() {
++        if (!mStarted) {
++            return;
++        }
++        updateGameAudio();
++        final List<AudioDeviceAttributes> route =
++                mAudioSystem.getDevicesForAttributes(MEDIA, /* forVolume= */ false);
++        if (route.isEmpty() || !route.stream().allMatch(DolbyAtmosController::supportsDap)) {
++            disableAndReleaseEffects();
++            if (mOnSpeaker) {
++                AudioSystem.setParameters("super_effect_type=0");
++                AudioSystem.setParameters("speaker_effect_type=music");
++            }
++            mSpatializer.setSpeakerSpatializationOverride(null);
++            mOnSpeaker = false;
++            mState = "paused for media route";
++            return;
++        }
++
++        final boolean speaker = route.stream().allMatch(AthensBoseController::isSpeaker);
++        if (mOnSpeaker != speaker) {
++            mOnSpeaker = speaker;
++            invalidateTuning();
++        }
++        final String modeKey = speaker ? MODE
++                : route.stream().anyMatch(AthensBoseController::isBluetooth)
++                        ? BLUETOOTH_MODE : WIRED_MODE;
++        final int legacyEnabled = readSetting(LEGACY_DOLBY, UNCONFIGURED);
++        final int fallbackMode = legacyEnabled == 1 ? LEGACY_DOLBY_MODE : CLASSIC;
++        final int savedMode = readSetting(modeKey, fallbackMode);
++        final int requestedMode =
++                savedMode == BALANCED || savedMode == LEGACY_DOLBY_MODE ? savedMode : CLASSIC;
++        final int mode = readSetting(ENABLED, legacyEnabled == 0 ? 0 : 1) == 0
++                ? OFF : requestedMode;
++        try {
++            if (mode != mAppliedMode && !applyMode(mode)) {
++                mState = "waiting for effect control";
++                return;
++            }
++        } catch (RuntimeException e) {
++            disableAndReleaseEffects();
++            mSpatializer.setSpeakerSpatializationOverride(null);
++            mState = "effect unavailable: " + e.getMessage();
++            Slog.w(TAG, mState, e);
++            return;
++        }
++        final int preset = speaker && isBoseMode(mode) ? readSetting(PRESET, DEFAULT) : DEFAULT;
++        try {
++            if (mode == LEGACY_DOLBY_MODE) {
++                configureLegacyDolby();
++            } else {
++                configurePreset(mode, preset);
++            }
++            mState = switch (mode) {
++                case BALANCED -> "Balanced";
++                case CLASSIC -> "Classic";
++                case LEGACY_DOLBY_MODE -> "Legacy Dolby Atmos";
++                default -> "off";
++            };
++            if (mode != OFF) {
++                mState += speaker ? " speaker, preset=" + mAppliedPreset
++                        + ", profile=" + mAppliedProfile
++                        + (mAppliedTuningDevice != null ? ", tuning=" + mAppliedTuningDevice : "")
++                        + (mAppliedPreset == SURROUND && !mSpatializer.isEnabled()
++                                ? ", spatializer unavailable" : "")
++                        : " external output";
++            }
++        } catch (RuntimeException e) {
++            final String state = "tuning unavailable: " + e.getMessage();
++            if (!mState.equals(state)) {
++                Slog.w(TAG, state, e);
++            }
++            mState = state;
++        }
++    }
++
++    private boolean applyMode(int mode) {
++        // Instantiate the inactive effect too, so a vendor state surviving an audioserver
++        // restart is cleared before we enable the requested effect.
++        final boolean usesDolby = mode == CLASSIC || mode == LEGACY_DOLBY_MODE;
++        final AudioEffect dolby = getOrCreateEffect(/* misound= */ false, usesDolby);
++        final AudioEffect misound = getOrCreateEffect(/* misound= */ true, mode == BALANCED);
++        if (mode == OFF) {
++            disableAndReleaseEffects();
++            mAppliedMode = OFF;
++            return true;
++        }
++        final AudioEffect selected = usesDolby ? dolby : misound;
++        final AudioEffect other = usesDolby ? misound : dolby;
++        if (!selected.hasControl() || (other != null && !other.hasControl()
++                && other.getEnabled())) {
++            return false;
++        }
++        if (mAppliedMode >= CLASSIC && (mAppliedMode == BALANCED) != (mode == BALANCED)) {
++            AudioSystem.setParameters("effect_switch_fade=true");
++        }
++        invalidateTuning();
++        if (!usesDolby) {
++            setEffectEnabled(dolby, false, false);
++        }
++        if (mode != BALANCED) {
++            setEffectEnabled(misound, true, false);
++        }
++        if (usesDolby) {
++            setEffectEnabled(dolby, false, true);
++        } else if (mode == BALANCED) {
++            setEffectEnabled(misound, true, true);
++        }
++        mAppliedMode = mode;
++        return true;
++    }
++
++    private AudioEffect getOrCreateEffect(boolean misound, boolean required) {
++        AudioEffect effect = misound ? mMiSound : mDolby;
++        if (effect != null) {
++            return effect;
++        }
++        final UUID uuid = misound ? AthensBoseEffect.MISOUND : AthensBoseEffect.DOLBY;
++        try {
++            effect = new AudioEffect(AudioEffect.EFFECT_TYPE_NULL, uuid,
++                    /* priority= */ 0, /* audioSession= */ 0);
++        } catch (RuntimeException e) {
++            if (required) {
++                throw e;
++            }
++            return null;
++        }
++        if (misound) {
++            mMiSound = effect;
++        } else {
++            mDolby = effect;
++        }
++        effect.setControlStatusListener((changedEffect, hasControl) -> mHandler.post(() -> {
++            if (changedEffect == (misound ? mMiSound : mDolby)) {
++                mAppliedMode = UNCONFIGURED;
++                if (hasControl) {
++                    refresh();
++                }
++            }
++        }));
++        return effect;
++    }
++
++    private static void setEffectEnabled(AudioEffect effect, boolean misound, boolean enabled) {
++        if (effect != null && effect.hasControl()) {
++            AthensBoseEffect.setEnabled(effect, misound, enabled);
++        }
++    }
++
++    private void configureLegacyDolby() {
++        if (mAppliedPreset != DEFAULT) {
++            mSpatializer.setSpeakerSpatializationOverride(null);
++            AudioSystem.setParameters("super_effect_type=0");
++            AudioSystem.setParameters("speaker_effect_type=music");
++            mAppliedPreset = DEFAULT;
++        }
++        syncSpatializerEngine(CLASSIC);
++        if (mOnSpeaker && !DEFAULT_SPEAKER_TUNING.equals(mAppliedTuningDevice)) {
++            // Undo the Bose volume-band selection before leaving device tuning to DAX.
++            AthensBoseEffect.setDolbyTuningDevice(mDolby, DEFAULT_SPEAKER_TUNING);
++            mAppliedTuningDevice = DEFAULT_SPEAKER_TUNING;
++        }
++        if (mAppliedProfile != DEFAULT) {
++            AthensBoseEffect.setProfile(mDolby, /* misound= */ false, DEFAULT);
++            mAppliedProfile = DEFAULT;
++        }
++        configureEqualizer(mDolby, /* misound= */ false, DEFAULT);
++    }
++
++    private void configurePreset(int mode, int setting) {
++        final int preset = setting >= DEFAULT && setting <= CUSTOM ? setting : DEFAULT;
++        if (preset != mAppliedPreset) {
++            mSpatializer.setSpeakerSpatializationOverride(
++                    mode == OFF || !mOnSpeaker || preset == DEFAULT ? null : preset == SURROUND);
++            final int stockPreset = preset == DEFAULT ? 0 : preset + 1;
++            AudioSystem.setParameters("super_effect_type=" + stockPreset);
++            final String scene = mode == CLASSIC && preset == SURROUND ? "movie"
++                    : mode == CLASSIC && preset == CLEAR_VOICE ? "game" : "music";
++            AudioSystem.setParameters("speaker_effect_type=" + scene);
++            mAppliedPreset = preset;
++            mAppliedSpatializerDevice = null;
++        }
++        syncSpatializerEngine(mode == BALANCED ? BALANCED : CLASSIC);
++        if (mode == OFF) {
++            return;
++        }
++
++        final boolean misound = mode == BALANCED;
++        final AudioEffect effect = misound ? mMiSound : mDolby;
++        final int profile = preset == CLEAR_VOICE ? 2
++                : !misound && mOnSpeaker ? mPlaybackDolbyProfile : DEFAULT;
++        final int volume = mOnSpeaker ? mSpeakerVolume.getAsInt() : 0;
++        String tuningDevice = mOnSpeaker
++                ? (preset == CLEAR_VOICE ? "speaker_loudness" : mTuning.getDolbyTuningDevice(volume))
++                : null;
++        if (preset == SURROUND && mSpatializer.isEnabled()) {
++            final int rotation = mRotation == 0 ? 90 : mRotation;
++            final String spatializerDevice = tuningDevice == null ? DEFAULT_SPEAKER_TUNING
++                    : tuningDevice + (rotation == 270 ? "_270" : "_90");
++            if ((!spatializerDevice.equals(mAppliedSpatializerDevice)
++                    || rotation != mAppliedSpatializerRotation)
++                    && AthensBoseEffect.setSpatializerTuning(mSpatializer, spatializerDevice,
++                            rotation)) {
++                mAppliedSpatializerDevice = spatializerDevice;
++                mAppliedSpatializerRotation = rotation;
++            }
++            tuningDevice = spatializerDevice;
++        } else {
++            mAppliedSpatializerDevice = null;
++        }
++        if (!misound && tuningDevice != null && !tuningDevice.equals(mAppliedTuningDevice)) {
++            try {
++                AthensBoseEffect.setDolbyTuningDevice(effect, tuningDevice);
++            } catch (IllegalStateException e) {
++                final String nonSpatialTuning = mTuning.getDolbyTuningDevice(volume);
++                if (preset != SURROUND || nonSpatialTuning == null
++                        || nonSpatialTuning.equals(tuningDevice)) {
++                    throw e;
++                }
++                // DAX can use the nonspatial tuning table while the Spatializer owns 3D.
++                AthensBoseEffect.setDolbyTuningDevice(effect, nonSpatialTuning);
++            }
++            mAppliedTuningDevice = tuningDevice;
++        }
++        if (profile != mAppliedProfile) {
++            AthensBoseEffect.setProfile(effect, misound, profile);
++            mAppliedProfile = profile;
++        }
++        if (misound && mOnSpeaker && mTuning.usesMiSoundVolume() && volume != mAppliedVolume) {
++            AthensBoseEffect.setMiSoundVolume(effect, volume);
++            mAppliedVolume = volume;
++        }
++        configureEqualizer(effect, misound, preset);
++    }
++
++    private void syncSpatializerEngine(int engine) {
++        if (!mSpatializer.isEnabled()) {
++            mAppliedSpatializerEngine = UNCONFIGURED;
++        } else if (engine != mAppliedSpatializerEngine
++                && AthensBoseEffect.setSpatializerEngine(mSpatializer, engine)) {
++            mAppliedSpatializerEngine = engine;
++        }
++    }
++
++    private void configureEqualizer(AudioEffect effect, boolean misound, int preset) {
++        final String savedEqualizer = Settings.Secure.getStringForUser(mResolver, EQUALIZER,
++                UserHandle.USER_CURRENT);
++        if (savedEqualizer == null && preset != CUSTOM && mAppliedEqualizer == null) {
++            return;
++        }
++        final int[] gains = preset == CUSTOM ? readEqualizer(savedEqualizer) : FLAT_GAINS;
++        if (!Arrays.equals(gains, mAppliedEqualizer)) {
++            AthensBoseEffect.setEqualizer(effect, misound, gains);
++            mAppliedEqualizer = gains;
++        }
++    }
++
++    private int readSetting(String key, int fallback) {
++        return Settings.Secure.getIntForUser(mResolver, key, fallback, UserHandle.USER_CURRENT);
++    }
++
++    private void updateGameAudio() {
++        if (!mGameTuning.hasPresets()) {
++            return;
++        }
++        String active = null;
++        List<AudioDeviceAttributes> route = List.of();
++        if (UserHandle.isApp(mForegroundUid) && readSetting(GAME_AUDIO, 0) == 1) {
++            route = mAudioSystem.getDevicesForAttributes(GAME, /* forVolume= */ false);
++            if (!route.isEmpty()) {
++                if (route.stream().allMatch(AthensBoseController::isSpeaker)) {
++                    active = mGameTuning.getCommand(mForegroundPackage, true);
++                } else if (route.stream().allMatch(AthensBoseController::isGameHeadset)) {
++                    active = mGameTuning.getCommand(mForegroundPackage, false);
++                }
++            }
++        }
++        final String command = active != null
++                ? active + ";athens_bose_game_uid=" + mForegroundUid
++                : AthensBoseGameTuning.DISABLE_COMMAND + ";athens_bose_game_uid="
++                        + Process.INVALID_UID;
++        final List<AudioDeviceAttributes> activeRoute = active != null ? route : List.of();
++        if (!command.equals(mAppliedGameCommand) || !activeRoute.equals(mAppliedGameRoute)) {
++            final int status = mAudioSystem.setParameters(command);
++            if (status == AudioSystem.SUCCESS) {
++                mAppliedGameCommand = command;
++                mAppliedGameRoute = List.copyOf(activeRoute);
++            } else {
++                // AudioFlinger clears the previous game's gain owner before applying a command.
++                mAppliedGameCommand = null;
++                mAppliedGameRoute = List.of();
++            }
++        }
++    }
++
++    private static int[] readEqualizer(String value) {
++        if (value == null || value.length() > 4 * AthensBoseEffect.BAND_COUNT) {
++            return FLAT_GAINS;
++        }
++        final String[] parts = value.split(",", -1);
++        if (parts.length != AthensBoseEffect.BAND_COUNT) {
++            return FLAT_GAINS;
++        }
++        final int[] gains = new int[parts.length];
++        try {
++            for (int i = 0; i < gains.length; i++) {
++                gains[i] = Integer.parseInt(parts[i]);
++                if (Math.abs((long) gains[i]) > AthensBoseEffect.MAX_QUARTER_DB) {
++                    return FLAT_GAINS;
++                }
++            }
++        } catch (NumberFormatException e) {
++            return FLAT_GAINS;
++        }
++        return gains;
++    }
++
++    private static boolean isBoseMode(int mode) {
++        return mode == CLASSIC || mode == BALANCED;
++    }
++
++    private static boolean isSpeaker(AudioDeviceAttributes device) {
++        return device.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
++                || device.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER_SAFE;
++    }
++
++    private static boolean isBluetooth(AudioDeviceAttributes device) {
++        return switch (device.getType()) {
++            case AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLE_HEADSET,
++                    AudioDeviceInfo.TYPE_BLE_SPEAKER, AudioDeviceInfo.TYPE_BLE_BROADCAST -> true;
++            default -> false;
++        };
++    }
++
++    private static boolean isGameHeadset(AudioDeviceAttributes device) {
++        return switch (device.getType()) {
++            case AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
++                    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLE_HEADSET -> true;
++            default -> false;
++        };
++    }
++
++    private void invalidateTuning() {
++        mAppliedPreset = UNCONFIGURED;
++        mAppliedProfile = UNCONFIGURED;
++        mAppliedVolume = UNCONFIGURED;
++        mAppliedTuningDevice = null;
++        mAppliedSpatializerDevice = null;
++        mAppliedEqualizer = null;
++    }
++
++    private void releaseEffects() {
++        final AudioEffect dolby = mDolby;
++        final AudioEffect misound = mMiSound;
++        mDolby = null;
++        mMiSound = null;
++        mAppliedMode = UNCONFIGURED;
++        mAppliedSpatializerEngine = UNCONFIGURED;
++        invalidateTuning();
++        if (dolby != null) {
++            dolby.release();
++        }
++        if (misound != null) {
++            misound.release();
++        }
++    }
++
++    private void disableAndReleaseEffects() {
++        disableIfControlled(mDolby, false);
++        disableIfControlled(mMiSound, true);
++        releaseEffects();
++    }
++
++    private static void disableIfControlled(AudioEffect effect, boolean misound) {
++        try {
++            if (effect != null && effect.hasControl()) {
++                AthensBoseEffect.setEnabled(effect, misound, false);
++            }
++        } catch (RuntimeException e) {
++            Slog.w(TAG, "Unable to clear " + (misound ? "MiSound" : "Dolby"), e);
++        }
++    }
++
++    String getState() {
++        return mState;
++    }
++}
+diff --git a/services/core/java/com/android/server/audio/AthensBoseEffect.java b/services/core/java/com/android/server/audio/AthensBoseEffect.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..a840cd3f922e8e1be2dacd1cf1fb90f5bd56fb9c
+--- /dev/null
++++ b/services/core/java/com/android/server/audio/AthensBoseEffect.java
+@@ -0,0 +1,159 @@
++/*
++ * Copyright (C) 2026 The Android Open Source Project
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.server.audio;
++
++import android.media.audiofx.AudioEffect;
++
++import java.nio.ByteBuffer;
++import java.nio.ByteOrder;
++import java.nio.charset.StandardCharsets;
++import java.util.UUID;
++
++/** Encodes the Dolby DAX and MiSound parameters used by the Athens firmware. */
++final class AthensBoseEffect {
++    static final UUID DOLBY = UUID.fromString("9d4921da-8225-4f29-aefa-39537a04bcaa");
++    static final UUID MISOUND = UUID.fromString("5b8e36a5-144a-4c38-b1d7-0002a5d5c51b");
++    static final int BAND_COUNT = 10;
++    static final int MAX_QUARTER_DB = 24;
++
++    private static final int DAX_PARAM_TUNING_DEVICE = 4;
++    private static final int DAX_PARAM_CONTROL = 5;
++    private static final int DAX_CONTROL_PROFILE_PARAMETER = 0x01000000;
++    private static final int DAX_CONTROL_PROFILE_COUNT = 0x03000000;
++    private static final int DAX_CONTROL_PROFILE = 0x0a000000;
++    private static final int DAX_GEQ_BAND_GAINS = 110;
++    private static final int SPATIALIZER_PARAM_TUNING_DEVICE = 258;
++    private static final int SPATIALIZER_PARAM_ENGINE = 288;
++    private static final int SPATIALIZER_PARAM_ROTATION = 304;
++    private static final int MISOUND_PARAM_EQ_BAND = 2;
++    private static final int MISOUND_PARAM_ENABLE = 25;
++    private static final int MISOUND_PARAM_VOLUME = 30;
++    private static final int MISOUND_PARAM_PROFILE = 31;
++    private static final double[] BAND_POWER_WEIGHTS = {
++            0.515778203461701, 0.0595808856305005, 0.0635958585638682, 0.0510354248576938,
++            0.0486095359318, 0.0520256348938256, 0.0470545576568983, 0.0434010166097646,
++            0.0431295031207997, 0.0757893792731479
++    };
++
++    private AthensBoseEffect() {}
++
++    static void setEnabled(AudioEffect effect, boolean misound, boolean enabled) {
++        if (!misound) {
++            check(DolbyAtmosController.setDapEnabled(effect, enabled), "Dolby enable state");
++            return;
++        }
++        final int value = enabled ? 1 : 0;
++        final int parameterStatus = effect.setParameter(MISOUND_PARAM_ENABLE, value);
++        if (enabled) {
++            check(parameterStatus, "DSP enable");
++        }
++        final int effectStatus = effect.setEnabled(enabled);
++        check(parameterStatus, "DSP enable state");
++        check(effectStatus, "audio effect enable state");
++    }
++
++    static byte[] speakerTuningDevice(String id) {
++        final byte[] device = id.getBytes(StandardCharsets.US_ASCII);
++        return littleEndian(Integer.BYTES + device.length).putInt(0).put(device).array();
++    }
++
++    static void setDolbyTuningDevice(AudioEffect effect, String id) {
++        check(effect.setParameter(DAX_PARAM_TUNING_DEVICE, speakerTuningDevice(id)),
++                "Dolby speaker tuning");
++    }
++
++    static boolean setSpatializerEngine(SpatializerHelper spatializer, int engine) {
++        return spatializer.setEffectParameterIfAvailable(SPATIALIZER_PARAM_ENGINE, ints(engine));
++    }
++
++    static boolean setSpatializerTuning(SpatializerHelper spatializer, String id, int rotation) {
++        return spatializer.setEffectParameterIfAvailable(SPATIALIZER_PARAM_ROTATION, ints(rotation))
++                && spatializer.setEffectParameterIfAvailable(
++                        SPATIALIZER_PARAM_TUNING_DEVICE, speakerTuningDevice(id));
++    }
++
++    static byte[] dolbyProfile(int profile) {
++        return ints(DAX_CONTROL_PROFILE, 1, profile);
++    }
++
++    static void setProfile(AudioEffect effect, boolean misound, int profile) {
++        check(misound ? effect.setParameter(MISOUND_PARAM_PROFILE, profile)
++                        : effect.setParameter(DAX_PARAM_CONTROL, dolbyProfile(profile)),
++                "effect profile");
++    }
++
++    static void setMiSoundVolume(AudioEffect effect, int index) {
++        check(effect.setParameter(MISOUND_PARAM_VOLUME, index), "MiSound speaker volume");
++    }
++
++    static void setEqualizer(AudioEffect effect, boolean misound, int[] quarterDb) {
++        final float[] gains = normalizedGains(quarterDb);
++        if (misound) {
++            for (int band = 0; band < BAND_COUNT; band++) {
++                final byte[] value = Float.toString(gains[band])
++                        .getBytes(StandardCharsets.US_ASCII);
++                check(effect.setParameter(ints(MISOUND_PARAM_EQ_BAND, band), value),
++                        "MiSound equalizer band " + band);
++            }
++            return;
++        }
++
++        final ByteBuffer count = littleEndian(3 * Integer.BYTES).putInt(DAX_CONTROL_PROFILE_COUNT);
++        check(effect.getParameter(DAX_CONTROL_PROFILE_COUNT + DAX_PARAM_CONTROL, count.array()),
++                "Dolby profile count");
++        final int profileCount = count.getInt(0);
++        if (profileCount < 1 || profileCount > 32) {
++            throw new IllegalStateException("Unexpected Dolby profile count: " + profileCount);
++        }
++        for (int profile = 0; profile < profileCount; profile++) {
++            check(effect.setParameter(DAX_PARAM_CONTROL, dolbyEqualizer(profile, gains)),
++                    "Dolby equalizer profile " + profile);
++        }
++    }
++
++    static float[] normalizedGains(int[] quarterDb) {
++        final float[] gains = new float[BAND_COUNT];
++        double power = 0;
++        for (int band = 0; band < BAND_COUNT; band++) {
++            gains[band] = quarterDb[band] / 4f;
++            power += BAND_POWER_WEIGHTS[band] * Math.pow(10, gains[band] / 10.0);
++        }
++        final float offset = (float) (-10 * Math.log10(power));
++        for (int band = 0; band < BAND_COUNT; band++) {
++            gains[band] += offset;
++        }
++        return gains;
++    }
++
++    static byte[] dolbyEqualizer(int profile, float[] gains) {
++        final ByteBuffer data = littleEndian((4 + 2 * BAND_COUNT) * Integer.BYTES);
++        data.putInt(DAX_CONTROL_PROFILE_PARAMETER).putInt(2 * BAND_COUNT + 1)
++                .putInt(profile).putInt(DAX_GEQ_BAND_GAINS);
++        for (int band = 0; band < BAND_COUNT; band++) {
++            final float next = gains[Math.min(band + 1, BAND_COUNT - 1)];
++            data.putInt((int) (16 * gains[band])).putInt((int) (8 * (gains[band] + next)));
++        }
++        return data.array();
++    }
++
++    private static byte[] ints(int... values) {
++        final ByteBuffer data = littleEndian(values.length * Integer.BYTES);
++        for (int value : values) {
++            data.putInt(value);
++        }
++        return data.array();
++    }
++
++    private static ByteBuffer littleEndian(int size) {
++        return ByteBuffer.allocate(size).order(ByteOrder.LITTLE_ENDIAN);
++    }
++
++    private static void check(int status, String operation) {
++        if (status < AudioEffect.SUCCESS) {
++            throw new IllegalStateException(operation + " failed: " + status);
++        }
++    }
++}
+diff --git a/services/core/java/com/android/server/audio/AthensBoseGameTuning.java b/services/core/java/com/android/server/audio/AthensBoseGameTuning.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..1a72eac3dc8e4304f87ed485eb3405feae4e6e74
+--- /dev/null
++++ b/services/core/java/com/android/server/audio/AthensBoseGameTuning.java
+@@ -0,0 +1,130 @@
++/*
++ * Copyright (C) 2026 The Android Open Source Project
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.server.audio;
++
++import android.util.Slog;
++import android.util.Xml;
++
++import com.android.internal.util.XmlUtils;
++import com.android.modules.utils.TypedXmlPullParser;
++
++import org.xmlpull.v1.XmlPullParser;
++import org.xmlpull.v1.XmlPullParserException;
++
++import java.io.ByteArrayInputStream;
++import java.io.IOException;
++import java.io.InputStream;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.util.HashMap;
++import java.util.Map;
++import java.util.regex.Pattern;
++
++/** The factory game-effect parameters for the Athens speaker and headset routes. */
++final class AthensBoseGameTuning {
++    private static final String TAG = "AthensBoseGameTuning";
++    private static final Path CONFIG_PATH = Path.of("/odm/etc/audio_game_effect_items.xml");
++    private static final int MAX_CONFIG_BYTES = 64 * 1024;
++    private static final String ENABLE_PREFIX = "misound_fps_effect=T-";
++    static final String DISABLE_COMMAND = "misound_fps_effect=F-0-0-0-0";
++    private static final Pattern TUPLE_PATTERN = Pattern.compile("[0-9]{1,3}(?:-[0-9]{1,3}){3}");
++    private static final AthensBoseGameTuning EMPTY = new AthensBoseGameTuning(Map.of(), Map.of());
++
++    private final Map<String, String> mSpeakerPresets;
++    private final Map<String, String> mHeadsetPresets;
++
++    private AthensBoseGameTuning(Map<String, String> speakerPresets,
++            Map<String, String> headsetPresets) {
++        mSpeakerPresets = Map.copyOf(speakerPresets);
++        mHeadsetPresets = Map.copyOf(headsetPresets);
++    }
++
++    static AthensBoseGameTuning load() {
++        try (InputStream input = Files.newInputStream(CONFIG_PATH)) {
++            final byte[] data = input.readNBytes(MAX_CONFIG_BYTES + 1);
++            if (data.length > MAX_CONFIG_BYTES) {
++                throw new IOException("Game tuning configuration is too large");
++            }
++            final TypedXmlPullParser parser = Xml.newFastPullParser();
++            parser.setFeature(XmlPullParser.FEATURE_PROCESS_DOCDECL, false);
++            parser.setInput(new ByteArrayInputStream(data), StandardCharsets.UTF_8.name());
++            int type;
++            do {
++                type = parser.nextToken();
++                if (type == XmlPullParser.DOCDECL) {
++                    throw new XmlPullParserException("Document declaration in game tuning");
++                }
++            } while (type != XmlPullParser.START_TAG && type != XmlPullParser.END_DOCUMENT);
++            parser.require(XmlPullParser.START_TAG, null, "packages");
++
++            final Map<String, String> speakers = new HashMap<>();
++            final Map<String, String> headsets = new HashMap<>();
++            final int rootDepth = parser.getDepth();
++            while (XmlUtils.nextElementWithin(parser, rootDepth)) {
++                if ("package".equals(parser.getName())) {
++                    readPackage(parser, speakers, headsets);
++                }
++            }
++            parser.require(XmlPullParser.END_TAG, null, "packages");
++            if (parser.next() != XmlPullParser.END_DOCUMENT) {
++                throw new XmlPullParserException("Unexpected data after game tuning");
++            }
++            return new AthensBoseGameTuning(speakers, headsets);
++        } catch (IOException | XmlPullParserException e) {
++            Slog.w(TAG, "Unable to load stock game tuning", e);
++            return EMPTY;
++        }
++    }
++
++    boolean hasPresets() {
++        return !mSpeakerPresets.isEmpty() || !mHeadsetPresets.isEmpty();
++    }
++
++    String getCommand(String packageName, boolean speaker) {
++        if (packageName == null) {
++            return null;
++        }
++        return (speaker ? mSpeakerPresets : mHeadsetPresets).get(packageName);
++    }
++
++    private static void readPackage(TypedXmlPullParser parser, Map<String, String> speakers,
++            Map<String, String> headsets) throws IOException, XmlPullParserException {
++        final String packageName = parser.getAttributeValue(null, "name");
++        if (packageName == null || packageName.isBlank()) {
++            throw new XmlPullParserException("Missing game package name");
++        }
++        final int packageDepth = parser.getDepth();
++        while (XmlUtils.nextElementWithin(parser, packageDepth)) {
++            if (!"device".equals(parser.getName())) {
++                continue;
++            }
++            final String device = parser.getAttributeValue(null, "name");
++            final Map<String, String> presets = "speaker".equals(device) ? speakers
++                    : "headset".equals(device) ? headsets : null;
++            if (presets != null) {
++                final String tuple = parser.getAttributeValue(null, "param");
++                if (!isValidTuple(tuple)
++                        || presets.putIfAbsent(packageName, ENABLE_PREFIX + tuple) != null) {
++                    throw new XmlPullParserException("Invalid or duplicate game tuning for "
++                            + packageName);
++                }
++            }
++        }
++    }
++
++    private static boolean isValidTuple(String tuple) {
++        if (tuple == null || !TUPLE_PATTERN.matcher(tuple).matches()) {
++            return false;
++        }
++        for (String part : tuple.split("-")) {
++            if (Integer.parseInt(part) > 100) {
++                return false;
++            }
++        }
++        return true;
++    }
++}
+diff --git a/services/core/java/com/android/server/audio/AthensBoseTuning.java b/services/core/java/com/android/server/audio/AthensBoseTuning.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..3fc1a30e6251d5f487b13fbea9f53b71ba37f9c5
+--- /dev/null
++++ b/services/core/java/com/android/server/audio/AthensBoseTuning.java
+@@ -0,0 +1,147 @@
++/*
++ * Copyright (C) 2026 The Android Open Source Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.server.audio;
++
++import android.util.Slog;
++
++import org.json.JSONArray;
++import org.json.JSONException;
++import org.json.JSONObject;
++
++import java.io.IOException;
++import java.io.InputStream;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.util.ArrayList;
++import java.util.HashMap;
++import java.util.Iterator;
++import java.util.List;
++import java.util.Map;
++
++/** Stock Athens speaker volume tuning and app-specific Dolby profiles. */
++final class AthensBoseTuning {
++    private static final String TAG = "AthensBoseTuning";
++    private static final Path CONFIG_PATH = Path.of("/odm/etc/audio/audio_effects_config.json");
++    private static final int MAX_CONFIG_BYTES = 64 * 1024;
++    private static final int MAX_NORMALIZED_VOLUME = 150;
++    private static final int DEFAULT_DOLBY_PROFILE = 0;
++    // The Athens dax-default.xml defines profiles 0 through 6.
++    private static final int MAX_DOLBY_PROFILE = 6;
++    private static final AthensBoseTuning EMPTY =
++            new AthensBoseTuning(List.of(), Map.of(), false, false);
++
++    private final List<VolumeBand> mDolbyVolumeBands;
++    private final Map<String, Integer> mDolbyProfiles;
++    private final boolean mDolbyAppProfiles;
++    private final boolean mMiSoundVolume;
++
++    private AthensBoseTuning(List<VolumeBand> dolbyVolumeBands,
++            Map<String, Integer> dolbyProfiles, boolean dolbyAppProfiles, boolean miSoundVolume) {
++        mDolbyVolumeBands = List.copyOf(dolbyVolumeBands);
++        mDolbyProfiles = Map.copyOf(dolbyProfiles);
++        mDolbyAppProfiles = dolbyAppProfiles;
++        mMiSoundVolume = miSoundVolume;
++    }
++
++    static AthensBoseTuning load() {
++        try (InputStream input = Files.newInputStream(CONFIG_PATH)) {
++            byte[] data = input.readNBytes(MAX_CONFIG_BYTES + 1);
++            if (data.length > MAX_CONFIG_BYTES) {
++                throw new IOException("Audio tuning configuration is too large");
++            }
++            JSONObject config = new JSONObject(new String(data, StandardCharsets.UTF_8));
++            JSONObject flags = config.getJSONObject("scenario_volume_flag");
++            boolean dolbyAppProfiles = flags.getBoolean("dolby_multiscenario");
++            return new AthensBoseTuning(
++                    flags.getBoolean("dolby_multilevel_volume")
++                            ? readVolumeBands(config.getJSONArray("volume_levels")) : List.of(),
++                    dolbyAppProfiles
++                            ? readDolbyProfiles(config.getJSONObject("app_profiles")) : Map.of(),
++                    dolbyAppProfiles, flags.getBoolean("mi_multilevel_volume"));
++        } catch (IOException | JSONException e) {
++            Slog.w(TAG, "Unable to load stock speaker tuning", e);
++            return EMPTY;
++        }
++    }
++
++    String getDolbyTuningDevice(int normalizedIndex) {
++        for (VolumeBand band : mDolbyVolumeBands) {
++            if (band.start() <= normalizedIndex && normalizedIndex <= band.end()) {
++                return band.device();
++            }
++        }
++        return null;
++    }
++
++    int getDolbyProfile(String foregroundPackage) {
++        if (foregroundPackage == null) {
++            return DEFAULT_DOLBY_PROFILE;
++        }
++        return mDolbyProfiles.getOrDefault(foregroundPackage, DEFAULT_DOLBY_PROFILE);
++    }
++
++    boolean usesDolbyAppProfiles() {
++        return mDolbyAppProfiles;
++    }
++
++    boolean usesMiSoundVolume() {
++        return mMiSoundVolume;
++    }
++
++    private static List<VolumeBand> readVolumeBands(JSONArray levels) throws JSONException {
++        List<VolumeBand> bands = new ArrayList<>();
++        int previousEnd = -1;
++        for (int i = 0; i < levels.length(); i++) {
++            JSONObject level = levels.getJSONObject(i);
++            JSONArray range = level.getJSONArray("range");
++            int start = range.getInt(0);
++            int end = range.getInt(1);
++            String device = level.getString("device_id");
++            if (range.length() != 2 || start <= previousEnd || start > end
++                    || end > MAX_NORMALIZED_VOLUME || device.isBlank()) {
++                throw new JSONException("Invalid speaker volume band at index " + i);
++            }
++            bands.add(new VolumeBand(start, end, device));
++            previousEnd = end;
++        }
++        return bands;
++    }
++
++    private static Map<String, Integer> readDolbyProfiles(JSONObject profiles) throws JSONException {
++        Map<String, Integer> packagesToProfiles = new HashMap<>();
++        for (Iterator<String> names = profiles.keys(); names.hasNext(); ) {
++            String name = names.next();
++            JSONObject entry = profiles.getJSONObject(name);
++            int profile = entry.getInt("dolby_profile");
++            if (profile <= DEFAULT_DOLBY_PROFILE || profile > MAX_DOLBY_PROFILE) {
++                throw new JSONException("Invalid Dolby profile for " + name);
++            }
++            JSONArray packages = entry.getJSONArray("packages");
++            for (int i = 0; i < packages.length(); i++) {
++                String packageName = packages.getString(i);
++                Integer previous = packagesToProfiles.putIfAbsent(packageName, profile);
++                if (packageName.isBlank() || (previous != null && previous != profile)) {
++                    throw new JSONException("Invalid or conflicting Dolby package in " + name);
++                }
++            }
++        }
++        return packagesToProfiles;
++    }
++
++    private record VolumeBand(int start, int end, String device) {}
++}
+diff --git a/services/core/java/com/android/server/audio/SpatializerHelper.java b/services/core/java/com/android/server/audio/SpatializerHelper.java
+index 0b2ee4df60b6b6e01f9b516d4622c7c9caedbaee..834f030c40d73689edb65a3e31811c099b4cf029 100644
+--- a/services/core/java/com/android/server/audio/SpatializerHelper.java
++++ b/services/core/java/com/android/server/audio/SpatializerHelper.java
+@@ -61,6 +61,7 @@ import java.util.Arrays;
+ import java.util.Collections;
+ import java.util.List;
+ import java.util.Locale;
++import java.util.Objects;
+ import java.util.UUID;
+ 
+ /**
+@@ -118,6 +119,8 @@ public class SpatializerHelper {
+     /*package*/ static final int STATE_ENABLED_AVAILABLE = 5;
+     /*package*/ static final int STATE_DISABLED_AVAILABLE = 6;
+     private int mState = STATE_UNINITIALIZED;
++    // Temporary speaker override owned by the Athens sound effects controller.
++    @Nullable private Boolean mSpeakerSpatializationOverride;
+ 
+     @VisibleForTesting boolean mBinauralEnabledDefault;
+     @VisibleForTesting boolean mTransauralEnabledDefault;
+@@ -392,7 +395,11 @@ public class SpatializerHelper {
+             setDispatchAvailableState(false);
+         }
+ 
+-        boolean enabled = mFeatureEnabled && able && enabledAvailable.first;
++        final boolean speaker = currentDevice.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
++                || currentDevice.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER_SAFE;
++        final boolean deviceEnabled = speaker && mSpeakerSpatializationOverride != null
++                ? mSpeakerSpatializationOverride : enabledAvailable.first;
++        boolean enabled = mFeatureEnabled && able && deviceEnabled;
+         if (enabled) {
+             loglogi("Enabling Spatial Audio since enabled for media device:"
+                     + currentDevice);
+@@ -426,6 +433,13 @@ public class SpatializerHelper {
+         mAudioService.postResetSpatializer();
+     }
+ 
++    synchronized void setSpeakerSpatializationOverride(@Nullable Boolean enabled) {
++        if (!Objects.equals(mSpeakerSpatializationOverride, enabled)) {
++            mSpeakerSpatializationOverride = enabled;
++            onRoutingUpdated();
++        }
++    }
++
+     //------------------------------------------------------
+     // spatializer callback from native
+     private final class SpatializerCallback extends INativeSpatializerCallback.Stub {
+@@ -1427,11 +1441,19 @@ public class SpatializerHelper {
+                 }
+                 break;
+         }
+-        // mSpat != null
++        setEffectParameterIfAvailable(key, value);
++    }
++
++    synchronized boolean setEffectParameterIfAvailable(int key, @NonNull byte[] value) {
++        if (mSpat == null) {
++            return false;
++        }
+         try {
+             mSpat.setParameter(key, value);
++            return true;
+         } catch (RemoteException e) {
+             Log.e(TAG, "Error in setParameter for key:" + key, e);
++            return false;
+         }
+     }
+ 
 diff --git a/services/core/java/com/android/server/audio/AudioService.java b/services/core/java/com/android/server/audio/AudioService.java
-index a52cd99d69c0c9c884479c80b0067f8a3dfb029c..eed0bec80012444364f3070bcaf48b6eb3e94695 100644
+index a52cd99d69c0c9c884479c80b0067f8a3dfb029c..3a5d26b28d14b58fc2a667bdc1d248c23420bc1f 100644
 --- a/services/core/java/com/android/server/audio/AudioService.java
 +++ b/services/core/java/com/android/server/audio/AudioService.java
-@@ -425,6 +425,7 @@ public class AudioService extends IAudioService.Stub
+@@ -425,6 +425,8 @@ public class AudioService extends IAudioService.Stub
  
      final Context mContext;
      private final ContentResolver mContentResolver;
 +    private final DolbyAtmosController mDolbyAtmosController;
++    private final AthensBoseController mAthensBoseController;
      private int mShowAppVolume;
      private final AppOpsManager mAppOps;
  
-@@ -1766,6 +1767,8 @@ public class AudioService extends IAudioService.Stub
+@@ -1766,6 +1768,12 @@ public class AudioService extends IAudioService.Stub
              mAudioHandler = new AudioHandler(looper);
          }
  
 +        mDolbyAtmosController = new DolbyAtmosController(mContentResolver, mAudioSystem,
 +                mAudioHandler);
++        mAthensBoseController = "athens".equals(Build.DEVICE)
++                ? new AthensBoseController(mContentResolver, mAudioSystem, mAudioHandler,
++                        mSpatializerHelper, this::getBoseSpeakerVolume)
++                : null;
          mSoundDoseHelper = new SoundDoseHelper(this, mContext, mAudioHandler, mSettings,
                  mVolumeController);
  
-@@ -2138,6 +2141,7 @@ public class AudioService extends IAudioService.Stub
+@@ -2138,6 +2146,11 @@ public class AudioService extends IAudioService.Stub
          synchronized (mSupportedSystemUsagesLock) {
              AudioSystem.setSupportedSystemUsages(mSupportedSystemUsages);
          }
-+        mDolbyAtmosController.start();
++        if (mAthensBoseController != null) {
++            mAthensBoseController.start();
++        } else {
++            mDolbyAtmosController.start();
++        }
      }
  
      //-----------------------------------------------------------------
-@@ -2157,6 +2161,7 @@ public class AudioService extends IAudioService.Stub
+@@ -2157,6 +2170,7 @@ public class AudioService extends IAudioService.Stub
          if (mHasSpatializerEffect) {
              mSpatializerHelper.onRoutingUpdated();
          }
-+        mDolbyAtmosController.refresh();
++        refreshMediaEffects();
          checkMuteAwaitConnection();
          if (DEBUG_VOL) {
              Log.d(TAG, "Clear volume cache after routing update");
-@@ -2420,6 +2425,7 @@ public class AudioService extends IAudioService.Stub
+@@ -2168,6 +2182,9 @@ public class AudioService extends IAudioService.Stub
+     // rotation/fold updates coming from RotationHelper
+     void onRotationUpdate(Integer rotation) {
+         mSpatializerHelper.setDisplayOrientation((float) (rotation * Math.PI / 180.));
++        if (mAthensBoseController != null) {
++            mAthensBoseController.onRotationChanged(rotation);
++        }
+         // use REPLACE as only the last rotation matters
+         final String rotationParameter = "rotation=" + rotation;
+         sendMsg(mAudioHandler, MSG_ROTATION_UPDATE, SENDMSG_REPLACE, /*arg1*/ 0, /*arg2*/ 0,
+@@ -2420,6 +2437,11 @@ public class AudioService extends IAudioService.Stub
  
          // indicate the end of reconfiguration phase to audio HAL
          AudioSystem.setParameters("restarting=false");
-+        mDolbyAtmosController.onAudioServerRestarted();
++        if (mAthensBoseController != null) {
++            mAthensBoseController.onAudioServerRestarted();
++        } else {
++            mDolbyAtmosController.onAudioServerRestarted();
++        }
  
          mSoundDoseHelper.reset(/*resetISoundDose=*/true);
  
-@@ -12457,6 +12463,7 @@ public class AudioService extends IAudioService.Stub
+@@ -5622,6 +5644,9 @@ public class AudioService extends IAudioService.Stub
+                         Arrays.stream(mRecordMonitor.getRecordingActiveUids()));
+ 
+         mDeviceBroker.postUpdateActiveUids(combinedActive.sorted().distinct().toArray());
++        if (mAthensBoseController != null) {
++            mAthensBoseController.onPlaybackConfigChange(configs);
++        }
+     }
+ 
+     void updateAudioModeHandlers(List<AudioPlaybackConfiguration> playbackConfigs,
+@@ -6533,6 +6558,25 @@ public class AudioService extends IAudioService.Stub
+         }
+     }
+ 
++    private int getBoseSpeakerVolume() {
++        synchronized (mVolumeStateLock) {
++            final VolumeStreamState media = getVssForStreamOrDefault(AudioSystem.STREAM_MUSIC);
++            // Stock Athens uses a media scale of 0–150. Rescale Infinity's volume steps.
++            final int maxIndex = media.getMaxIndex();
++            return maxIndex > 0
++                    ? Math.round(150f * media.getIndex(AudioSystem.DEVICE_OUT_SPEAKER) / maxIndex)
++                    : 0;
++        }
++    }
++
++    private void refreshMediaEffects() {
++        if (mAthensBoseController != null) {
++            mAthensBoseController.refresh();
++        } else {
++            mDolbyAtmosController.refresh();
++        }
++    }
++
+     @Override
+     @android.annotation.EnforcePermission(anyOf = {
+             MODIFY_AUDIO_ROUTING, MODIFY_AUDIO_SETTINGS_PRIVILEGED })
+@@ -11776,7 +11820,9 @@ public class AudioService extends IAudioService.Stub
+                 0,
+                 streamState,
+                 PERSIST_DELAY);
+-
++        if (mAthensBoseController != null && streamState.mStreamType == AudioSystem.STREAM_MUSIC) {
++            mAthensBoseController.onVolumeChanged();
++        }
+     }
+ 
+     /** Handles internal volume messages in separate volume thread. */
+@@ -11805,6 +11851,10 @@ public class AudioService extends IAudioService.Stub
+                     vss.applyAllVolumes();
+                 }
+             }
++            if (mAthensBoseController != null
++                    && streamState.mStreamType == AudioSystem.STREAM_MUSIC) {
++                mAthensBoseController.onVolumeChanged();
++            }
+         }
+ 
+         private void persistVolume(VolumeStreamState streamState, int device) {
+@@ -11988,6 +12038,9 @@ public class AudioService extends IAudioService.Stub
+ 
+                 case MSG_RESET_SPATIALIZER:
+                     mSpatializerHelper.reset(/* featureEnabled */ mHasSpatializerEffect);
++                    if (mAthensBoseController != null) {
++                        mAthensBoseController.onSpatializerReset();
++                    }
+                     break;
+ 
+                 case MSG_SYSTEM_READY:
+@@ -12457,6 +12510,11 @@ public class AudioService extends IAudioService.Stub
  
                  // load volume settings for new user
                  readAudioSettings(true /*userSwitch*/);
-+                mAudioHandler.post(mDolbyAtmosController::refresh);
++                if (mAthensBoseController != null) {
++                    mAudioHandler.post(mAthensBoseController::onUserSwitched);
++                } else {
++                    mAudioHandler.post(mDolbyAtmosController::refresh);
++                }
                  // preserve STREAM_MUSIC volume from one user to the next.
                  sendMsg(mAudioHandler,
                          MSG_SET_ALL_VOLUMES,
-@@ -14664,6 +14671,7 @@ public class AudioService extends IAudioService.Stub
+@@ -14664,6 +14722,11 @@ public class AudioService extends IAudioService.Stub
          pw.println("isSpatializerEnabled:" + isSpatializerEnabled() + " (routing dependent)");
          mSpatializerHelper.dump(pw); pw.println();
          sSpatialLogger.dump(pw); pw.println("");
-+        pw.println("Dolby Atmos DAP: " + mDolbyAtmosController.getState());
++        if (mAthensBoseController != null) {
++            pw.println("Athens Bose: " + mAthensBoseController.getState());
++        } else {
++            pw.println("Dolby Atmos DAP: " + mDolbyAtmosController.getState());
++        }
  
  
          pw.println("\n# Flags");
 diff --git a/services/core/java/com/android/server/audio/DolbyAtmosController.java b/services/core/java/com/android/server/audio/DolbyAtmosController.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..a8a954b545598d06cf3b5f8b53ef9b788e7f5d05
+index 0000000000000000000000000000000000000000..ac4a03e4193c4e00dab6a3c7636aae0326037136
 --- /dev/null
 +++ b/services/core/java/com/android/server/audio/DolbyAtmosController.java
 @@ -0,0 +1,188 @@
@@ -44824,7 +46107,7 @@ index 0000000000000000000000000000000000000000..a8a954b545598d06cf3b5f8b53ef9b78
 +        }
 +    }
 +
-+    private static boolean supportsDap(AudioDeviceAttributes device) {
++    static boolean supportsDap(AudioDeviceAttributes device) {
 +        return switch (device.getType()) {
 +            case AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
 +                    AudioDeviceInfo.TYPE_BUILTIN_SPEAKER_SAFE,
@@ -44838,7 +46121,7 @@ index 0000000000000000000000000000000000000000..a8a954b545598d06cf3b5f8b53ef9b78
 +        };
 +    }
 +
-+    private static int setDapEnabled(AudioEffect effect, boolean enabled) {
++    static int setDapEnabled(AudioEffect effect, boolean enabled) {
 +        // DAX takes a little-endian device selector, value count and enabled value.
 +        // Device 0 lets DAX select the profile for the routed output.
 +        final byte[] value = ByteBuffer.allocate(3 * Integer.BYTES)

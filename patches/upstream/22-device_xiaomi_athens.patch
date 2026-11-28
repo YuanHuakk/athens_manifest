@@ -983,7 +983,7 @@ index 38da5a36336289754e79f30e5acb89c9b856643d..f004d032cccdc6f8b55395717378cd99
      utils = ExtractUtils.device_with_common(module, "sm8850-common", module.vendor)
      utils.run()
 diff --git a/infinity_athens.mk b/infinity_athens.mk
-index 0eff298a6525f56bef6b16f82a8118bf23f8a90a..6c71f5d2ad993382951e9a5958cd7cb57090563b 100644
+index 0eff298a6525f56bef6b16f82a8118bf23f8a90a..60da7d7ae3d38d6cae4ec7ea6bb77ce4f44986d5 100644
 --- a/infinity_athens.mk
 +++ b/infinity_athens.mk
 @@ -8,7 +8,9 @@ TARGET_SCREEN_WIDTH := 1156
@@ -996,7 +996,7 @@ index 0eff298a6525f56bef6b16f82a8118bf23f8a90a..6c71f5d2ad993382951e9a5958cd7cb5
  PRODUCT_GMS_CLIENTID_BASE := android-xiaomi
  
  $(call inherit-product, $(SRC_TARGET_DIR)/product/core_64_bit_only.mk)
-@@ -17,8 +19,55 @@ $(call inherit-product, vendor/infinity/config/common_full_phone.mk)
+@@ -17,8 +19,60 @@ $(call inherit-product, vendor/infinity/config/common_full_phone.mk)
  
  $(call inherit-product, device/xiaomi/athens/device.mk)
  
@@ -1017,6 +1017,11 @@ index 0eff298a6525f56bef6b16f82a8118bf23f8a90a..6c71f5d2ad993382951e9a5958cd7cb5
 +
  PRODUCT_PACKAGES += InfinityChargingAthens
  
++# Select the original Athens game-audio engine in the vendor HAL.
++PRODUCT_ODM_PROPERTIES += \
++    persist.vendor.audio.fpsop.game.effect=true \
++    persist.vendor.audio.game.effect.version=3.5
++
 +# Preinstall the HyperOS CN push service as a product app.
 +PRODUCT_PACKAGES += XiaomiServiceFrameworkCN
 +PRODUCT_PRODUCT_PROPERTIES += ro.product.locale.region=CN
@@ -1052,7 +1057,7 @@ index 0eff298a6525f56bef6b16f82a8118bf23f8a90a..6c71f5d2ad993382951e9a5958cd7cb5
  # Keep authenticated root ADB available in userdebug builds.
  ifeq ($(TARGET_BUILD_VARIANT),userdebug)
  PRODUCT_NOT_DEBUGGABLE_IN_USERDEBUG := false
-@@ -28,5 +77,5 @@ endif
+@@ -28,5 +82,5 @@ endif
  PRODUCT_DEVICE := athens
  PRODUCT_NAME := infinity_athens
  PRODUCT_BRAND := Redmi
@@ -1586,7 +1591,7 @@ index 0000000000000000000000000000000000000000..541255ba93bd41f60d070d8e1d4ef278
 +
 +athens_uptsm_dir :=
 diff --git a/proprietary-files.txt b/proprietary-files.txt
-index 27bc631e0d3bd7afca925fc78c1d4e64f01cfac9..acf958beda8d1f85a878f3af640867b38e1cf126 100644
+index 27bc631e0d3bd7afca925fc78c1d4e64f01cfac9..4942cf5632da0e77a0ddbc36924c859a042fa007 100644
 --- a/proprietary-files.txt
 +++ b/proprietary-files.txt
 @@ -864,6 +864,14 @@ odm/lib64/camera/plugins/com.xiaomi.plugin.watermark.so
@@ -1628,7 +1633,20 @@ index 27bc631e0d3bd7afca925fc78c1d4e64f01cfac9..acf958beda8d1f85a878f3af640867b3
  # Athens display panel calibration
  odm/etc/mdss_dsi_athens_42_0d_0a_dsc_cmd_mi.xml
  
-@@ -1878,6 +1903,35 @@ odm/lib64/libtical.so
+@@ -1817,10 +1842,12 @@ odm/etc/permissions/android.hardware.hardware_keystore.jc-strongbox-keymint3.nxp
+ #   sixth_wrapper_cfg.xml                ← libar-pal.so
+ #   libsiaalgocal.so / libtical.so       ← libaudiocorehal.qti.so
+ odm/etc/FM_CAM.bin
++odm/etc/audio/audio_effects_config.json
+ odm/etc/audio/audio_module_config_primary.xml
+ odm/etc/audio/sku_canoe_qssi/audio_policy_configuration.xml
+ odm/etc/audio/spk_cal_silence.wav
+ odm/etc/audio_effects_config.xml
++odm/etc/audio_game_effect_items.xml
+ odm/etc/audio_policy_engine_configuration_mi.xml
+ odm/etc/audio_policy_engine_default_stream_volumes_mi.xml
+ odm/etc/audio_policy_engine_product_strategies_mi.xml
+@@ -1878,6 +1905,35 @@ odm/lib64/libtical.so
  # SIA91xx speaker amp firmware required at kernel driver probe.
  odm/firmware/sipa.bin
  
@@ -1814,3 +1832,59 @@ index ea7c87d19b51e16b40777667e03ed46599c2a7f9..0baa574386d8b4bd2b602d1d647d32e4
 +# FrameCaptureManager is published by the Xiaomi DisplayFeature HAL.
 +vendor.xiaomi.hardware.framecapturemanager.IFrameCaptureManager/default u:object_r:vendor_hal_framecapturemanager_xiaomi_service:s0
 +vendor.novatek.hardware.visdisplaysrv.IVisdisplaysrv/default u:object_r:hal_visdisplaysrv_service:s0
+diff --git a/sepolicy/vendor/hal_aidl_dms.te b/sepolicy/vendor/hal_aidl_dms.te
+new file mode 100644
+index 0000000000000000000000000000000000000000..847e2cf202dd60c645dc6b28ff8968cef4d2bb95
+--- /dev/null
++++ b/sepolicy/vendor/hal_aidl_dms.te
+@@ -0,0 +1,2 @@
++# Preserve the Dolby service's access after assigning the property a device-specific label.
++set_prop(hal_aidl_dms_default, vendor_athens_audio_effect_implementer_prop)
+diff --git a/sepolicy/vendor/hal_audio_default.te b/sepolicy/vendor/hal_audio_default.te
+index 9c34ad25d2b8768b389d03b6bfbf53ba98f7c499..aa09a7144099a8c32c20ea01e0b42fb785caa9ac 100644
+--- a/sepolicy/vendor/hal_audio_default.te
++++ b/sepolicy/vendor/hal_audio_default.te
+@@ -2,4 +2,8 @@ get_prop(hal_audio_default, vendor_mink_profile_prop)
+ get_prop(hal_audio_default, vendor_pd_locater_dbg_prop)
+ set_prop(hal_audio_default, vendor_audio_calibration_prop)
+ set_prop(hal_audio_default, vendor_audio_receiver_prop)
++set_prop(hal_audio_default, vendor_athens_misound_disabled_prop)
++# The stock Spatializer saves its selected Dolby or Xiaomi engine.
++set_prop(hal_audio_default, vendor_athens_audio_effect_implementer_prop)
++set_prop(hal_audio_default, vendor_athens_game_effect_status_prop)
+ allow hal_audio_default vendor_miev_device:chr_file { open write };
+diff --git a/sepolicy/vendor/property.te b/sepolicy/vendor/property.te
+index 3a466daf59df85aa918b8db3dfb6776f3e9d1592..c0d79c55733d3efefa42938d4c388e9b9980d627 100644
+--- a/sepolicy/vendor/property.te
++++ b/sepolicy/vendor/property.te
+@@ -8,3 +8,6 @@ vendor_internal_prop(vendor_audio_calibration_prop)
+ vendor_internal_prop(vendor_dumpstate_subsystem_prop)
+ vendor_restricted_prop(vendor_aware_prop)
+ vendor_restricted_prop(vendor_audio_receiver_prop)
++vendor_internal_prop(vendor_athens_misound_disabled_prop)
++vendor_internal_prop(vendor_athens_audio_effect_implementer_prop)
++vendor_internal_prop(vendor_athens_game_effect_status_prop)
+diff --git a/sepolicy/vendor/property_contexts b/sepolicy/vendor/property_contexts
+index 260f31fb7c98ef62e0f7900000c5b29482585085..7b09e90a2498e21642b3bf855c7ed3108751e344 100644
+--- a/sepolicy/vendor/property_contexts
++++ b/sepolicy/vendor/property_contexts
+@@ -40,6 +40,9 @@ ro.vendor.board.family u:object_r:vendor_board_family_prop:s0 exact string
+ init.svc.vendor.vppservice u:object_r:vendor_vpp_status_prop:s0 exact string
+ 
+ vendor.audio_hal.period_size u:object_r:vendor_audio_prop:s0 exact uint
++persist.vendor.audio.misound.disable u:object_r:vendor_athens_misound_disabled_prop:s0 exact bool
++persist.vendor.audio.effectimplenter u:object_r:vendor_athens_audio_effect_implementer_prop:s0 exact enum dolby xiaomi
++vendor.audio.fpsop.game_effect u:object_r:vendor_athens_game_effect_status_prop:s0 exact string
+ persist.vendor.dolby.loglevel u:object_r:vendor_audio_prop:s0 exact string
+ ro.vendor.dolby.dap_bypassed_on_tiny_volume u:object_r:vendor_audio_prop:s0 exact string
+ ro.odm.mm.vibrator.cirrus u:object_r:vendor_audio_prop:s0 exact string
+diff --git a/sepolicy/vendor/vendor_init.te b/sepolicy/vendor/vendor_init.te
+index df37698035dce9d35173bb91c4c1ee2dd4ff605d..91830153899d2dc3ab4519a7b17a46616f1be509 100644
+--- a/sepolicy/vendor/vendor_init.te
++++ b/sepolicy/vendor/vendor_init.te
+@@ -3,3 +3,5 @@ get_prop(vendor_init, powerctl_prop)
+ allow vendor_init { migt_dev vendor_miev_device }:chr_file getattr;
+ allow vendor_init vendor_ntsync_device:chr_file getattr;
+ set_prop(vendor_init, vendor_board_family_prop)
++set_prop(vendor_init, vendor_athens_misound_disabled_prop)
++set_prop(vendor_init, vendor_athens_audio_effect_implementer_prop)

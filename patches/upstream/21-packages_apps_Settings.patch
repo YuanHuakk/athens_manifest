@@ -120,13 +120,13 @@ index 209c1333e0180f9740e923d586919739f850d93c..925d27bae63ae12324810d65b53a53b8
      public void getBatteryInfo_regularCharging_updateRemainingLabelAndStatusLabel() {
          prepareTestGetBatteryInfoEnvironment(
 diff --git a/res/xml/sound_settings.xml b/res/xml/sound_settings.xml
-index 5e950024f596b77e6ae8bbcc2ec7704f4d57ed5c..612a6f5f887926300dba90fcfc46467d8b41e7bf 100644
+index 5e950024f596b77e6ae8bbcc2ec7704f4d57ed5c..73408fad6aeb503bacd7e5baa33a53f1bb88b1f6 100644
 --- a/res/xml/sound_settings.xml
 +++ b/res/xml/sound_settings.xml
-@@ -206,6 +206,14 @@
+@@ -206,6 +206,22 @@
              android:defaultValue="false"
              android:order="-112"/>
-
+ 
 +        <SwitchPreferenceCompat
 +            android:key="dolby_atmos_enabled"
 +            android:title="@string/dolby_atmos_title"
@@ -134,6 +134,14 @@ index 5e950024f596b77e6ae8bbcc2ec7704f4d57ed5c..612a6f5f887926300dba90fcfc46467d
 +            android:persistent="false"
 +            android:order="-108"
 +            settings:controller="com.android.settings.notification.DolbyAtmosPreferenceController"/>
++
++        <Preference
++            android:key="athens_audio_effects"
++            android:title="@string/athens_audio_effects_title"
++            android:summary="@string/athens_audio_effects_summary"
++            android:fragment="com.android.settings.sound.AthensSoundEffectsSettings"
++            android:order="-108"
++            settings:controller="com.android.settings.sound.AthensSoundEffectsPreferenceController"/>
 +
          <!-- Spatial audio -->
          <Preference
@@ -164,10 +172,10 @@ index 0000000000000000000000000000000000000000..703494865ed9adc24198563fa6daebfb
 +</resources>
 diff --git a/src/com/android/settings/notification/DolbyAtmosPreferenceController.java b/src/com/android/settings/notification/DolbyAtmosPreferenceController.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..cdcb09afb96ed3c01f2219ee0185b35ff7b60695
+index 0000000000000000000000000000000000000000..c25c1219ea8c1e1889cf357035a02f691b263790
 --- /dev/null
 +++ b/src/com/android/settings/notification/DolbyAtmosPreferenceController.java
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,71 @@
 +/*
 + * Copyright (C) 2026 The Android Open Source Project
 + *
@@ -192,6 +200,7 @@ index 0000000000000000000000000000000000000000..cdcb09afb96ed3c01f2219ee0185b35f
 +
 +import com.android.settings.R;
 +import com.android.settings.core.TogglePreferenceController;
++import com.android.settings.sound.AthensSoundEffectsPreferenceController;
 +
 +import java.util.UUID;
 +
@@ -208,6 +217,9 @@ index 0000000000000000000000000000000000000000..cdcb09afb96ed3c01f2219ee0185b35f
 +
 +    @Override
 +    public int getAvailabilityStatus() {
++        if (AthensSoundEffectsPreferenceController.isAthensDevice()) {
++            return UNSUPPORTED_ON_DEVICE;
++        }
 +        final AudioEffect.Descriptor[] effects = AudioEffect.queryEffects();
 +        if (effects != null) {
 +            for (AudioEffect.Descriptor effect : effects) {
@@ -310,5 +322,559 @@ index 0000000000000000000000000000000000000000..a2498baf39f1c42a005ca186c0ae3efb
 +    @Override
 +    public int getSliceHighlightMenuRes() {
 +        return R.string.menu_key_display;
++    }
++}
+diff --git a/res/values-zh-rCN/athens_sound_effects_strings.xml b/res/values-zh-rCN/athens_sound_effects_strings.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..ae068dfab79f27c38b09b562217e841f9f80c0bb
+--- /dev/null
++++ b/res/values-zh-rCN/athens_sound_effects_strings.xml
+@@ -0,0 +1,40 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<resources>
++    <string name="athens_audio_effects_title">音质与音效</string>
++    <string name="athens_audio_effects_summary">Bose 音效和扬声器调音</string>
++    <string name="athens_audio_effects_enable">使用音效</string>
++    <string name="athens_audio_effects_mode">音效模式</string>
++    <string name="athens_audio_effects_speaker">内置扬声器</string>
++    <string name="athens_audio_effects_wired">有线耳机</string>
++    <string name="athens_audio_effects_bluetooth">蓝牙音频</string>
++    <string name="athens_audio_effects_game_audio">Bose 游戏音效</string>
++    <string name="athens_audio_effects_game_audio_summary">增强受支持游戏的音效</string>
++    <string name="athens_audio_effects_preset">扬声器预设</string>
++    <string name="athens_audio_effects_equalizer">扬声器均衡器</string>
++    <string name="athens_audio_effects_genre">均衡器预设</string>
++    <string name="athens_audio_effects_reset">重置均衡器</string>
++
++    <string-array name="athens_audio_effects_modes">
++        <item>经典</item>
++        <item>均衡</item>
++        <item>杜比全景声（旧版）</item>
++    </string-array>
++    <string-array name="athens_audio_effects_presets">
++        <item>默认原声</item>
++        <item>3D 环绕</item>
++        <item>清澈人声</item>
++        <item>自定义</item>
++    </string-array>
++    <string-array name="athens_audio_effects_genres">
++        <item>自定义</item>
++        <item>摇滚</item>
++        <item>爵士</item>
++        <item>流行</item>
++        <item>古典</item>
++        <item>嘻哈</item>
++        <item>蓝调</item>
++        <item>电子</item>
++        <item>金属</item>
++    </string-array>
++</resources>
+diff --git a/res/values/athens_sound_effects_strings.xml b/res/values/athens_sound_effects_strings.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..8a1fe55c7ab19aa6330ec593bd75bf32af43d562
+--- /dev/null
++++ b/res/values/athens_sound_effects_strings.xml
+@@ -0,0 +1,65 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<resources>
++    <string name="athens_audio_effects_title">Sound effects</string>
++    <string name="athens_audio_effects_summary">Bose modes and speaker tuning</string>
++    <string name="athens_audio_effects_enable">Use sound effects</string>
++    <string name="athens_audio_effects_mode">Sound mode</string>
++    <string name="athens_audio_effects_speaker">Built-in speakers</string>
++    <string name="athens_audio_effects_wired">Wired headphones</string>
++    <string name="athens_audio_effects_bluetooth">Bluetooth audio</string>
++    <string name="athens_audio_effects_game_audio">Bose game audio</string>
++    <string name="athens_audio_effects_game_audio_summary">Enhance audio in supported games</string>
++    <string name="athens_audio_effects_preset">Speaker preset</string>
++    <string name="athens_audio_effects_equalizer">Speaker equalizer</string>
++    <string name="athens_audio_effects_genre">Equalizer preset</string>
++    <string name="athens_audio_effects_reset">Reset equalizer</string>
++    <string name="athens_audio_effects_hz" translatable="false">%1$s Hz</string>
++    <string name="athens_audio_effects_khz" translatable="false">%1$s kHz</string>
++    <string name="athens_audio_effects_db" translatable="false">%1$s dB</string>
++
++    <string-array name="athens_audio_effects_modes">
++        <item>Classic</item>
++        <item>Balanced</item>
++        <item>Dolby Atmos (legacy)</item>
++    </string-array>
++    <string-array name="athens_audio_effects_mode_values" translatable="false">
++        <item>0</item>
++        <item>1</item>
++        <item>2</item>
++    </string-array>
++    <string-array name="athens_audio_effects_presets">
++        <item>Default</item>
++        <item>3D surround</item>
++        <item>Clear voice</item>
++        <item>Custom</item>
++    </string-array>
++    <string-array name="athens_audio_effects_preset_values" translatable="false">
++        <item>0</item>
++        <item>1</item>
++        <item>2</item>
++        <item>3</item>
++    </string-array>
++    <string-array name="athens_audio_effects_genres">
++        <item>Custom</item>
++        <item>Rock</item>
++        <item>Jazz</item>
++        <item>Pop</item>
++        <item>Classical</item>
++        <item>Hip-hop</item>
++        <item>Blues</item>
++        <item>Electronic</item>
++        <item>Metal</item>
++    </string-array>
++    <string-array name="athens_audio_effects_genre_values" translatable="false">
++        <item>0</item>
++        <item>1</item>
++        <item>2</item>
++        <item>3</item>
++        <item>4</item>
++        <item>5</item>
++        <item>6</item>
++        <item>7</item>
++        <item>8</item>
++    </string-array>
++</resources>
+diff --git a/res/xml/athens_sound_effects_settings.xml b/res/xml/athens_sound_effects_settings.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..0d93c5a3193dad443f6763ba7493971a2b80f567
+--- /dev/null
++++ b/res/xml/athens_sound_effects_settings.xml
+@@ -0,0 +1,82 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- SPDX-License-Identifier: Apache-2.0 -->
++<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
++    xmlns:app="http://schemas.android.com/apk/res-auto"
++    android:title="@string/athens_audio_effects_title">
++
++    <com.android.settingslib.widget.MainSwitchPreference
++        android:key="athens_audio_effect_enabled"
++        android:title="@string/athens_audio_effects_enable"
++        android:persistent="false"/>
++
++    <PreferenceCategory
++        android:title="@string/athens_audio_effects_mode">
++
++        <ListPreference
++            android:key="athens_audio_effect"
++            android:title="@string/athens_audio_effects_speaker"
++            android:dialogTitle="@string/athens_audio_effects_speaker"
++            android:entries="@array/athens_audio_effects_modes"
++            android:entryValues="@array/athens_audio_effects_mode_values"
++            android:dependency="athens_audio_effect_enabled"
++            android:persistent="false"
++            app:useSimpleSummaryProvider="true"/>
++
++        <ListPreference
++            android:key="athens_audio_effect_wired"
++            android:title="@string/athens_audio_effects_wired"
++            android:dialogTitle="@string/athens_audio_effects_wired"
++            android:entries="@array/athens_audio_effects_modes"
++            android:entryValues="@array/athens_audio_effects_mode_values"
++            android:dependency="athens_audio_effect_enabled"
++            android:persistent="false"
++            app:useSimpleSummaryProvider="true"/>
++
++        <ListPreference
++            android:key="athens_audio_effect_bluetooth"
++            android:title="@string/athens_audio_effects_bluetooth"
++            android:dialogTitle="@string/athens_audio_effects_bluetooth"
++            android:entries="@array/athens_audio_effects_modes"
++            android:entryValues="@array/athens_audio_effects_mode_values"
++            android:dependency="athens_audio_effect_enabled"
++            android:persistent="false"
++            app:useSimpleSummaryProvider="true"/>
++
++        <SwitchPreferenceCompat
++            android:key="athens_bose_game_audio"
++            android:title="@string/athens_audio_effects_game_audio"
++            android:summary="@string/athens_audio_effects_game_audio_summary"
++            android:persistent="false"/>
++    </PreferenceCategory>
++
++    <ListPreference
++        android:key="athens_audio_preset"
++        android:title="@string/athens_audio_effects_preset"
++        android:dialogTitle="@string/athens_audio_effects_preset"
++        android:entries="@array/athens_audio_effects_presets"
++        android:entryValues="@array/athens_audio_effects_preset_values"
++        android:dependency="athens_audio_effect_enabled"
++        android:persistent="false"
++        app:useSimpleSummaryProvider="true"/>
++
++    <PreferenceCategory
++        android:key="athens_audio_equalizer_group"
++        android:title="@string/athens_audio_effects_equalizer"
++        android:dependency="athens_audio_effect_enabled">
++
++        <ListPreference
++            android:key="athens_audio_eq_genre"
++            android:title="@string/athens_audio_effects_genre"
++            android:dialogTitle="@string/athens_audio_effects_genre"
++            android:entries="@array/athens_audio_effects_genres"
++            android:entryValues="@array/athens_audio_effects_genre_values"
++            android:order="0"
++            android:persistent="false"
++            app:useSimpleSummaryProvider="true"/>
++
++        <Preference
++            android:key="athens_audio_equalizer_reset"
++            android:title="@string/athens_audio_effects_reset"
++            android:order="100"/>
++    </PreferenceCategory>
++</PreferenceScreen>
+diff --git a/src/com/android/settings/core/gateway/SettingsGateway.java b/src/com/android/settings/core/gateway/SettingsGateway.java
+index 24d821d2dfe7a88d6f64fa3a09da08218e3589e0..1a5b7785de783203e16a6f7aba169e66f3765ec3 100644
+--- a/src/com/android/settings/core/gateway/SettingsGateway.java
++++ b/src/com/android/settings/core/gateway/SettingsGateway.java
+@@ -205,6 +205,7 @@ import com.android.settings.security.MemtagPage;
+ import com.android.settings.security.SecurityAdvancedSettings;
+ import com.android.settings.security.SecuritySettings;
+ import com.android.settings.shortcut.CreateShortcut;
++import com.android.settings.sound.AthensSoundEffectsSettings;
+ import com.android.settings.sound.MediaControlsSettings;
+ import com.android.settings.supervision.SupervisionDashboardFragment;
+ import com.android.settings.support.SupportDashboardActivity;
+@@ -400,6 +401,7 @@ public class SettingsGateway {
+             ButtonNavigationSettingsFragment.class.getName(),
+             InteractAcrossProfilesSettings.class.getName(),
+             InteractAcrossProfilesDetails.class.getName(),
++            AthensSoundEffectsSettings.class.getName(),
+             MediaControlsSettings.class.getName(),
+             NetworkProviderSettings.class.getName(),
+             NetworkSelectSettings.class.getName(),
+diff --git a/src/com/android/settings/sound/AthensSoundEffectsPreferenceController.java b/src/com/android/settings/sound/AthensSoundEffectsPreferenceController.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..c4cb9f1619bcb1e4c94e43e1d87bc98a63e90ca1
+--- /dev/null
++++ b/src/com/android/settings/sound/AthensSoundEffectsPreferenceController.java
+@@ -0,0 +1,27 @@
++/*
++ * Copyright (C) 2026 The Android Open Source Project
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.settings.sound;
++
++import android.content.Context;
++import android.os.Build;
++
++import com.android.settings.core.BasePreferenceController;
++
++/** Shows the sound effects page on Athens. */
++public final class AthensSoundEffectsPreferenceController extends BasePreferenceController {
++    public AthensSoundEffectsPreferenceController(Context context, String preferenceKey) {
++        super(context, preferenceKey);
++    }
++
++    public static boolean isAthensDevice() {
++        return "athens".equals(Build.DEVICE);
++    }
++
++    @Override
++    public int getAvailabilityStatus() {
++        return isAthensDevice() ? AVAILABLE : UNSUPPORTED_ON_DEVICE;
++    }
++}
+diff --git a/src/com/android/settings/sound/AthensSoundEffectsSettings.java b/src/com/android/settings/sound/AthensSoundEffectsSettings.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..f8429c08b08771c77ae4b83e91a6cabdf0d85629
+--- /dev/null
++++ b/src/com/android/settings/sound/AthensSoundEffectsSettings.java
+@@ -0,0 +1,290 @@
++/*
++ * Copyright (C) 2026 The Android Open Source Project
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package com.android.settings.sound;
++
++import android.app.settings.SettingsEnums;
++import android.content.ContentResolver;
++import android.os.Bundle;
++import android.provider.Settings;
++
++import androidx.preference.ListPreference;
++import androidx.preference.Preference;
++import androidx.preference.PreferenceCategory;
++import androidx.preference.SwitchPreferenceCompat;
++
++import com.android.settings.R;
++import com.android.settings.dashboard.DashboardFragment;
++import com.android.settingslib.widget.MainSwitchPreference;
++import com.android.settingslib.widget.SliderPreference;
++
++import java.text.NumberFormat;
++import java.util.Arrays;
++import java.util.StringJoiner;
++
++/** Settings for the Athens audio effects managed by AudioService. */
++public final class AthensSoundEffectsSettings extends DashboardFragment {
++    private static final String TAG = "AthensSoundEffectsSettings";
++
++    // Keep these settings in sync with AudioService.
++    private static final String ENABLED_SETTING = "athens_audio_effect_enabled";
++    private static final String LEGACY_ENABLED_SETTING = "dolby_atmos_enabled";
++    private static final String SPEAKER_MODE_SETTING = "athens_audio_effect";
++    private static final String[] MODE_SETTINGS = {
++        SPEAKER_MODE_SETTING, "athens_audio_effect_wired", "athens_audio_effect_bluetooth"
++    };
++    private static final String PRESET_SETTING = "athens_audio_preset";
++    private static final String EQ_SETTING = "athens_audio_eq";
++    private static final String GAME_AUDIO_SETTING = "athens_bose_game_audio";
++
++    private static final String EQ_CUSTOM_SETTING = "athens_audio_eq_custom";
++    private static final String EQ_GENRE_SETTING = "athens_audio_eq_genre";
++    private static final int CLASSIC_MODE = 0;
++    private static final int LEGACY_MODE = 2;
++    private static final int CUSTOM_PRESET = 3;
++    private static final int CUSTOM_GENRE = 0;
++    private static final int MAX_GAIN = 24;
++    private static final int[] FREQUENCIES = {141, 234, 469, 844, 1300, 2200, 3700, 5800, 9000,
++            13800};
++
++    // Factory genre curves, expressed in quarter-dB units.
++    private static final int[][] FACTORY_GAINS = {
++        {16, 4, -8, -1, 0, -8, 0, -8, 2, 16},  // Rock
++        {0, 0, 0, -4, -4, -12, -2, 0, 0, 0},  // Jazz
++        {-8, -2, -20, -4, 0, 0, -2, -12, -2, 0},  // Pop
++        {0, 0, 0, 0, 2, 12, 4, 24, 8, 24},  // Classical
++        {12, 0, -12, -2, -2, -12, -2, 0, 0, 8},  // Hip-hop
++        {8, 8, -24, -8, 12, 4, 0, 4, 0, 8},  // Blues
++        {12, 4, -4, 0, -2, -12, -2, 0, 0, 0},  // Electronic
++        {8, 0, 0, -5, -4, -16, 0, 0, 0, 0},  // Metal
++    };
++
++    private final ListPreference[] mModes = new ListPreference[MODE_SETTINGS.length];
++    private final SliderPreference[] mSliders = new SliderPreference[FREQUENCIES.length];
++    private ContentResolver mResolver;
++    private NumberFormat mNumberFormat;
++    private MainSwitchPreference mEnabled;
++    private SwitchPreferenceCompat mGameAudio;
++    private ListPreference mPreset;
++    private PreferenceCategory mEqualizer;
++    private ListPreference mGenre;
++
++    @Override
++    public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
++        if (!AthensSoundEffectsPreferenceController.isAthensDevice()) {
++            finishFragment();
++            return;
++        }
++        super.onCreatePreferences(savedInstanceState, rootKey);
++        mResolver = requireContext().getContentResolver();
++        mNumberFormat = NumberFormat.getNumberInstance(
++                getResources().getConfiguration().getLocales().get(0));
++        mNumberFormat.setMaximumFractionDigits(2);
++
++        mEnabled = findPreference(ENABLED_SETTING);
++        mGameAudio = findPreference(GAME_AUDIO_SETTING);
++        mPreset = findPreference(PRESET_SETTING);
++        mEqualizer = findPreference("athens_audio_equalizer_group");
++        mGenre = findPreference(EQ_GENRE_SETTING);
++        final Preference reset = findPreference("athens_audio_equalizer_reset");
++
++        mEnabled.setOnPreferenceChangeListener((preference, value) ->
++                Settings.Secure.putInt(mResolver, ENABLED_SETTING, (boolean) value ? 1 : 0));
++        mGameAudio.setOnPreferenceChangeListener((preference, value) ->
++                Settings.Secure.putInt(mResolver, GAME_AUDIO_SETTING, (boolean) value ? 1 : 0));
++        for (int index = 0; index < MODE_SETTINGS.length; index++) {
++            final String key = MODE_SETTINGS[index];
++            final ListPreference mode = findPreference(key);
++            mode.setOnPreferenceChangeListener((preference, value) -> {
++                final String selection = (String) value;
++                if (!Settings.Secure.putInt(mResolver, key, Integer.parseInt(selection))) {
++                    return false;
++                }
++                if (SPEAKER_MODE_SETTING.equals(key)) {
++                    updateSpeakerTuningVisibility(selection, mPreset.getValue());
++                }
++                return true;
++            });
++            mModes[index] = mode;
++        }
++        mPreset.setOnPreferenceChangeListener((preference, value) -> {
++            final int preset = Integer.parseInt((String) value);
++            if (!Settings.Secure.putInt(mResolver, PRESET_SETTING, preset)) {
++                return false;
++            }
++            updateSpeakerTuningVisibility(mModes[0].getValue(), (String) value);
++            return true;
++        });
++        mGenre.setOnPreferenceChangeListener((preference, value) ->
++                selectGenre(Integer.parseInt((String) value)));
++        reset.setOnPreferenceClickListener(preference ->
++                saveEqualizer(CUSTOM_GENRE, new int[FREQUENCIES.length]));
++        for (int band = 0; band < FREQUENCIES.length; band++) {
++            addSlider(band);
++        }
++        refreshSettings();
++    }
++
++    @Override
++    public void onResume() {
++        super.onResume();
++        if (mEnabled != null) {
++            refreshSettings();
++        }
++    }
++
++    @Override
++    protected int getPreferenceScreenResId() {
++        return R.xml.athens_sound_effects_settings;
++    }
++
++    @Override
++    protected String getLogTag() {
++        return TAG;
++    }
++
++    @Override
++    public int getMetricsCategory() {
++        return SettingsEnums.SOUND;
++    }
++
++    private void addSlider(int band) {
++        final SliderPreference slider = new SliderPreference(getPreferenceManager().getContext());
++        final int frequency = FREQUENCIES[band];
++        final boolean isKhz = frequency >= 1_000;
++        slider.setKey("athens_audio_eq_band_" + band);
++        slider.setTitle(getString(isKhz ? R.string.athens_audio_effects_khz
++                        : R.string.athens_audio_effects_hz,
++                mNumberFormat.format(isKhz ? frequency / 1_000.0 : frequency)));
++        slider.setOrder(band + 1);
++        slider.setPersistent(false);
++        slider.setMin(-MAX_GAIN);
++        slider.setMax(MAX_GAIN);
++        slider.setSliderIncrement(1);
++        slider.setLabelFormater(value -> formatGain(Math.round(value)));
++        slider.setOnPreferenceChangeListener((preference, value) -> {
++            final int[] gains = readGains(EQ_SETTING);
++            int gain = (int) value;
++            // Snap manual edits to half-dB steps. A loaded factory curve can use quarter dB.
++            if (gain % 2 != 0) {
++                gain += gain > gains[band] ? 1 : -1;
++            }
++            gains[band] = gain;
++            if (!saveEqualizer(CUSTOM_GENRE, gains)) {
++                return false;
++            }
++            // Reject the raw slider value if it differs from the already applied snapped value.
++            return gain == (int) value;
++        });
++        mSliders[band] = slider;
++        mEqualizer.addPreference(slider);
++    }
++
++    private void refreshSettings() {
++        final int legacyEnabled = Settings.Secure.getInt(mResolver, LEGACY_ENABLED_SETTING, 1);
++        mEnabled.setChecked(Settings.Secure.getInt(mResolver, ENABLED_SETTING, legacyEnabled)
++                != 0);
++        mGameAudio.setChecked(Settings.Secure.getInt(mResolver, GAME_AUDIO_SETTING, 0) != 0);
++        final int defaultMode = Settings.Secure.getInt(mResolver, LEGACY_ENABLED_SETTING, 0) == 1
++                ? LEGACY_MODE : CLASSIC_MODE;
++        for (ListPreference mode : mModes) {
++            mode.setValue(readSelection(mode, defaultMode));
++        }
++        mPreset.setValue(readSelection(mPreset, 0));
++        updateSpeakerTuningVisibility(mModes[0].getValue(), mPreset.getValue());
++        refreshEqualizer();
++    }
++
++    private void updateSpeakerTuningVisibility(String mode, String preset) {
++        final boolean bose = !Integer.toString(LEGACY_MODE).equals(mode);
++        mPreset.setVisible(bose);
++        mEqualizer.setVisible(bose && mPreset.findIndexOfValue(preset) == CUSTOM_PRESET);
++    }
++
++    private String readSelection(ListPreference preference, int fallback) {
++        final String value = Integer.toString(
++                Settings.Secure.getInt(mResolver, preference.getKey(), fallback));
++        return preference.findIndexOfValue(value) >= 0 ? value : "0";
++    }
++
++    private void refreshEqualizer() {
++        final int[] gains = readGains(EQ_SETTING);
++        mGenre.setValue(Integer.toString(getAppliedGenre(gains)));
++        for (int band = 0; band < gains.length; band++) {
++            mSliders[band].setValue(gains[band]);
++            mSliders[band].setSummary(formatGain(gains[band]));
++        }
++    }
++
++    private int getAppliedGenre(int[] gains) {
++        final int genre = Settings.Secure.getInt(mResolver, EQ_GENRE_SETTING, CUSTOM_GENRE);
++        if (genre > 0 && genre <= FACTORY_GAINS.length
++                && Arrays.equals(FACTORY_GAINS[genre - 1], gains)) {
++            return genre;
++        }
++        return CUSTOM_GENRE;
++    }
++
++    private boolean selectGenre(int genre) {
++        final int[] current = readGains(EQ_SETTING);
++        if (genre != CUSTOM_GENRE && getAppliedGenre(current) == CUSTOM_GENRE
++                && !Settings.Secure.putString(mResolver, EQ_CUSTOM_SETTING, encodeGains(current))) {
++            return false;
++        }
++        final int[] gains = genre == CUSTOM_GENRE
++                ? readGains(EQ_CUSTOM_SETTING) : FACTORY_GAINS[genre - 1];
++        return saveEqualizer(genre, gains);
++    }
++
++    private int[] readGains(String key) {
++        final int[] gains = new int[FREQUENCIES.length];
++        final String setting = Settings.Secure.getString(mResolver, key);
++        if (setting == null) {
++            return gains;
++        }
++        final String[] values = setting.split(",", -1);
++        if (values.length != gains.length) {
++            return gains;
++        }
++        try {
++            for (int band = 0; band < gains.length; band++) {
++                final int gain = Integer.parseInt(values[band]);
++                if (gain < -MAX_GAIN || gain > MAX_GAIN) {
++                    return new int[gains.length];
++                }
++                gains[band] = gain;
++            }
++        } catch (NumberFormatException ignored) {
++            return new int[gains.length];
++        }
++        return gains;
++    }
++
++    private boolean saveEqualizer(int genre, int[] gains) {
++        final String value = encodeGains(gains);
++        if (!Settings.Secure.putString(mResolver, EQ_SETTING, value)) {
++            return false;
++        }
++        if (genre == CUSTOM_GENRE) {
++            Settings.Secure.putString(mResolver, EQ_CUSTOM_SETTING, value);
++        }
++        Settings.Secure.putInt(mResolver, EQ_GENRE_SETTING, genre);
++        refreshEqualizer();
++        return true;
++    }
++
++    private static String encodeGains(int[] gains) {
++        final StringJoiner value = new StringJoiner(",");
++        for (int gain : gains) {
++            value.add(Integer.toString(gain));
++        }
++        return value.toString();
++    }
++
++    private String formatGain(int gain) {
++        return getString(R.string.athens_audio_effects_db,
++                (gain > 0 ? "+" : "") + mNumberFormat.format(gain / 4.0));
 +    }
 +}
