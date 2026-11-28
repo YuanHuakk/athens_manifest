@@ -326,7 +326,7 @@ index 0000000000000000000000000000000000000000..a2498baf39f1c42a005ca186c0ae3efb
 +}
 diff --git a/res/values-zh-rCN/athens_sound_effects_strings.xml b/res/values-zh-rCN/athens_sound_effects_strings.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..ae068dfab79f27c38b09b562217e841f9f80c0bb
+index 0000000000000000000000000000000000000000..42197b3f4240461d575ec3cb0acb97b8924813bd
 --- /dev/null
 +++ b/res/values-zh-rCN/athens_sound_effects_strings.xml
 @@ -0,0 +1,40 @@
@@ -350,7 +350,7 @@ index 0000000000000000000000000000000000000000..ae068dfab79f27c38b09b562217e841f
 +    <string-array name="athens_audio_effects_modes">
 +        <item>经典</item>
 +        <item>均衡</item>
-+        <item>杜比全景声（旧版）</item>
++        <item>杜比全景声</item>
 +    </string-array>
 +    <string-array name="athens_audio_effects_presets">
 +        <item>默认原声</item>
@@ -372,7 +372,7 @@ index 0000000000000000000000000000000000000000..ae068dfab79f27c38b09b562217e841f
 +</resources>
 diff --git a/res/values/athens_sound_effects_strings.xml b/res/values/athens_sound_effects_strings.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..8a1fe55c7ab19aa6330ec593bd75bf32af43d562
+index 0000000000000000000000000000000000000000..4f5543d480275fe0feeda0ff955a4c8af8d1947d
 --- /dev/null
 +++ b/res/values/athens_sound_effects_strings.xml
 @@ -0,0 +1,65 @@
@@ -399,7 +399,7 @@ index 0000000000000000000000000000000000000000..8a1fe55c7ab19aa6330ec593bd75bf32
 +    <string-array name="athens_audio_effects_modes">
 +        <item>Classic</item>
 +        <item>Balanced</item>
-+        <item>Dolby Atmos (legacy)</item>
++        <item>Dolby Atmos</item>
 +    </string-array>
 +    <string-array name="athens_audio_effects_mode_values" translatable="false">
 +        <item>0</item>
